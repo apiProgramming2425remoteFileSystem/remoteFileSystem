@@ -256,7 +256,7 @@ impl FileSystem {
             match node.borrow().deref() {
                 FSItem::Directory(_) => return Some(node.clone()),
                 FSItem::File(_) => return Some(node.clone()),
-                FSItem::SymLink(ref link) => {
+                FSItem::SymLink(/*ref*/ link) => {
                     let path = node.borrow().abs_path();
                     return self.follow_link(&path, link)
                 },
