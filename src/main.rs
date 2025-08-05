@@ -1,5 +1,7 @@
-use project::fs_model;
+use project::{fs_model, list_path};
 use project::fs_model::node::FileSystem;
+use actix_web::{App, HttpServer, web};
+
 
 fn create_file_system_with_structure() -> FileSystem {
     let mut fs = FileSystem::new();
@@ -16,7 +18,17 @@ fn create_file_system_with_structure() -> FileSystem {
     fs
 }
 
-fn main() {
-    let mut fs = create_file_system_with_structure();
-    // mettiti in ascolto per le api
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    let mut fs = web::Data::new(create_file_system_with_structure());
+    println!("Server in ascolto su http://127.0.0.1:8080");
+    HttpServer::new(|| {
+        App::new()
+            .app_data(fs.clone())
+            .service(list_path)
+        })
+        .workers(1) // to remove/change when thread-safe
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
 }
