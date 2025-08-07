@@ -1,7 +1,8 @@
-use project::{list_path};
-use project::fs_model::node::FileSystem;
-use actix_web::{App, HttpServer, web};
+mod fs_model;
 
+use actix_web::{App, HttpServer, web};
+use client::fs_model::node::FileSystem;
+use client::list_path;
 
 fn create_file_system_with_structure() -> FileSystem {
     let mut fs = FileSystem::new();
@@ -24,8 +25,8 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(create_file_system_with_structure()))
             .service(list_path)
-        })
-        .bind(("127.0.0.1", 8080))?
-        .run()
-        .await
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
 }

@@ -1,9 +1,8 @@
+use std::fs;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::{RwLock, Arc, Weak};
-use std::fs;
+use std::sync::{Arc, RwLock, Weak};
 use walkdir::WalkDir;
-
 
 pub enum FSItem {
     File(File),
@@ -11,7 +10,6 @@ pub enum FSItem {
 }
 
 impl FSItem {
-
     // These methods allow us to use an FSItem in a uniform way
     // regardless of its actual type.
     pub fn name(&self) -> &str {
@@ -48,7 +46,8 @@ impl FSItem {
     pub fn remove(&mut self, name: &str) {
         match self {
             FSItem::Directory(d) => {
-                d.children.retain(|child| child.read().unwrap().name() != name);
+                d.children
+                    .retain(|child| child.read().unwrap().name() != name);
             }
             _ => panic!("Cannot remove item from non-directory"),
         }
@@ -97,10 +96,10 @@ pub struct Directory {
 }
 
 pub struct FileSystem {
-    real_path: String,  // the real path of the file system
+    real_path: String, // the real path of the file system
     root: FSNode,
     current: FSNode,
-    side_effects: bool,  // enable / disable side effects on the file system
+    side_effects: bool, // enable / disable side effects on the file system
 }
 
 impl FileSystem {
@@ -120,15 +119,11 @@ impl FileSystem {
     }
 
     pub fn from_file_system(base_path: &str) -> Self {
-
         let mut fs = FileSystem::new();
         fs.set_real_path(base_path);
 
         let wdir = WalkDir::new(base_path);
-        for entry in wdir.into_iter()
-            .filter(|e| e.is_ok())
-            .map(|e| e.unwrap())  {
-
+        for entry in wdir.into_iter().filter(|e| e.is_ok()).map(|e| e.unwrap()) {
             // full fs path
             let _entry_path = entry.path().to_str().unwrap();
             let entry_path = PathBuf::from(_entry_path);
@@ -138,7 +133,7 @@ impl FileSystem {
 
             // split path in head / tail
             let head = if let Some(parent) = rel_path.parent() {
-                "/".to_string() +  parent.to_str().unwrap()
+                "/".to_string() + parent.to_str().unwrap()
             } else {
                 "/".to_string()
             };
@@ -157,7 +152,6 @@ impl FileSystem {
     pub fn set_real_path(&mut self, path: &str) {
         self.real_path = path.to_string();
     }
-
 
     fn make_real_path(&self, node: FSNode) -> String {
         let mut abs_path = node.read().unwrap().abs_path();
@@ -213,7 +207,7 @@ impl FileSystem {
                             return None;
                         }
                     }
-                },
+                }
                 FSItem::File(_) => {
                     return None;
                 }
@@ -235,12 +229,10 @@ impl FileSystem {
 
     pub fn make_dir(&mut self, path: &str, name: &str) -> Result<(), String> {
         if let Some(node) = self.find(path) {
-
             if self.side_effects {
                 // create the directory on the file system
                 let real_path = self.make_real_path(node.clone());
-                let target = PathBuf::from(&real_path)
-                    .join(name);
+                let target = PathBuf::from(&real_path).join(name);
                 // if it fails for some reason just return an error with "?"
                 fs::create_dir(&target).map_err(|e| e.to_string())?;
             }
@@ -262,12 +254,10 @@ impl FileSystem {
 
     pub fn make_file(&mut self, path: &str, name: &str) -> Result<(), String> {
         if let Some(node) = self.find(path) {
-
             if self.side_effects {
                 // create the file on the file system
                 let real_path = self.make_real_path(node.clone());
-                let target = PathBuf::from(&real_path)
-                    .join(name);
+                let target = PathBuf::from(&real_path).join(name);
                 fs::File::create(&target).map_err(|e| e.to_string())?;
             }
 
@@ -280,8 +270,7 @@ impl FileSystem {
             let new_node = Arc::new(RwLock::new(new_file));
             node.write().unwrap().add(new_node.clone());
             Ok(())
-        }
-        else {
+        } else {
             return Err(format!("Directory {} not found", path));
         }
     }
@@ -289,13 +278,12 @@ impl FileSystem {
     pub fn rename(&self, path: &str, new_name: &str) -> Result<(), String> {
         let node = self.find(path);
         if let Some(n) = node {
-
             if self.side_effects {
                 let real_path = self.make_real_path(n.clone());
                 // dest
                 let mut parts = real_path.split("/").collect::<Vec<&str>>();
                 parts.pop();
-                parts.push(new_name);// remove the last part (the file name)
+                parts.push(new_name); // remove the last part (the file name)
                 let new_path = parts.join("/");
                 fs::rename(&real_path, &new_path).map_err(|e| e.to_string())?;
             }
@@ -310,7 +298,6 @@ impl FileSystem {
     pub fn delete(&self, path: &str) -> Result<(), String> {
         let node = self.find(path);
         if let Some(n) = node {
-
             if self.side_effects {
                 match n.read().unwrap().deref() {
                     FSItem::File(_) => {
@@ -322,7 +309,6 @@ impl FileSystem {
                         fs::remove_dir_all(&real_path).map_err(|e| e.to_string())?;
                     }
                 }
-
             }
 
             if let Some(parent) = n.read().unwrap().parent().upgrade() {
@@ -337,6 +323,4 @@ impl FileSystem {
     pub fn set_side_effects(&mut self, side_effects: bool) {
         self.side_effects = side_effects;
     }
-
 }
-
