@@ -901,6 +901,7 @@ name = "project"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "base64",
  "serde",
  "serde_json",
  "walkdir",
