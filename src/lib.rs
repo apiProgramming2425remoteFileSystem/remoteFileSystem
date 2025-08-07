@@ -7,8 +7,8 @@ pub mod config;
 pub mod logging;
 pub mod util;
 pub mod error;*/
-use std::ops::Deref;
-use actix_web::{get, web, HttpResponse, Responder};
+use std::{ops::Deref, sync::{RwLock}};
+use actix_web::{delete, get, web, HttpResponse, Responder};
 use serde::Serialize;
 use crate::fs_model::node::{FSItem, FSNode, FileSystem};
 
@@ -25,6 +25,11 @@ pub struct SerializableFSItem {
     item_type: ItemType
 }
 
+#[derive(Serialize)]
+pub struct SerializableFileContent{
+    content: Vec<u8>,
+}
+
 fn serialize_node(node: &FSNode) -> SerializableFSItem {
     let item = node.read().unwrap();
     let item_type = match item.deref() {
@@ -37,11 +42,14 @@ fn serialize_node(node: &FSNode) -> SerializableFSItem {
     }
 }
 
+fn serialize_content(content: Vec<u8>) -> SerializableFileContent{
+    SerializableFileContent { content: content }
+}
 
 #[get("/list/{path}")]
-async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    if let Some(node) = fs.find_full(&path, None){
+    if let Some(node) = fs.read().unwrap().find_full(&path, None){
         let item = node.read().unwrap();
         if let FSItem::Directory(dir) = item.deref() {
             let children: Vec<SerializableFSItem> =
@@ -54,5 +62,30 @@ async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl R
     }
     else {
         HttpResponse::NotFound().body("Path not found")
+    }
+}
+
+ 
+#[get("/files/{path}")]
+async fn get_file_content(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder{
+    let path = path.into_inner();
+    if let Some(node) = fs.read().unwrap().find_full(&path, None){
+        let item = node.read().unwrap();
+        if let FSItem::File(f) = item.deref(){
+            HttpResponse::Ok().json(serialize_content(f.content.clone()))
+        }else{
+            HttpResponse::BadRequest().body("Path is not a file.")
+        }
+    }else{
+        HttpResponse::NotFound().body("Path not found")
+    }
+}
+
+#[delete("/files/{path}")]
+async fn delete_item(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder{
+    let path = path.into_inner();
+    match fs.write().unwrap().delete(path.as_str()) {
+        Ok(_) => HttpResponse::Ok().body("Successful deletion!"),
+        Err(s) => HttpResponse::BadRequest().body(s)
     }
 }

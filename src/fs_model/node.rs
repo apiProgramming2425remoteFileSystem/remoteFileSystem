@@ -86,6 +86,7 @@ type FSNodeWeak = Weak<FSItemCell>;
 
 pub struct File {
     name: String,
+    pub(crate) content: Vec<u8>,
     size: usize,
     parent: FSNodeWeak,
 }
@@ -273,6 +274,7 @@ impl FileSystem {
 
             let new_file = FSItem::File(File {
                 name: name.to_string(),
+                content: Vec::new(),
                 size: 0,
                 parent: Arc::downgrade(&node),
             });
@@ -285,6 +287,7 @@ impl FileSystem {
             return Err(format!("Directory {} not found", path));
         }
     }
+
 
     pub fn rename(&self, path: &str, new_name: &str) -> Result<(), String> {
         let node = self.find(path);
@@ -311,6 +314,7 @@ impl FileSystem {
         let node = self.find(path);
         if let Some(n) = node {
 
+            // true when we will work on a real file system
             if self.side_effects {
                 match n.read().unwrap().deref() {
                     FSItem::File(_) => {

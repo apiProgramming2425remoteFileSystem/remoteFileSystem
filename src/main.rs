@@ -1,4 +1,6 @@
-use project::{list_path};
+use std::sync::{RwLock};
+
+use project::{delete_item, get_file_content, list_path};
 use project::fs_model::node::FileSystem;
 use actix_web::{App, HttpServer, web};
 
@@ -20,10 +22,13 @@ fn create_file_system_with_structure() -> FileSystem {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("Server listening at http://127.0.0.1:8080");
-    HttpServer::new(|| {
+    let fs = web::Data::new(RwLock::new(create_file_system_with_structure()));
+    HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(create_file_system_with_structure()))
+            .app_data(fs.clone())
             .service(list_path)
+            .service(get_file_content)
+            .service(delete_item)
         })
         .bind(("127.0.0.1", 8080))?
         .run()
