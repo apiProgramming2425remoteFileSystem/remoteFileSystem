@@ -7,8 +7,7 @@
     <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="89fa3028-07af-4ba9-87ee-214e4cbd6821" name="Changes" comment="Initial tree FS structure (still using RefCell)">
-      <change afterPath="$PROJECT_DIR$/src/fs_model/node_lab5.rs" afterDir="false" />
+    <list default="true" id="89fa3028-07af-4ba9-87ee-214e4cbd6821" name="Changes" comment="thread-safe fs and list/{path} api">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fs_model/node.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/fs_model/node.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
@@ -35,7 +34,7 @@
     </option>
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="ideas" />
+        <entry key="$PROJECT_DIR$" value="docker" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -73,7 +72,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "dev",
+    "git-widget-placeholder": "dev__mirko",
     "last_opened_file_path": "D:/RustroverProjects/project",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
@@ -187,9 +186,10 @@
     <recent_temporary>
       <list>
         <item itemvalue="Cargo.Run project" />
-        <item itemvalue="Cargo.Test node" />
-        <item itemvalue="Cargo.Test fs_model::node::tests::test_from_file_system" />
         <item itemvalue="Cargo.Test node::tests" />
+        <item itemvalue="Cargo.Test fs_model::node::tests::test_from_file_system" />
+        <item itemvalue="Cargo.Test node" />
+        <item itemvalue="Cargo.Run project" />
       </list>
     </recent_temporary>
   </component>
@@ -208,6 +208,7 @@
       <workItem from="1753363542806" duration="20000" />
       <workItem from="1754294800002" duration="1573000" />
       <workItem from="1754296428195" duration="4794000" />
+      <workItem from="1754658972162" duration="3894000" />
     </task>
     <task id="LOCAL-00001" summary="Initial commit">
       <option name="closed" value="true" />
@@ -225,7 +226,15 @@
       <option name="project" value="LOCAL" />
       <updated>1754299962457</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="thread-safe fs and list/{path} api">
+      <option name="closed" value="true" />
+      <created>1754427173451</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1754427173451</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -257,6 +266,7 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Initial commit" />
     <MESSAGE value="Initial tree FS structure (still using RefCell)" />
-    <option name="LAST_COMMIT_MESSAGE" value="Initial tree FS structure (still using RefCell)" />
+    <MESSAGE value="thread-safe fs and list/{path} api" />
+    <option name="LAST_COMMIT_MESSAGE" value="thread-safe fs and list/{path} api" />
   </component>
 </project>

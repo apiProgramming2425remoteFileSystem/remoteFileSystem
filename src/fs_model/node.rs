@@ -109,7 +109,7 @@ impl File {
 pub struct Directory {
     name: String,
     parent: FSNodeWeak,
-    pub(crate) children: Vec<FSNode>,
+    children: Vec<FSNode>,
 }
 
 pub struct FileSystem {

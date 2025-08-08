@@ -2,7 +2,7 @@ use std::sync::RwLock;
 
 use actix_web::{App, HttpServer, web};
 use project::fs_model::node::FileSystem;
-use project::{delete_item, get_file_content, list_path, write_file};
+use project::{delete_item, get_file_content, list_path, make_directory, write_file};
 
 fn create_file_system_with_structure() -> FileSystem {
     let mut fs = FileSystem::new();
@@ -28,6 +28,7 @@ async fn main() -> std::io::Result<()> {
             .service(list_path)
             .service(get_file_content)
             .service(write_file)
+            .service(make_directory)
             .service(delete_item)
     })
     .bind(("127.0.0.1", 8080))?

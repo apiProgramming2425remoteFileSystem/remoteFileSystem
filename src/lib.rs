@@ -8,7 +8,7 @@ pub mod logging;
 pub mod util;
 pub mod error;*/
 use crate::fs_model::node::{FSItem, FSNode, FileSystem};
-use actix_web::{HttpResponse, Responder, delete, get, put, web};
+use actix_web::{HttpResponse, Responder, delete, get, put, web, post};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use std::{ops::Deref, sync::RwLock};
@@ -17,7 +17,7 @@ use std::{ops::Deref, sync::RwLock};
 #[serde(rename_all = "lowercase")]
 pub enum ItemType {
     File,
-    Dir,
+    Directory,
 }
 
 #[derive(Serialize)]
@@ -35,7 +35,7 @@ fn serialize_node(node: &FSNode) -> SerializableFSItem {
     let item = node.read().unwrap();
     let item_type = match item.deref() {
         FSItem::File(_) => ItemType::File,
-        FSItem::Directory(_) => ItemType::Dir,
+        FSItem::Directory(_) => ItemType::Directory,
     };
     SerializableFSItem {
         name: item.name().to_string(),
@@ -50,11 +50,10 @@ fn serialize_content(content: Vec<u8>) -> SerializableFileContent {
 #[get("/list/{path}")]
 async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    if let Some(node) = fs.read().unwrap().find_full(&path, None) {
+    if let Some(node) = fs.read().unwrap().find(&path) {
         let item = node.read().unwrap();
-        if let FSItem::Directory(dir) = item.deref() {
-            let children: Vec<SerializableFSItem> = dir
-                .children
+        if let Some(children_nodes) = item.get_children() {
+            let children: Vec<SerializableFSItem> = children_nodes
                 .iter()
                 .map(|child| serialize_node(child))
                 .collect();
@@ -109,6 +108,21 @@ async fn write_file(
         Ok(_) => HttpResponse::Ok().body("Write successful"),
         Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
     };
+}
+
+#[post("/mkdir/{path}")]
+async fn make_directory(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder{
+    let path = path.into_inner();
+    if let Some((parent, name)) = path.rsplit_once('/') {
+        let parent_path = if parent.is_empty() { "/" } else { parent };
+        match fs.write().unwrap().make_dir(parent_path, name) {
+            Ok(_) => HttpResponse::Ok().body("Directory created"),
+            Err(e) => HttpResponse::InternalServerError()
+                .body(format!("Mkdir failed: {}", e)),
+        }
+    } else {
+        HttpResponse::BadRequest().body("Invalid path")
+    }
 }
 
 #[delete("/files/{path}")]
