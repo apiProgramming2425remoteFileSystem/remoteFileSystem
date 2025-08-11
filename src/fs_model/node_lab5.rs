@@ -5,7 +5,6 @@ use std::rc::{Rc, Weak};
 use std::fs;
 use walkdir::WalkDir;
 
-
 pub enum FSItem {
     File(File),
     Directory(Directory),
