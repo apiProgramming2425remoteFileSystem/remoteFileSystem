@@ -1,0 +1,22 @@
+# Ignore target directory (compiled binaries and build artifacts)
+target/
+
+# Ignore the Git version control directory and Git metadata files if any
+.git
+.gitignore
+.gitattributes
+
+# Ignore logs
+*.log
+
+# Ignore tests and benchmarks folders if you don't want to include them in the image
+tests/
+benches/
+examples/
+
+# Ignore Docker-related files to prevent them from being added to the image unnecessarily
+Dockerfile
+docker-compose.yml
+
+# Ignore environment files that might contain secrets or local config
+.env
