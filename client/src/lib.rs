@@ -8,7 +8,8 @@ pub mod logging;
 pub mod util;
 pub mod error;*/
 use crate::fs_model::node::{FSItem, FSNode, FileSystem};
-use actix_web::{HttpResponse, Responder, delete, get, put, web, post};
+
+use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use std::{ops::Deref, sync::RwLock};
@@ -111,14 +112,16 @@ async fn write_file(
 }
 
 #[post("/mkdir/{path}")]
-async fn make_directory(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder{
+async fn make_directory(
+    fs: web::Data<RwLock<FileSystem>>,
+    path: web::Path<String>,
+) -> impl Responder {
     let path = path.into_inner();
     if let Some((parent, name)) = path.rsplit_once('/') {
         let parent_path = if parent.is_empty() { "/" } else { parent };
         match fs.write().unwrap().make_dir(parent_path, name) {
             Ok(_) => HttpResponse::Ok().body("Directory created"),
-            Err(e) => HttpResponse::InternalServerError()
-                .body(format!("Mkdir failed: {}", e)),
+            Err(e) => HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e)),
         }
     } else {
         HttpResponse::BadRequest().body("Invalid path")

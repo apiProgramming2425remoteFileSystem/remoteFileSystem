@@ -1,8 +1,8 @@
 use std::sync::RwLock;
 
 use actix_web::{App, HttpServer, web};
-use project::fs_model::node::FileSystem;
-use project::{delete_item, get_file_content, list_path, make_directory, write_file};
+use client::fs_model::node::FileSystem;
+use client::{delete_item, get_file_content, list_path, make_directory, write_file};
 
 fn create_file_system_with_structure() -> FileSystem {
     let mut fs = FileSystem::new();
