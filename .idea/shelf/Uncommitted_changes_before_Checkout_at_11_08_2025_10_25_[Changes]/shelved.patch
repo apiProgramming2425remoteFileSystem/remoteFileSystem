@@ -1,0 +1,123 @@
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"AutoImportSettings\">\r\n    <option name=\"autoReloadType\" value=\"ALL\" />\r\n  </component>\r\n  <component name=\"CargoProjects\">\r\n    <cargoProject FILE=\"$PROJECT_DIR$/Cargo.toml\" />\r\n  </component>\r\n  <component name=\"ChangeListManager\">\r\n    <list default=\"true\" id=\"89fa3028-07af-4ba9-87ee-214e4cbd6821\" name=\"Changes\" comment=\"thread-safe fs and list/{path} api\">\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/workspace.xml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/workspace.xml\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/fs_model/node.rs\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/fs_model/node.rs\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/lib.rs\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/lib.rs\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/src/main.rs\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/src/main.rs\" afterDir=\"false\" />\r\n    </list>\r\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\r\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\r\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\r\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\r\n  </component>\r\n  <component name=\"ExecutionTargetManager\" SELECTED_TARGET=\"RsBuildProfile:dev\" />\r\n  <component name=\"FileTemplateManagerImpl\">\r\n    <option name=\"RECENT_TEMPLATES\">\r\n      <list>\r\n        <option value=\"Rust File\" />\r\n      </list>\r\n    </option>\r\n  </component>\r\n  <component name=\"Git.Settings\">\r\n    <option name=\"PREVIOUS_COMMIT_AUTHORS\">\r\n      <list>\r\n        <option value=\"Fabrizio Costa &lt;49571236+fabcosta999@users.noreply.github.com&gt;\" />\r\n      </list>\r\n    </option>\r\n    <option name=\"RECENT_BRANCH_BY_REPOSITORY\">\r\n      <map>\r\n        <entry key=\"$PROJECT_DIR$\" value=\"docker\" />\r\n      </map>\r\n    </option>\r\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\r\n  </component>\r\n  <component name=\"GitHubPullRequestSearchHistory\">{\r\n  &quot;lastFilter&quot;: {\r\n    &quot;state&quot;: &quot;OPEN&quot;,\r\n    &quot;assignee&quot;: &quot;fabCosta999&quot;\r\n  }\r\n}</component>\r\n  <component name=\"GithubPullRequestsUISettings\">{\r\n  &quot;selectedUrlAndAccountId&quot;: {\r\n    &quot;url&quot;: &quot;https://github.com/apiProgramming2425remoteFileSystem/remoteFileSystem.git&quot;,\r\n    &quot;accountId&quot;: &quot;a39f4c49-a469-41be-b1a1-4be61a2b8118&quot;\r\n  }\r\n}</component>\r\n  <component name=\"MacroExpansionManager\">\r\n    <option name=\"directoryName\" value=\"2jofFX4Q\" />\r\n  </component>\r\n  <component name=\"ProjectColorInfo\">{\r\n  &quot;associatedIndex&quot;: 6\r\n}</component>\r\n  <component name=\"ProjectId\" id=\"30K5M9TdmudIOuxxIaSZGPsX3Tf\" />\r\n  <component name=\"ProjectViewState\">\r\n    <option name=\"hideEmptyMiddlePackages\" value=\"true\" />\r\n    <option name=\"showLibraryContents\" value=\"true\" />\r\n  </component>\r\n  <component name=\"PropertiesComponent\"><![CDATA[{\r\n  \"keyToString\": {\r\n    \"Cargo.Run project.executor\": \"Run\",\r\n    \"Cargo.Run.executor\": \"Run\",\r\n    \"Cargo.Test fs_model::node::tests::test_from_file_system.executor\": \"Run\",\r\n    \"Cargo.Test node.executor\": \"Run\",\r\n    \"Cargo.Test node::tests.executor\": \"Run\",\r\n    \"RunOnceActivity.ShowReadmeOnStart\": \"true\",\r\n    \"RunOnceActivity.git.unshallow\": \"true\",\r\n    \"RunOnceActivity.rust.reset.selective.auto.import\": \"true\",\r\n    \"git-widget-placeholder\": \"dev__mirko\",\r\n    \"last_opened_file_path\": \"D:/RustroverProjects/project\",\r\n    \"node.js.detected.package.eslint\": \"true\",\r\n    \"node.js.detected.package.tslint\": \"true\",\r\n    \"node.js.selected.package.eslint\": \"(autodetect)\",\r\n    \"node.js.selected.package.tslint\": \"(autodetect)\",\r\n    \"nodejs_package_manager_path\": \"npm\",\r\n    \"org.rust.cargo.project.model.PROJECT_DISCOVERY\": \"true\",\r\n    \"org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon\": \"\",\r\n    \"org.rust.first.attach.projects\": \"true\",\r\n    \"vue.rearranger.settings.migration\": \"true\"\r\n  }\r\n}]]></component>\r\n  <component name=\"RunManager\" selected=\"Cargo.Run project\">\r\n    <configuration name=\"Run project\" type=\"CargoCommandRunConfiguration\" factoryName=\"Cargo Command\" temporary=\"true\">\r\n      <option name=\"buildProfileId\" value=\"dev\" />\r\n      <option name=\"command\" value=\"run --package project --bin project\" />\r\n      <option name=\"workingDirectory\" value=\"file://$PROJECT_DIR$\" />\r\n      <envs />\r\n      <option name=\"emulateTerminal\" value=\"true\" />\r\n      <option name=\"channel\" value=\"DEFAULT\" />\r\n      <option name=\"requiredFeatures\" value=\"true\" />\r\n      <option name=\"allFeatures\" value=\"false\" />\r\n      <option name=\"withSudo\" value=\"false\" />\r\n      <option name=\"buildTarget\" value=\"REMOTE\" />\r\n      <option name=\"backtrace\" value=\"SHORT\" />\r\n      <option name=\"isRedirectInput\" value=\"false\" />\r\n      <option name=\"redirectInputPath\" value=\"\" />\r\n      <method v=\"2\">\r\n        <option name=\"CARGO.BUILD_TASK_PROVIDER\" enabled=\"true\" />\r\n      </method>\r\n    </configuration>\r\n    <configuration name=\"Run\" type=\"CargoCommandRunConfiguration\" factoryName=\"Cargo Command\" nameIsGenerated=\"true\">\r\n      <option name=\"buildProfileId\" value=\"dev\" />\r\n      <option name=\"command\" value=\"run\" />\r\n      <option name=\"workingDirectory\" value=\"file://$PROJECT_DIR$\" />\r\n      <envs />\r\n      <option name=\"emulateTerminal\" value=\"true\" />\r\n      <option name=\"channel\" value=\"DEFAULT\" />\r\n      <option name=\"requiredFeatures\" value=\"true\" />\r\n      <option name=\"allFeatures\" value=\"false\" />\r\n      <option name=\"withSudo\" value=\"false\" />\r\n      <option name=\"buildTarget\" value=\"REMOTE\" />\r\n      <option name=\"backtrace\" value=\"SHORT\" />\r\n      <option name=\"isRedirectInput\" value=\"false\" />\r\n      <option name=\"redirectInputPath\" value=\"\" />\r\n      <method v=\"2\">\r\n        <option name=\"CARGO.BUILD_TASK_PROVIDER\" enabled=\"true\" />\r\n      </method>\r\n    </configuration>\r\n    <configuration name=\"Test fs_model::node::tests::test_from_file_system\" type=\"CargoCommandRunConfiguration\" factoryName=\"Cargo Command\" temporary=\"true\">\r\n      <option name=\"buildProfileId\" value=\"test\" />\r\n      <option name=\"command\" value=\"test --package project --bin project fs_model::node::tests::test_from_file_system -- --exact\" />\r\n      <option name=\"workingDirectory\" value=\"file://$PROJECT_DIR$\" />\r\n      <envs />\r\n      <option name=\"emulateTerminal\" value=\"true\" />\r\n      <option name=\"channel\" value=\"DEFAULT\" />\r\n      <option name=\"requiredFeatures\" value=\"true\" />\r\n      <option name=\"allFeatures\" value=\"false\" />\r\n      <option name=\"withSudo\" value=\"false\" />\r\n      <option name=\"buildTarget\" value=\"REMOTE\" />\r\n      <option name=\"backtrace\" value=\"SHORT\" />\r\n      <option name=\"isRedirectInput\" value=\"false\" />\r\n      <option name=\"redirectInputPath\" value=\"\" />\r\n      <method v=\"2\">\r\n        <option name=\"CARGO.BUILD_TASK_PROVIDER\" enabled=\"true\" />\r\n      </method>\r\n    </configuration>\r\n    <configuration name=\"Test node\" type=\"CargoCommandRunConfiguration\" factoryName=\"Cargo Command\" temporary=\"true\">\r\n      <option name=\"buildProfileId\" value=\"test\" />\r\n      <option name=\"command\" value=\"test --package project --lib fs_model::node\" />\r\n      <option name=\"workingDirectory\" value=\"file://$PROJECT_DIR$\" />\r\n      <envs />\r\n      <option name=\"emulateTerminal\" value=\"true\" />\r\n      <option name=\"channel\" value=\"DEFAULT\" />\r\n      <option name=\"requiredFeatures\" value=\"true\" />\r\n      <option name=\"allFeatures\" value=\"false\" />\r\n      <option name=\"withSudo\" value=\"false\" />\r\n      <option name=\"buildTarget\" value=\"REMOTE\" />\r\n      <option name=\"backtrace\" value=\"SHORT\" />\r\n      <option name=\"isRedirectInput\" value=\"false\" />\r\n      <option name=\"redirectInputPath\" value=\"\" />\r\n      <method v=\"2\">\r\n        <option name=\"CARGO.BUILD_TASK_PROVIDER\" enabled=\"true\" />\r\n      </method>\r\n    </configuration>\r\n    <configuration name=\"Test node::tests\" type=\"CargoCommandRunConfiguration\" factoryName=\"Cargo Command\" temporary=\"true\">\r\n      <option name=\"buildProfileId\" value=\"test\" />\r\n      <option name=\"command\" value=\"test --package project --bin project fs_model::node::tests\" />\r\n      <option name=\"workingDirectory\" value=\"file://$PROJECT_DIR$\" />\r\n      <envs />\r\n      <option name=\"emulateTerminal\" value=\"true\" />\r\n      <option name=\"channel\" value=\"DEFAULT\" />\r\n      <option name=\"requiredFeatures\" value=\"true\" />\r\n      <option name=\"allFeatures\" value=\"false\" />\r\n      <option name=\"withSudo\" value=\"false\" />\r\n      <option name=\"buildTarget\" value=\"REMOTE\" />\r\n      <option name=\"backtrace\" value=\"SHORT\" />\r\n      <option name=\"isRedirectInput\" value=\"false\" />\r\n      <option name=\"redirectInputPath\" value=\"\" />\r\n      <method v=\"2\">\r\n        <option name=\"CARGO.BUILD_TASK_PROVIDER\" enabled=\"true\" />\r\n      </method>\r\n    </configuration>\r\n    <list>\r\n      <item itemvalue=\"Cargo.Run\" />\r\n      <item itemvalue=\"Cargo.Test node\" />\r\n      <item itemvalue=\"Cargo.Run project\" />\r\n      <item itemvalue=\"Cargo.Test fs_model::node::tests::test_from_file_system\" />\r\n      <item itemvalue=\"Cargo.Test node::tests\" />\r\n    </list>\r\n    <recent_temporary>\r\n      <list>\r\n        <item itemvalue=\"Cargo.Run project\" />\r\n        <item itemvalue=\"Cargo.Test node::tests\" />\r\n        <item itemvalue=\"Cargo.Test fs_model::node::tests::test_from_file_system\" />\r\n        <item itemvalue=\"Cargo.Test node\" />\r\n        <item itemvalue=\"Cargo.Run project\" />\r\n      </list>\r\n    </recent_temporary>\r\n  </component>\r\n  <component name=\"RustProjectSettings\">\r\n    <option name=\"toolchainHomeDirectory\" value=\"$USER_HOME$/.cargo/bin\" />\r\n  </component>\r\n  <component name=\"SpellCheckerSettings\" RuntimeDictionaries=\"0\" Folders=\"0\" CustomDictionaries=\"0\" DefaultDictionary=\"application-level\" UseSingleDictionary=\"true\" transferred=\"true\" />\r\n  <component name=\"TaskManager\">\r\n    <task active=\"true\" id=\"Default\" summary=\"Default task\">\r\n      <changelist id=\"89fa3028-07af-4ba9-87ee-214e4cbd6821\" name=\"Changes\" comment=\"\" />\r\n      <created>1753363372651</created>\r\n      <option name=\"number\" value=\"Default\" />\r\n      <option name=\"presentableId\" value=\"Default\" />\r\n      <updated>1753363372651</updated>\r\n      <workItem from=\"1753363374006\" duration=\"45000\" />\r\n      <workItem from=\"1753363542806\" duration=\"20000\" />\r\n      <workItem from=\"1754294800002\" duration=\"1573000\" />\r\n      <workItem from=\"1754296428195\" duration=\"4794000\" />\r\n      <workItem from=\"1754658972162\" duration=\"3894000\" />\r\n    </task>\r\n    <task id=\"LOCAL-00001\" summary=\"Initial commit\">\r\n      <option name=\"closed\" value=\"true\" />\r\n      <created>1754295985202</created>\r\n      <option name=\"number\" value=\"00001\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00001\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1754295985202</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00002\" summary=\"Initial tree FS structure (still using RefCell)\">\r\n      <option name=\"closed\" value=\"true\" />\r\n      <created>1754299962457</created>\r\n      <option name=\"number\" value=\"00002\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00002\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1754299962457</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00003\" summary=\"thread-safe fs and list/{path} api\">\r\n      <option name=\"closed\" value=\"true\" />\r\n      <created>1754427173451</created>\r\n      <option name=\"number\" value=\"00003\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00003\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1754427173451</updated>\r\n    </task>\r\n    <option name=\"localTasksCounter\" value=\"4\" />\r\n    <servers />\r\n  </component>\r\n  <component name=\"TypeScriptGeneratedFilesManager\">\r\n    <option name=\"version\" value=\"3\" />\r\n  </component>\r\n  <component name=\"Vcs.Log.Tabs.Properties\">\r\n    <option name=\"TAB_STATES\">\r\n      <map>\r\n        <entry key=\"MAIN\">\r\n          <value>\r\n            <State>\r\n              <option name=\"FILTERS\">\r\n                <map>\r\n                  <entry key=\"branch\">\r\n                    <value>\r\n                      <list>\r\n                        <option value=\"origin/dev\" />\r\n                      </list>\r\n                    </value>\r\n                  </entry>\r\n                </map>\r\n              </option>\r\n            </State>\r\n          </value>\r\n        </entry>\r\n      </map>\r\n    </option>\r\n  </component>\r\n  <component name=\"VcsManagerConfiguration\">\r\n    <MESSAGE value=\"Initial commit\" />\r\n    <MESSAGE value=\"Initial tree FS structure (still using RefCell)\" />\r\n    <MESSAGE value=\"thread-safe fs and list/{path} api\" />\r\n    <option name=\"LAST_COMMIT_MESSAGE\" value=\"thread-safe fs and list/{path} api\" />\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	(revision 5bcd67744afddf4eb947894e6e8dba569544315e)
++++ b/.idea/workspace.xml	(date 1754900499939)
+@@ -7,11 +7,8 @@
+     <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
+   </component>
+   <component name="ChangeListManager">
+-    <list default="true" id="89fa3028-07af-4ba9-87ee-214e4cbd6821" name="Changes" comment="thread-safe fs and list/{path} api">
++    <list default="true" id="89fa3028-07af-4ba9-87ee-214e4cbd6821" name="Changes" comment="add POST /mkdir/&lt;path&gt;">
+       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/src/fs_model/node.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/fs_model/node.rs" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+     </list>
+     <option name="SHOW_DIALOG" value="false" />
+     <option name="HIGHLIGHT_CONFLICTS" value="true" />
+@@ -62,29 +59,29 @@
+     <option name="hideEmptyMiddlePackages" value="true" />
+     <option name="showLibraryContents" value="true" />
+   </component>
+-  <component name="PropertiesComponent"><![CDATA[{
+-  "keyToString": {
+-    "Cargo.Run project.executor": "Run",
+-    "Cargo.Run.executor": "Run",
+-    "Cargo.Test fs_model::node::tests::test_from_file_system.executor": "Run",
+-    "Cargo.Test node.executor": "Run",
+-    "Cargo.Test node::tests.executor": "Run",
+-    "RunOnceActivity.ShowReadmeOnStart": "true",
+-    "RunOnceActivity.git.unshallow": "true",
+-    "RunOnceActivity.rust.reset.selective.auto.import": "true",
+-    "git-widget-placeholder": "dev__mirko",
+-    "last_opened_file_path": "D:/RustroverProjects/project",
+-    "node.js.detected.package.eslint": "true",
+-    "node.js.detected.package.tslint": "true",
+-    "node.js.selected.package.eslint": "(autodetect)",
+-    "node.js.selected.package.tslint": "(autodetect)",
+-    "nodejs_package_manager_path": "npm",
+-    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+-    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
+-    "org.rust.first.attach.projects": "true",
+-    "vue.rearranger.settings.migration": "true"
++  <component name="PropertiesComponent">{
++  &quot;keyToString&quot;: {
++    &quot;Cargo.Run project.executor&quot;: &quot;Run&quot;,
++    &quot;Cargo.Run.executor&quot;: &quot;Run&quot;,
++    &quot;Cargo.Test fs_model::node::tests::test_from_file_system.executor&quot;: &quot;Run&quot;,
++    &quot;Cargo.Test node.executor&quot;: &quot;Run&quot;,
++    &quot;Cargo.Test node::tests.executor&quot;: &quot;Run&quot;,
++    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
++    &quot;git-widget-placeholder&quot;: &quot;dev__mirko&quot;,
++    &quot;last_opened_file_path&quot;: &quot;D:/RustroverProjects/project&quot;,
++    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
++    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
++    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
++    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
++    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
++    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
++    &quot;org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon&quot;: &quot;&quot;,
++    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
++    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+   }
+-}]]></component>
++}</component>
+   <component name="RunManager" selected="Cargo.Run project">
+     <configuration name="Run project" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+       <option name="buildProfileId" value="dev" />
+@@ -178,9 +175,9 @@
+     </configuration>
+     <list>
+       <item itemvalue="Cargo.Run" />
+-      <item itemvalue="Cargo.Test node" />
+       <item itemvalue="Cargo.Run project" />
+       <item itemvalue="Cargo.Test fs_model::node::tests::test_from_file_system" />
++      <item itemvalue="Cargo.Test node" />
+       <item itemvalue="Cargo.Test node::tests" />
+     </list>
+     <recent_temporary>
+@@ -208,7 +205,8 @@
+       <workItem from="1753363542806" duration="20000" />
+       <workItem from="1754294800002" duration="1573000" />
+       <workItem from="1754296428195" duration="4794000" />
+-      <workItem from="1754658972162" duration="3894000" />
++      <workItem from="1754658972162" duration="4283000" />
++      <workItem from="1754899318779" duration="1128000" />
+     </task>
+     <task id="LOCAL-00001" summary="Initial commit">
+       <option name="closed" value="true" />
+@@ -234,7 +232,15 @@
+       <option name="project" value="LOCAL" />
+       <updated>1754427173451</updated>
+     </task>
+-    <option name="localTasksCounter" value="4" />
++    <task id="LOCAL-00004" summary="add POST /mkdir/&lt;path&gt;">
++      <option name="closed" value="true" />
++      <created>1754663301624</created>
++      <option name="number" value="00004" />
++      <option name="presentableId" value="LOCAL-00004" />
++      <option name="project" value="LOCAL" />
++      <updated>1754663301624</updated>
++    </task>
++    <option name="localTasksCounter" value="5" />
+     <servers />
+   </component>
+   <component name="TypeScriptGeneratedFilesManager">
+@@ -267,6 +273,7 @@
+     <MESSAGE value="Initial commit" />
+     <MESSAGE value="Initial tree FS structure (still using RefCell)" />
+     <MESSAGE value="thread-safe fs and list/{path} api" />
+-    <option name="LAST_COMMIT_MESSAGE" value="thread-safe fs and list/{path} api" />
++    <MESSAGE value="add POST /mkdir/&lt;path&gt;" />
++    <option name="LAST_COMMIT_MESSAGE" value="add POST /mkdir/&lt;path&gt;" />
+   </component>
+ </project>
+\ No newline at end of file
