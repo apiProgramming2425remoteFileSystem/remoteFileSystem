@@ -1,0 +1,53 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        app_path: ${APP_PATH}
+        remote_fs_backend: backend      # the name of the package
+    container_name: remote_fs-backend
+    ports:
+      - "8080:8080"
+    networks:
+      - remote-fs-net
+
+  client:
+    build:
+      context: ./client
+      args:
+        app_path: ${APP_PATH}
+        remote_fs_client: client        # the name of the package
+    container_name: remote_fs-client
+    # privileged: true
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      - ./mount:${MOUNT_POINT}          # Host directory to see FS mount
+    # depends_on:
+    #   - backend
+    # command: >
+    #   --mountpoint ${MOUNT_POINT} 
+    #   --server-url http://backend:8080/api
+
+  develop:
+    image: rust:slim
+    container_name: remote_fs-develop
+    # privileged: true
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - remote-fs-net
+    volumes:
+      - ./backend:${APP_PATH}/backend/
+      - ./client:${APP_PATH}/client/
+      - ./mount:${MOUNT_POINT}          # Host directory to see FS mount
+    working_dir: ${APP_PATH}/
+    tty: true                           # Keep the terminal open
+    restart: unless-stopped             # Automatically restart unless stopped manually
+
+networks:
+  remote-fs-net:
