@@ -1,4 +1,4 @@
-use crate::storage::{FSItem, FSNode, FileSystem};
+use crate::storage::{FSItem, FileSystem};
 use crate::models::*;
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use base64::{Engine, engine::general_purpose::STANDARD};
