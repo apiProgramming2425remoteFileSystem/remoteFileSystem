@@ -1,7 +1,8 @@
 use anyhow;
-use client::{config, logging};
+use client::{config, logging, network};
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // Load configuration from args/env
     let config = config::Config::from_args()?;
 
@@ -15,6 +16,13 @@ fn main() -> anyhow::Result<()> {
     tracing::error!("[ERROR]");
 
     println!("Done");
+
+    let base_url = config.server_url + network::APP_V1_BASE_URL;
+    let rc = network::client::RemoteClient::new(base_url);
+    rc.list_path("/").await?;
+
+    // Start daemon and mount FUSE file system
+    // daemon::run_daemon(config).await?;
 
     Ok(())
 }

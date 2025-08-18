@@ -42,8 +42,9 @@ services:
     networks:
       - remote-fs-net
     volumes:
-      - ./backend:${APP_PATH}/backend/
-      - ./client:${APP_PATH}/client/
+      # - ./backend:${APP_PATH}/backend/
+      # - ./client:${APP_PATH}/client/
+      - .:${APP_PATH}/
       - ./mount:${MOUNT_POINT}          # Host directory to see FS mount
     working_dir: ${APP_PATH}/
     tty: true                           # Keep the terminal open

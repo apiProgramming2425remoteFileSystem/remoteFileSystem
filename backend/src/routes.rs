@@ -7,6 +7,20 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use crate::models::*;
 use crate::storage::{FSItem, FileSystem};
 
+const APP_V1_BASE_URL: &str = "/api/v1";
+
+// This function configures all routes for your module
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope(APP_V1_BASE_URL)
+            .service(list_path)
+            .service(get_file_content)
+            .service(write_file)
+            .service(make_directory)
+            .service(delete_item),
+    );
+}
+
 #[get("/list/{path}")]
 async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
