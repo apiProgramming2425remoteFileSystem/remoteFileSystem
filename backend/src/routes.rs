@@ -1,9 +1,11 @@
-use crate::storage::{FSItem, FSNode, FileSystem};
-use crate::models::*;
+use std::ops::Deref;
+use std::sync::RwLock;
+
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use std::{ops::Deref, sync::RwLock};
 
+use crate::models::*;
+use crate::storage::{FSItem, FileSystem};
 
 #[get("/list/{path}")]
 async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
