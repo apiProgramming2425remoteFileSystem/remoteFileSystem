@@ -9,7 +9,8 @@ target/
 # Ignore logs
 *.log
 
-# Ignore tests and benchmarks folders if you don't want to include them in the image
+# Ignore logs, tests, benchmarks and examples folders if you don't want to include them in the image
+logs/
 tests/
 benches/
 examples/

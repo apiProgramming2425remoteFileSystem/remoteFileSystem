@@ -1,7 +1,8 @@
+use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
-use crate::storage::{FSNode, FSItem};
-use std::ops::Deref;
+
+use crate::storage::{FSItem, FSNode};
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]

@@ -1,9 +1,25 @@
-use crate::storage::{FSItem, FileSystem};
-use crate::models::*;
+use std::ops::Deref;
+use std::sync::RwLock;
+
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use std::{ops::Deref, sync::RwLock};
 
+use crate::models::*;
+use crate::storage::{FSItem, FileSystem};
+
+const APP_V1_BASE_URL: &str = "/api/v1";
+
+// This function configures all routes for your module
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope(APP_V1_BASE_URL)
+            .service(list_path)
+            .service(get_file_content)
+            .service(write_file)
+            .service(make_directory)
+            .service(delete_item),
+    );
+}
 
 #[get("/list/{path}")]
 async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
