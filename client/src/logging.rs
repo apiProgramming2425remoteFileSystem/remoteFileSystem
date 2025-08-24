@@ -1,4 +1,4 @@
-use anyhow;
+/*use anyhow;
 use clap::ValueEnum;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::prelude::*;
@@ -209,3 +209,4 @@ where
             .boxed(),
     }
 }
+*/
