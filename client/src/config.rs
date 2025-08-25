@@ -1,4 +1,4 @@
-/*use std::path::PathBuf;
+use std::path::PathBuf;
 
 use crate::logging::{LogFormat, LogLevel, LogTargets};
 
@@ -39,7 +39,7 @@ pub struct Config {
     pub log_level: LogLevel,
 
     /// Optional path for log directory. Defaults to [`DEFAULT_LOG_DIR`] if needed.
-    #[arg( 
+    #[arg(
         long,
         default_value_ifs([
             ("log_targets", "all", Some(DEFAULT_LOG_DIR)),
@@ -69,4 +69,3 @@ impl Config {
         Ok(Config::parse())
     }
 }
-*/

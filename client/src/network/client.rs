@@ -1,4 +1,4 @@
-/*use anyhow;
+use anyhow;
 use reqwest::Client;
 use urlencoding;
 
@@ -31,4 +31,3 @@ impl RemoteClient {
         Ok(body)
     }
 }
-*/
