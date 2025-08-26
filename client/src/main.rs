@@ -77,24 +77,19 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Done");
 
-    let mount_path = "./mnt";
-
-    // Imposta le opzioni di mount
+    let mount_path = "./mnt"; // just for testing, the one specified in config will be used...
     let mut mount_options = MountOptions::default();
-    // Permette a utenti diversi dal proprietario di vedere il FS
     mount_options.allow_other(true);
-    mount_options.force_readdir_plus(true); // opzionale, migliora compatibilità con ls
 
-    // Monta il filesystem
+    // Mount fs
     let mut mount_handle = Session::new(mount_options)
-        .mount(Fs::default(), mount_path)
+        .mount(Fs::new(config), mount_path)
         .await?;
 
-    println!("FS montato in {}", mount_path);
+    println!("FS mounted in {}", mount_path);
 
     let handle = &mut mount_handle;
 
-    // Attende il completamento del mount o Ctrl+C
     tokio::select! {
         res = handle => res?,
         _ = signal::ctrl_c() => {
