@@ -1,38 +1,63 @@
 use std::ffi::{OsStr};
 use std::num::NonZeroU32;
 use fuse3::path::prelude::*;
-use fuse3::Result;
-use futures_util::stream::Empty;
+use fuse3::{Errno, Result};
+use std::time::SystemTime;
 use std::time::Duration;
 use futures_util::stream;
+use libc;
 
-use crate::network::models::ItemType;
-use crate::network::models::SerializableFSItem;
+use crate::config::Config;
+use crate::network::client::RemoteClient;
+use crate::network;
+use crate::network::models::{ItemType, SerializableFSItem};
 
 const TTL: Duration = Duration::from_secs(1);
 const SEPARATOR: char = '/';
 
 
-#[derive(Debug, Default)]
-pub struct Fs;
-
-impl Fs {
-    /// Dummy: in futuro qui metterai la fetch reale dal server remoto
-    async fn fetch_items(&self, _path: &OsStr) -> Vec<SerializableFSItem> {
-        vec![
-            SerializableFSItem { name: "file1.txt".into(), item_type: ItemType::File },
-            SerializableFSItem { name: "docs".into(),     item_type: ItemType::Directory },
-        ]
-    }
+#[derive(Debug)]
+pub struct Fs{
+    config: Config,
+    remoteClient: RemoteClient,
 }
 
+impl Fs{
+    pub fn new(config: Config) -> Self{
+        let base_url = config.server_url.clone() + network::APP_V1_BASE_URL;
+        let remoteClient = RemoteClient::new(base_url);
+        Fs {config, remoteClient}
+    }
+
+    async fn fetch_list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
+        self.remoteClient.list_path(path).await
+    }
+
+    fn mock_file_attr(&self) -> FileAttr {
+        FileAttr {
+            size: 0,
+            blocks: 0,
+            blksize: 0,
+            atime: SystemTime::now(),
+            mtime: SystemTime::now(),
+            ctime: SystemTime::now(),
+            kind: FileType::Directory,
+            perm: 0o755,
+            nlink: 2,
+            uid: 1,
+            gid: 1,
+            rdev: 0,
+        }
+    }
+}
 
 impl PathFilesystem for Fs {
     type DirEntryStream<'a> =
     futures_util::stream::Iter<std::vec::IntoIter<Result<DirectoryEntry>>>
     where Self: 'a;
-    type DirEntryPlusStream<'a> = Empty<fuse3::Result<DirectoryEntryPlus>> where Self: 'a;
-
+    type DirEntryPlusStream<'a> =
+    futures_util::stream::Iter<std::vec::IntoIter<Result<DirectoryEntryPlus>>>
+    where Self: 'a;
 
     async fn init(&self, _req: Request) -> Result<ReplyInit> {
         Ok(ReplyInit {
@@ -60,12 +85,35 @@ impl PathFilesystem for Fs {
         _fh: u64,
         offset: i64,
     ) -> Result<ReplyDirectory<Self::DirEntryStream<'a>>> {
-        // Fingi di fetchare da remoto
-        let items = self.fetch_items(path).await;
+        println!("readdir");
 
-        // Convertili in DirectoryEntry
-        let entries: Vec<Result<DirectoryEntry>> = items.into_iter()
-            .skip(offset as usize)
+        let mut entries: Vec<Result<DirectoryEntry>> = Vec::new();
+
+        if offset == 0 {
+            entries.push(Ok(DirectoryEntry {
+                offset: 1,
+                name: OsStr::new(".").into(),
+                kind: FileType::Directory,
+            }));
+        }
+        if offset <= 1{
+            entries.push(Ok(DirectoryEntry {
+                offset: 2,
+                name: OsStr::new("..").into(),
+                kind: FileType::Directory,
+            }));
+        }
+
+        let items = match self.fetch_list_path(path).await {
+            Ok(vec_items) => vec_items,
+            Err(err) => {
+                tracing::error!("fetch_list_path failed: {err}");
+                return Err(Errno::from(libc::EIO)); //  generic I/O error
+            }
+        };
+
+        let other_entries: Vec<Result<DirectoryEntry>> = items.into_iter()
+            .skip(offset.saturating_sub(2) as usize)
             .enumerate()
             .map(|(idx, item)| {
                 let kind = match item.item_type {
@@ -73,77 +121,158 @@ impl PathFilesystem for Fs {
                     ItemType::Directory => FileType::Directory,
                 };
                 Ok(DirectoryEntry {
-                    offset: (offset + idx as i64),
+                    offset: (offset + idx as i64 + 3),
                     name: item.name.into(),
                     kind,
                 })
             })
             .collect();
 
-        // Convertili in stream
-        let stream = stream::iter(entries);
+        entries.extend(other_entries);
 
+        let stream = stream::iter(entries);
         Ok(ReplyDirectory { entries: stream })
     }
 
-    /*
-        async fn lookup(&self, _req: Request, parent: &OsStr, name: &OsStr) -> Result<ReplyEntry> {
-            let parent = parent.to_string_lossy();
-            let name = name.to_string_lossy();
-            let mut paths = split_path(&parent);
-            paths.push(name.as_ref());
+    async fn readdirplus<'a>(
+        &'a self,
+        _req: Request,
+        path: &'a OsStr,
+        _fh: u64,
+        offset: u64,
+        _lock_owner: u64,
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
+        println!("readdirplus");
 
-            let mut entry = &self.0.read().await.root;
+        let mut entries: Vec<Result<DirectoryEntryPlus>> = Vec::new();
 
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            Ok(ReplyEntry {
-                ttl: TTL,
-                attr: entry.attr(),
-            })
+        if offset == 0 {
+            entries.push(Ok(DirectoryEntryPlus {
+                kind: FileType::Directory,
+                name: OsStr::new(".").into(),
+                offset: 1,
+                attr: self.mock_file_attr(),
+                entry_ttl: TTL,
+                attr_ttl: TTL,
+            }));
         }
+        if offset <= 1{
+            entries.push(Ok(DirectoryEntryPlus {
+                kind: FileType::Directory,
+                name: OsStr::new("..").into(),
+                offset: 2,
+                attr: self.mock_file_attr(),
+                entry_ttl: TTL,
+                attr_ttl: TTL,
+            }));
+        }
+
+        let items = match self.fetch_list_path(path).await {
+            Ok(vec_items) => vec_items,
+            Err(err) => {
+                tracing::error!("fetch_list_path failed: {err}");
+                return Err(Errno::from(libc::EIO));
+            }
+        };
+
+        let other_entries: Vec<Result<DirectoryEntryPlus>> = items.into_iter()
+            .skip(offset.saturating_sub(2) as usize)
+            .enumerate()
+            .map(|(idx, item)| {
+                let kind = match item.item_type {
+                    ItemType::File => FileType::RegularFile,
+                    ItemType::Directory => FileType::Directory,
+                };
+                Ok(DirectoryEntryPlus {
+                    kind,
+                    name: item.name.into(),
+                    offset: (offset + idx as u64 + 3) as i64,
+                    attr: self.mock_file_attr(),
+                    entry_ttl: TTL,
+                    attr_ttl: TTL,
+                })
+            })
+            .collect();
+
+        entries.extend(other_entries);
+
+        let stream = stream::iter(entries);
+        Ok(ReplyDirectoryPlus { entries: stream })
+    }
+
+    async fn opendir(
+        &self,
+        _req: Request,
+        _path: &OsStr,
+        _flags: u32,
+    ) -> Result<ReplyOpen> {
+        println!("opendir");
+        Ok(ReplyOpen {
+            fh: 1,
+            flags: 0,
+        })
+    }
+
+    async fn releasedir(
+        &self,
+        _req: Request,
+        _path: &OsStr,
+        _fh: u64,
+        _flags: u32,
+    ) -> Result<()> {
+        println!("releasedir");
+        Ok(())
+    }
+
+
+    /*
+
+    è solo un mock per far funzionare le altre cose...
+    restituiamo un valore di default a caso, i dati veri saranno da collegare poi
+
+     */
+
+    async fn getattr(
+        &self,
+        _req: Request,
+        _path: Option<&OsStr>,
+        _fh: Option<u64>,
+        _flags: u32,
+    ) -> Result<ReplyAttr> {
+        println!("gettattr");
+        let attr = self.mock_file_attr();
+        Ok(ReplyAttr {
+            ttl: TTL,
+            attr
+        })
+    }
+
+
+    /*
+
+    idem
+
+     */
+
+    async fn lookup(
+        &self,
+        _req: Request,
+        _parent: &OsStr,
+        _name: &OsStr) -> Result<ReplyEntry> {
+        println!("lookup");
+        let attr = self.mock_file_attr();
+        Ok(ReplyEntry {
+            ttl: TTL,
+            attr,
+        })
+    }
+
+    /*
+
 
         async fn forget(&self, _req: Request, _parent: &OsStr, _nlookup: u64) {}
 
-        async fn getattr(
-            &self,
-            _req: Request,
-            path: Option<&OsStr>,
-            _fh: Option<u64>,
-            _flags: u32,
-        ) -> Result<ReplyAttr> {
-            let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
 
-
-            let paths = split_path(&path);
-
-            let mut entry = &self.0.read().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            Ok(ReplyAttr {
-                ttl: TTL,
-                attr: entry.attr(),
-            })
-        }
 
         async fn setattr(
             &self,
