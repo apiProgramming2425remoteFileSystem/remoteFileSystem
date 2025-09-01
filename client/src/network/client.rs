@@ -1,4 +1,5 @@
 use anyhow;
+use std::ffi::OsStr;
 use reqwest::Client;
 use urlencoding;
 
@@ -18,8 +19,9 @@ impl RemoteClient {
         }
     }
 
-    pub async fn list_path(&self, path: &str) -> anyhow::Result<Vec<SerializableFSItem>> {
-        let url = format!("{}/list/{}", self.base_url, urlencoding::encode(path));
+    pub async fn list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
+        let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+        let url = format!("{}/list/{}", self.base_url, urlencoding::encode(path_str));
 
         tracing::debug!("fetching {}", url);
 
