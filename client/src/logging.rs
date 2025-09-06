@@ -1,6 +1,7 @@
 use anyhow;
 use clap::ValueEnum;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::Rotation;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, Layer, Registry, fmt};
 
@@ -10,7 +11,7 @@ mod console;
 mod file;
 
 /// Logging output destinations configuration
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum LogTargets {
     None,
     Console,
@@ -37,21 +38,54 @@ pub enum LogLevel {
     Error = 4,
 }
 
-impl LogLevel {
-    pub fn as_str(&self) -> &'static str {
+impl ToString for LogLevel {
+    fn to_string(&self) -> String {
+        let current_crate = env!("CARGO_PKG_NAME");
+
         match self {
-            LogLevel::Trace => "trace",
-            LogLevel::Debug => "debug",
-            LogLevel::Info => "info",
-            LogLevel::Warn => "warn",
-            LogLevel::Error => "error",
+            LogLevel::Trace => format!("{current_crate}=trace"),
+            LogLevel::Debug => format!("{current_crate}=debug"),
+            LogLevel::Info => format!("{current_crate}=info"),
+            LogLevel::Warn => format!("{current_crate}=warn"),
+            LogLevel::Error => format!("{current_crate}=error"),
+        }
+    }
+}
+
+/// Log rotation for file
+#[derive(ValueEnum, Clone, Debug)]
+pub enum LogRotation {
+    Minutely,
+    Hourly,
+    Daily,
+    Never,
+}
+
+impl From<&str> for LogRotation {
+    fn from(value: &str) -> Self {
+        match value.to_lowercase().as_str() {
+            "minutely" => LogRotation::Minutely,
+            "hourly" => LogRotation::Hourly,
+            "daily" => LogRotation::Daily,
+            "never" => LogRotation::Never,
+            _ => LogRotation::Never,
+        }
+    }
+}
+
+impl From<LogRotation> for Rotation {
+    fn from(value: LogRotation) -> Self {
+        match value {
+            LogRotation::Minutely => Rotation::MINUTELY,
+            LogRotation::Hourly => Rotation::HOURLY,
+            LogRotation::Daily => Rotation::DAILY,
+            LogRotation::Never => Rotation::NEVER,
         }
     }
 }
 
 /// Main logging configuration owning all settings
 #[derive(Debug)]
-// #[cfg(feature = "layers")]
 pub struct Logging {
     _targets: Vec<LogTargets>,
     _format: LogFormat,
@@ -59,7 +93,6 @@ pub struct Logging {
     _layers: LogLayer,
 }
 
-// #[cfg(feature = "layers")]
 impl Logging {
     pub fn new(
         _targets: Vec<LogTargets>,
@@ -78,7 +111,7 @@ impl Logging {
     /// Initialize logging from configuration, returning the constructed Logging struct to keep alive.
     pub fn from(config: &Config) -> anyhow::Result<Self> {
         // Build environment filter string from log level
-        let env_filter = EnvFilter::try_new(config.log_level.as_str())?;
+        let env_filter = EnvFilter::try_new(config.log_level.to_string())?;
 
         let mut layers = LogLayer::new();
         for target in &config.log_targets {
@@ -94,8 +127,8 @@ impl Logging {
                     layers.add_builder(file::FileLog::from_config(config));
                 }
                 LogTargets::All => {
-                    layers.add_builder(console::ConsoleLog::new());
                     layers.add_builder(file::FileLog::from_config(config));
+                    layers.add_builder(console::ConsoleLog::new());
                 }
             }
         }

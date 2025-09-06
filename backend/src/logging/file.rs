@@ -26,6 +26,7 @@ impl FileLog {
         Self::builder()
             .directory(config.log_dir.clone())
             .file_name(config.log_file.clone())
+            .rotation(config.log_rotation.clone())
             .build()
     }
 }
@@ -42,7 +43,7 @@ impl logging::LogWriter for FileLog {
         if let Ok(writer) = file_appender {
             Box::new(writer)
         } else {
-            crate::logging::console::ConsoleLog::new()
+            logging::console::ConsoleLog::new()
                 .with_ansi_enabled()
                 .create_writer()
         }
@@ -54,7 +55,7 @@ impl logging::LogWriter for FileLog {
 }
 
 #[derive(Default)]
-struct FileLogBuilder {
+pub struct FileLogBuilder {
     directory: Option<PathBuf>,
     file_name: Option<PathBuf>,
     file_ext: Option<String>,
@@ -62,24 +63,28 @@ struct FileLogBuilder {
 }
 
 impl FileLogBuilder {
-    fn directory(mut self, dir: Option<PathBuf>) -> Self {
+    pub fn directory(mut self, dir: Option<PathBuf>) -> Self {
         self.directory = dir;
         self
     }
-    fn file_name(mut self, file_name: Option<PathBuf>) -> Self {
+    pub fn file_name(mut self, file_name: Option<PathBuf>) -> Self {
         self.file_name = file_name;
         self
     }
-    fn file_ext(mut self, file_ext: Option<String>) -> Self {
+    pub fn file_ext(mut self, file_ext: Option<String>) -> Self {
         self.file_ext = file_ext;
         self
     }
-    fn rotation(mut self, rotation: Option<Rotation>) -> Self {
-        self.rotation = rotation;
+    pub fn rotation(mut self, rotation: Option<logging::LogRotation>) -> Self {
+        self.rotation = if let Some(rot) = rotation {
+            Some(Rotation::from(rot))
+        } else {
+            None
+        };
         self
     }
 
-    fn build(self) -> FileLog {
+    pub fn build(self) -> FileLog {
         FileLog {
             directory: self
                 .directory
@@ -90,7 +95,9 @@ impl FileLogBuilder {
             file_ext: self
                 .file_ext
                 .unwrap_or_else(|| config::DEFAULT_LOG_FILE_EXT.to_string()),
-            rotation: self.rotation.unwrap_or_else(|| Rotation::NEVER),
+            rotation: self.rotation.unwrap_or_else(|| {
+                Rotation::from(logging::LogRotation::from(config::DEFAULT_LOG_FILE_ROT))
+            }),
         }
     }
 }

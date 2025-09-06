@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
-use crate::logging::{LogFormat, LogLevel, LogTargets};
+use crate::logging::{LogFormat, LogLevel, LogRotation, LogTargets};
 
 use anyhow;
 use clap::Parser;
@@ -9,6 +10,7 @@ use dotenvy;
 pub const DEFAULT_LOG_DIR: &'static str = "./logs";
 pub const DEFAULT_LOG_FILE_NAME: &'static str = "remote_fs_client";
 pub const DEFAULT_LOG_FILE_EXT: &'static str = "log";
+pub const DEFAULT_LOG_FILE_ROT: &'static str = "never";
 
 /// Application configuration that includes logging settings.
 #[derive(Parser, Debug)]
@@ -58,7 +60,14 @@ pub struct Config {
         ]), env = "LOG_FILE")]
     pub log_file: Option<PathBuf>,
 
-
+    /// Optional log rotation policy. Defaults to [`DEFAULT_LOG_FILE_ROT`] if needed
+    #[arg(
+        long,
+        default_value_ifs([
+            ("log_targets", "all", Some(DEFAULT_LOG_FILE_ROT)),
+            ("log_targets", "file", Some(DEFAULT_LOG_FILE_ROT))
+        ]), env = "LOG_ROTATION")]
+    pub log_rotation: Option<LogRotation>,
 }
 
 impl Config {
@@ -66,6 +75,26 @@ impl Config {
     pub fn from_args() -> anyhow::Result<Self> {
         // Load .env variables
         dotenvy::dotenv()?;
-        Ok(Config::parse())
+
+        let mut config = Config::parse();
+        config.normalize_targets();
+
+        Ok(config)
+    }
+
+    /// Normalize log_targets in place by deduplicating and handling special cases
+    fn normalize_targets(&mut self) {
+        let mut set: HashSet<LogTargets> = self.log_targets.drain(..).collect();
+
+        if set.contains(&LogTargets::None) {
+            set.clear();
+        }
+
+        if set.contains(&LogTargets::All) {
+            set.remove(&LogTargets::Console);
+            set.remove(&LogTargets::File);
+        }
+
+        self.log_targets = set.into_iter().collect();
     }
 }
