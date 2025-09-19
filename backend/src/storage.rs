@@ -344,37 +344,49 @@ impl FileSystem {
         self.side_effects = side_effects;
     }
 
-    pub fn write_file(&self, path: &str, data: &[u8], offset: usize) -> Result<(), String> {
-        if let Some(node) = self.find(&path) {
-            let mut item = node.write().unwrap();
-            match item.deref_mut() {
-                FSItem::Directory(_) => Err("Path is a directory, cannot write data".to_string()),
-                FSItem::File(file_mut) => {
-                    if self.side_effects {
-                        // write the file on the file system
-                        let real_path = self.make_real_path(node.clone());
-                        let target = PathBuf::from(&real_path);
-
-                        let mut f = fs::OpenOptions::new()
-                            .write(true)
-                            .open(&target)
-                            .map_err(|e| format!("Failed to open file: {}", e))?;
-
-                        // Seek to offset
-                        f.seek(SeekFrom::Start(offset as u64))
-                            .map_err(|e| format!("Failed to seek: {}", e))?;
-                        // Write data
-                        f.write_all(data)
-                            .map_err(|e| format!("Failed to write: {}", e))?;
-                        // Rewind to start to read the updated file content
-                        f.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    pub fn write_file(&mut self, path: &str, data: &[u8], offset: usize) -> Result<(), String> {
+        let node_opt = self.find(path).or_else(|| {
+            let x = PathBuf::from(path);
+            let name = x.file_name().and_then(|f| f.to_str())?;
+            let dir = x.parent().and_then(|p| p.to_str())?;
+            match self.make_file(dir, name) {
+                Ok(_) => self.find(path),
+                Err(_) => None,
+            }
+        });
+        match node_opt {
+            None => Err("Path not found".to_string()),
+            Some(node) => {
+                let mut item = node.write().unwrap();
+                match item.deref_mut() {
+                    FSItem::Directory(_) => {
+                        Err("Path is a directory, cannot write data".to_string())
                     }
-                    file_mut.write_at(data, offset)?;
-                    Ok(())
+                    FSItem::File(file_mut) => {
+                        if self.side_effects {
+                            // write the file on the file system
+                            let real_path = self.make_real_path(node.clone());
+                            let target = PathBuf::from(&real_path);
+
+                            let mut f = fs::OpenOptions::new()
+                                .write(true)
+                                .open(&target)
+                                .map_err(|e| format!("Failed to open file: {}", e))?;
+
+                            // Seek to offset
+                            f.seek(SeekFrom::Start(offset as u64))
+                                .map_err(|e| format!("Failed to seek: {}", e))?;
+                            // Write data
+                            f.write_all(data)
+                                .map_err(|e| format!("Failed to write: {}", e))?;
+                            // Rewind to start to read the updated file content
+                            f.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+                        }
+                        file_mut.write_at(data, offset)?;
+                        Ok(())
+                    }
                 }
             }
-        } else {
-            Err("Path not found".to_string())
         }
     }
 }

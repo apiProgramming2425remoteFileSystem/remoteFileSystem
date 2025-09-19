@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::sync::RwLock;
 
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
-use base64::{Engine, engine::general_purpose::STANDARD};
+use tracing::{Level, instrument};
 
 use crate::models::*;
 use crate::storage::{FSItem, FileSystem};
@@ -22,6 +22,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 }
 
 #[get("/list/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     if let Some(node) = fs.read().unwrap().find(&path) {
@@ -29,7 +30,7 @@ async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -
         if let Some(children_nodes) = item.get_children() {
             let children: Vec<SerializableFSItem> = children_nodes
                 .iter()
-                .map(|child| serialize_node(child))
+                .map(|child| SerializableFSItem::new(child))
                 .collect();
             HttpResponse::Ok().json(children)
         } else {
@@ -41,6 +42,7 @@ async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -
 }
 
 #[get("/files/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn get_file_content(
     fs: web::Data<RwLock<FileSystem>>,
     path: web::Path<String>,
@@ -49,7 +51,7 @@ async fn get_file_content(
     if let Some(node) = fs.read().unwrap().find_full(&path, None) {
         let item = node.read().unwrap();
         if let FSItem::File(f) = item.deref() {
-            HttpResponse::Ok().json(serialize_content(f.content.clone()))
+            HttpResponse::Ok().json(SerializableFileContent::new(&f.content))
         } else {
             HttpResponse::BadRequest().body("Path is not a file.")
         }
@@ -59,26 +61,26 @@ async fn get_file_content(
 }
 
 #[put("/files/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn write_file(
     fs: web::Data<RwLock<FileSystem>>,
     path: web::Path<String>,
     json: web::Json<WriteFileRequest>,
 ) -> impl Responder {
     let path = path.into_inner();
-    let offset = json.offset;
-
-    let decoded_data = match STANDARD.decode(&json.data) {
-        Ok(bytes) => bytes,
-        Err(_) => return HttpResponse::BadRequest().body("Invalid base64 data"),
+    let offset = json.offset();
+    let Ok(data) = json.data() else {
+        return HttpResponse::BadRequest().body("Invalid base64 data");
     };
 
-    return match fs.read().unwrap().write_file(&path, &decoded_data, offset) {
+    return match fs.write().unwrap().write_file(&path, &data, offset) {
         Ok(_) => HttpResponse::Ok().body("Write successful"),
         Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
     };
 }
 
 #[post("/mkdir/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn make_directory(
     fs: web::Data<RwLock<FileSystem>>,
     path: web::Path<String>,
@@ -96,6 +98,7 @@ async fn make_directory(
 }
 
 #[delete("/files/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn delete_item(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     match fs.write().unwrap().delete(path.as_str()) {
