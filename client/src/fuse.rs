@@ -1,91 +1,526 @@
-use std::ffi::{OsStr};
+use std::ffi::OsStr;
 use std::num::NonZeroU32;
+use std::time::Duration;
+use std::vec::IntoIter;
+
+use crate::fs_model;
+use crate::network::models::ItemType;
+
+use bytes::Bytes;
 use fuse3::path::prelude::*;
 use fuse3::{Errno, Result};
-use std::time::SystemTime;
-use std::time::Duration;
 use futures_util::stream;
 use libc;
-
-use crate::config::Config;
-use crate::network::client::RemoteClient;
-use crate::network;
-use crate::network::models::{ItemType, SerializableFSItem};
+use tracing::{Level, instrument};
 
 const TTL: Duration = Duration::from_secs(1);
 const SEPARATOR: char = '/';
 
-
-#[derive(Debug)]
-pub struct Fs{
-    config: Config,
-    remoteClient: RemoteClient,
+pub struct Fs {
+    fs: fs_model::FileSystem,
 }
 
-impl Fs{
-    pub fn new(config: Config) -> Self{
-        let base_url = config.server_url.clone() + network::APP_V1_BASE_URL;
-        let remoteClient = RemoteClient::new(base_url);
-        Fs {config, remoteClient}
-    }
-
-    async fn fetch_list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
-        self.remoteClient.list_path(path).await
-    }
-
-    fn mock_file_attr(&self) -> FileAttr {
-        FileAttr {
-            size: 0,
-            blocks: 0,
-            blksize: 0,
-            atime: SystemTime::now(),
-            mtime: SystemTime::now(),
-            ctime: SystemTime::now(),
-            kind: FileType::Directory,
-            perm: 0o755,
-            nlink: 2,
-            uid: 1,
-            gid: 1,
-            rdev: 0,
+impl Fs {
+    pub fn new(base_url: &str) -> Self {
+        Self {
+            fs: fs_model::FileSystem::new(base_url),
         }
     }
 }
 
+/// pub async fn template_fn(&self, args) -> Result<> {
+///     1. convert args to fs_model structures
+///     2. call the needed self.fs function
+///     3. converts the result
+///     4. do other necessary operations
+///     5. return the correct fuse3 result
+/// }
+//
 impl PathFilesystem for Fs {
-    type DirEntryStream<'a> =
-    futures_util::stream::Iter<std::vec::IntoIter<Result<DirectoryEntry>>>
-    where Self: 'a;
-    type DirEntryPlusStream<'a> =
-    futures_util::stream::Iter<std::vec::IntoIter<Result<DirectoryEntryPlus>>>
-    where Self: 'a;
+    /// dir entry stream given by [`readdir`][Filesystem::readdir].
+    type DirEntryStream<'a>
+        = stream::Iter<IntoIter<Result<DirectoryEntry>>>
+    where
+        Self: 'a;
 
-    async fn init(&self, _req: Request) -> Result<ReplyInit> {
+    /// dir entry plus stream given by [`readdirplus`][Filesystem::readdirplus].
+    type DirEntryPlusStream<'a>
+        = stream::Iter<IntoIter<Result<DirectoryEntryPlus>>>
+    where
+        Self: 'a;
+
+    /// initialize filesystem. Called before any other filesystem method.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn init(&self, req: Request) -> Result<ReplyInit> {
+        tracing::info!("Filesystem initialized");
+        /*
+        Write buffer size...
+        ogni chiamata write() scriverà al massimo quanto specificato qua
+        (ma forse meno, in base a come gira al sistema operativo), per cui una sola operazione di scrittura
+        potrebbe essere spezzata in tante write (per questo serve l'argomento offset).
+        Quindi tenerne uno grande permette di ottenere un overhead minore perché verrà chiamata meno volte write()
+        ma uno più piccolo potrebbe risultare in comunicazioni più agevoli visto che si tratta di un fs remoto
+        e dobbiamo mandare robe in giro per la rete, in caso di pacchetti persi o simili immagino il recupero sia
+        più veloce con uno spezzettamento più fine.
+        Attualmente lascio un randomicissimo 64 KiB poi decidiamo insieme.
+        */
         Ok(ReplyInit {
-            /*
-            Write buffer size...
-            ogni chiamata write() scriverà al massimo quanto specificato qua
-            (ma forse meno, in base a come gira al sistema operativo), per cui una sola operazione di scrittura
-            potrebbe essere spezzata in tante write (per questo serve l'argomento offset).
-            Quindi tenerne uno grande permette di ottenere un overhead minore perché verrà chiamata meno volte write()
-            ma uno più piccolo potrebbe risultare in comunicazioni più agevoli visto che si tratta di un fs remoto
-            e dobbiamo mandare robe in giro per la rete, in caso di pacchetti persi o simili immagino il recupero sia
-            più veloce con uno spezzettamento più fine.
-            Attualmente lascio un randomicissimo 64 KiB poi decidiamo insieme.
-             */
             max_write: NonZeroU32::new(64 * 1024).unwrap(),
         })
     }
 
-    async fn destroy(&self, _req: Request) {}
+    /// clean up filesystem. Called on filesystem exit which is fuseblk, in normal fuse filesystem,
+    /// kernel may call forget for root. There is some discuss for this
+    /// <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
+    /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
+    #[instrument(skip(self))]
+    async fn destroy(&self, req: Request) -> () {
+        tracing::info!("Filesystem destroy");
+    }
 
+    /// look up a directory entry by name and get its fs_model.
+    #[instrument(skip(self), err(level = Level::DEBUG), ret(level = Level::DEBUG))]
+    async fn lookup(&self, req: Request, parent: &OsStr, name: &OsStr) -> Result<ReplyEntry> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        Ok(ReplyEntry {
+            ttl: TTL,
+            attr: self.fs.mock_dir_attr().into(),
+        })
+    }
+
+    /// forget an path. The nlookup parameter indicates the number of lookups previously
+    /// performed on this path. If the filesystem implements path lifetimes, it is recommended
+    /// that paths acquire a single reference on each lookup, and lose nlookup references on each
+    /// forget. The filesystem may ignore forget calls, if the paths don\'t need to have a limited
+    /// lifetime. On unmount it is not guaranteed, that all referenced paths will receive a forget
+    /// message. When filesystem is normal(not fuseblk) and unmounting, kernel may send forget
+    /// request for root and this library will stop session after call forget. There is some
+    /// discussion for this <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
+    /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
+    /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
+    #[instrument(skip(self))]
+    async fn forget(&self, req: Request, parent: &OsStr, nlookup: u64) -> () {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+    }
+
+    /// get file fs_model. If `fh` is None, means `fh` is not set. If `path` is None, means the
+    /// path may be deleted.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn getattr(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: Option<u64>,
+        flags: u32,
+    ) -> Result<ReplyAttr> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        Ok(ReplyAttr {
+            ttl: TTL,
+            attr: self.fs.mock_file_attr().into(),
+        })
+    }
+
+    /// set file fs_model. If `fh` is None, means `fh` is not set. If `path` is None, means the
+    /// path may be deleted.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn setattr(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: Option<u64>,
+        set_attr: SetAttr,
+    ) -> Result<ReplyAttr> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        let attr = self.fs.mock_file_attr();
+        Ok(ReplyAttr {
+            ttl: TTL,
+            attr: attr.into(),
+        })
+    }
+
+    /// get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
+    /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn getxattr(
+        &self,
+        req: Request,
+        path: &OsStr,
+        name: &OsStr,
+        size: u32,
+    ) -> Result<ReplyXAttr> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// set an extended attribute.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn setxattr(
+        &self,
+        req: Request,
+        path: &OsStr,
+        name: &OsStr,
+        value: &[u8],
+        flags: u32,
+        position: u32,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// list extended attribute names. If size is too small, use [`ReplyXAttr::Size`] to return
+    /// correct size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn listxattr(&self, req: Request, path: &OsStr, size: u32) -> Result<ReplyXAttr> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// remove an extended attribute.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn removexattr(&self, req: Request, path: &OsStr, name: &OsStr) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// get filesystem statistics.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn statfs(&self, req: Request, path: &OsStr) -> Result<ReplyStatFs> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// check file access permissions. This will be called for the `access()` system call. If the
+    /// `default_permissions` mount option is given, this method is not be called. This method is
+    /// not called under Linux kernel versions 2.4.x.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn access(&self, req: Request, path: &OsStr, mask: u32) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// map block index within file to block index within device.
+    ///
+    /// # Notes:
+    ///
+    /// This may not works because currently this crate doesn\'t support fuseblk mode yet.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn bmap(
+        &self,
+        req: Request,
+        path: &OsStr,
+        block_size: u32,
+        idx: u64,
+    ) -> Result<ReplyBmap> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// find next data or hole after the specified offset.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn lseek(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        offset: u64,
+        whence: u32,
+    ) -> Result<ReplyLSeek> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// create file node. Create a regular file, character device, block device, fifo or socket
+    /// node. When creating file, most cases user only need to implement
+    /// [`create`][PathFilesystem::create].
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn mknod(
+        &self,
+        req: Request,
+        parent: &OsStr,
+        name: &OsStr,
+        mode: u32,
+        rdev: u32,
+    ) -> Result<ReplyEntry> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// create and open a file. If the file does not exist, first create it with the specified
+    /// mode, and then open it. Open flags (with the exception of `O_NOCTTY`) are available in
+    /// flags. Filesystem may store an arbitrary file handle (pointer, index, etc) in `fh`, and use
+    /// this in other all other file operations ([`read`][PathFilesystem::read],
+    /// [`write`][PathFilesystem::write], [`flush`][PathFilesystem::flush],
+    /// [`release`][PathFilesystem::release], [`fsync`][PathFilesystem::fsync]). There are also
+    /// some flags (`direct_io`, `keep_cache`) which the filesystem may set, to change the way the
+    /// file is opened. If this method is not implemented or under Linux kernel versions earlier
+    /// than 2.6.15, the [`mknod`][PathFilesystem::mknod] and [`open`][PathFilesystem::open]
+    /// methods will be called instead.
+    ///
+    /// # Notes:
+    ///
+    /// See `fuse_file_info` structure in
+    /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
+    /// more details.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn create(
+        &self,
+        req: Request,
+        parent: &OsStr,
+        name: &OsStr,
+        mode: u32,
+        flags: u32,
+    ) -> Result<ReplyCreated> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// open a file. Open flags (with the exception of `O_CREAT`, `O_EXCL` and `O_NOCTTY`) are
+    /// available in flags. Filesystem may store an arbitrary file handle (pointer, index, etc) in
+    /// fh, and use this in other all other file operations (read, write, flush, release, fsync).
+    /// Filesystem may also implement stateless file I/O and not store anything in fh. There are
+    /// also some flags (`direct_io`, `keep_cache`) which the filesystem may set, to change the way
+    /// the file is opened.  A file system need not implement this method if it
+    /// sets [`MountOptions::no_open_support`][crate::MountOptions::no_open_support] and if the
+    /// kernel supports `FUSE_NO_OPEN_SUPPORT`.
+    ///
+    /// # Notes:
+    ///
+    /// See `fuse_file_info` structure in
+    /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
+    /// more details.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn open(&self, req: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// read data. Read should send exactly the number of bytes requested except on EOF or error,
+    /// otherwise the rest of the data will be substituted with zeroes. An exception to this is
+    /// when the file has been opened in `direct_io` mode, in which case the return value of the
+    /// read system call will reflect the return value of this operation. `fh` will contain the
+    /// value set by the open method, or will be undefined if the open method didn\'t set any value.
+    /// when `path` is None, it means the path may be deleted.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn read(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        offset: u64,
+        size: u32,
+    ) -> Result<ReplyData> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// write data. Write should return exactly the number of bytes requested except on error. An
+    /// exception to this is when the file has been opened in `direct_io` mode, in which case the
+    /// return value of the write system call will reflect the return value of this operation. `fh`
+    /// will contain the value set by the open method, or will be undefined if the open method
+    /// didn\'t set any value. When `path` is None, it means the path may be deleted. When
+    /// `write_flags` contains [`FUSE_WRITE_CACHE`](crate::raw::flags::FUSE_WRITE_CACHE), means the
+    /// write operation is a delay write.
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn write(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        offset: u64,
+        data: &[u8],
+        write_flags: u32,
+        flags: u32,
+    ) -> Result<ReplyWrite> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// flush method. This is called on each `close()` of the opened file. Since file descriptors
+    /// can be duplicated (`dup`, `dup2`, `fork`), for one open call there may be many flush calls.
+    /// Filesystems shouldn\'t assume that flush will always be called after some writes, or that if
+    /// will be called at all. `fh` will contain the value set by the open method, or will be
+    /// undefined if the open method didn\'t set any value. when `path` is None, it means the path
+    /// may be deleted.
+    ///
+    /// # Notes:
+    ///
+    /// the name of the method is misleading, since (unlike fsync) the filesystem is not forced to
+    /// flush pending writes. One reason to flush data, is if the filesystem wants to return write
+    /// errors. If the filesystem supports file locking operations (
+    /// [`setlk`][PathFilesystem::setlk], [`getlk`][PathFilesystem::getlk]) it should remove all
+    /// locks belonging to `lock_owner`.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn flush(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        lock_owner: u64,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// release an open file. Release is called when there are no more references to an open file:
+    /// all file descriptors are closed and all memory mappings are unmapped. For every open call
+    /// there will be exactly one release call. The filesystem may reply with an error, but error
+    /// values are not returned to `close()` or `munmap()` which triggered the release. `fh` will
+    /// contain the value set by the open method, or will be undefined if the open method didn\'t
+    /// set any value. `flags` will contain the same flags as for open. `flush` means flush the
+    /// data or not when closing file. when `path` is None, it means the path may be deleted.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn release(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        flags: u32,
+        lock_owner: u64,
+        flush: bool,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// synchronize file contents. If the `datasync` is true, then only the user data should be
+    /// flushed, not the metadata. when `path` is None, it means the path may be deleted.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn fsync(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        datasync: bool,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// copy a range of data from one file to another. This can improve performance because it
+    /// reduce data copy: in normal, data will copy from FUSE server to kernel, then to user-space,
+    /// then to kernel, finally send back to FUSE server. By implement this method, data will only
+    /// copy in FUSE server internal.  when `from_path` or `to_path` is None, it means the path may
+    /// be deleted.
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn copy_file_range(
+        &self,
+        req: Request,
+        from_path: Option<&OsStr>,
+        fh_in: u64,
+        offset_in: u64,
+        to_path: Option<&OsStr>,
+        fh_out: u64,
+        offset_out: u64,
+        length: u64,
+        flags: u64,
+    ) -> Result<ReplyCopyFileRange> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// allocate space for an open file. This function ensures that required space is allocated for
+    /// specified file.
+    ///
+    /// # Notes:
+    ///
+    /// more information about `fallocate`, please see **`man 2 fallocate`**
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn fallocate(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        offset: u64,
+        length: u64,
+        mode: u32,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// create a directory.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn mkdir(
+        &self,
+        req: Request,
+        parent: &OsStr,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+    ) -> Result<ReplyEntry> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// remove a directory.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn rmdir(&self, req: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// open a directory. Filesystem may store an arbitrary file handle (pointer, index, etc) in
+    /// `fh`, and use this in other all other directory stream operations
+    /// ([`readdir`][PathFilesystem::readdir], [`releasedir`][PathFilesystem::releasedir],
+    /// [`fsyncdir`][PathFilesystem::fsyncdir]). Filesystem may also implement stateless directory
+    /// I/O and not store anything in `fh`.  A file system need not implement this method if it
+    /// sets [`MountOptions::no_open_dir_support`][crate::MountOptions::no_open_dir_support] and if
+    /// the kernel supports `FUSE_NO_OPENDIR_SUPPORT`.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn opendir(&self, req: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        Ok(ReplyOpen { fh: 1, flags: 0 })
+    }
+
+    /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
+    /// contain the value set by the [`opendir`][PathFilesystem::opendir] method, or will be
+    /// undefined if the [`opendir`][PathFilesystem::opendir] method didn\'t set any value.
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn readdir<'a>(
         &'a self,
-        _req: Request,
+        req: Request,
         path: &'a OsStr,
-        _fh: u64,
+        fh: u64,
         offset: i64,
     ) -> Result<ReplyDirectory<Self::DirEntryStream<'a>>> {
-        println!("readdir");
+        // TODO:
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
 
         let mut entries: Vec<Result<DirectoryEntry>> = Vec::new();
 
@@ -96,7 +531,7 @@ impl PathFilesystem for Fs {
                 kind: FileType::Directory,
             }));
         }
-        if offset <= 1{
+        if offset <= 1 {
             entries.push(Ok(DirectoryEntry {
                 offset: 2,
                 name: OsStr::new("..").into(),
@@ -104,7 +539,7 @@ impl PathFilesystem for Fs {
             }));
         }
 
-        let items = match self.fetch_list_path(path).await {
+        let items = match self.fs.fetch_list_path(path).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
                 tracing::error!("fetch_list_path failed: {err}");
@@ -112,7 +547,8 @@ impl PathFilesystem for Fs {
             }
         };
 
-        let other_entries: Vec<Result<DirectoryEntry>> = items.into_iter()
+        let other_entries: Vec<Result<DirectoryEntry>> = items
+            .into_iter()
             .skip(offset.saturating_sub(2) as usize)
             .enumerate()
             .map(|(idx, item)| {
@@ -134,15 +570,20 @@ impl PathFilesystem for Fs {
         Ok(ReplyDirectory { entries: stream })
     }
 
+    /// read directory entries, but with their attribute, like [`readdir`][PathFilesystem::readdir]
+    /// + [`lookup`][PathFilesystem::lookup] at the same time.
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn readdirplus<'a>(
         &'a self,
-        _req: Request,
-        path: &'a OsStr,
-        _fh: u64,
+        req: Request,
+        parent: &'a OsStr,
+        fh: u64,
         offset: u64,
-        _lock_owner: u64,
+        lock_owner: u64,
     ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
-        println!("readdirplus");
+        // TODO:
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
 
         let mut entries: Vec<Result<DirectoryEntryPlus>> = Vec::new();
 
@@ -151,23 +592,23 @@ impl PathFilesystem for Fs {
                 kind: FileType::Directory,
                 name: OsStr::new(".").into(),
                 offset: 1,
-                attr: self.mock_file_attr(),
+                attr: self.fs.mock_dir_attr().into(),
                 entry_ttl: TTL,
                 attr_ttl: TTL,
             }));
         }
-        if offset <= 1{
+        if offset <= 1 {
             entries.push(Ok(DirectoryEntryPlus {
                 kind: FileType::Directory,
                 name: OsStr::new("..").into(),
                 offset: 2,
-                attr: self.mock_file_attr(),
+                attr: self.fs.mock_dir_attr().into(),
                 entry_ttl: TTL,
                 attr_ttl: TTL,
             }));
         }
 
-        let items = match self.fetch_list_path(path).await {
+        let items = match self.fs.fetch_list_path(parent).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
                 tracing::error!("fetch_list_path failed: {err}");
@@ -175,19 +616,20 @@ impl PathFilesystem for Fs {
             }
         };
 
-        let other_entries: Vec<Result<DirectoryEntryPlus>> = items.into_iter()
+        let other_entries: Vec<Result<DirectoryEntryPlus>> = items
+            .into_iter()
             .skip(offset.saturating_sub(2) as usize)
             .enumerate()
             .map(|(idx, item)| {
-                let kind = match item.item_type {
-                    ItemType::File => FileType::RegularFile,
-                    ItemType::Directory => FileType::Directory,
+                let (kind, attr) = match item.item_type {
+                    ItemType::File => (FileType::RegularFile, self.fs.mock_file_attr()),
+                    ItemType::Directory => (FileType::Directory, self.fs.mock_dir_attr()),
                 };
                 Ok(DirectoryEntryPlus {
                     kind,
                     name: item.name.into(),
                     offset: (offset + idx as u64 + 3) as i64,
-                    attr: self.mock_file_attr(),
+                    attr: attr.into(),
                     entry_ttl: TTL,
                     attr_ttl: TTL,
                 })
@@ -200,684 +642,196 @@ impl PathFilesystem for Fs {
         Ok(ReplyDirectoryPlus { entries: stream })
     }
 
-    async fn opendir(
-        &self,
-        _req: Request,
-        _path: &OsStr,
-        _flags: u32,
-    ) -> Result<ReplyOpen> {
-        println!("opendir");
-        Ok(ReplyOpen {
-            fh: 1,
-            flags: 0,
-        })
-    }
+    /// release an open directory. For every [`opendir`][PathFilesystem::opendir] call there will
+    /// be exactly one `releasedir` call. `fh` will contain the value set by the
+    /// [`opendir`][PathFilesystem::opendir] method, or will be undefined if the
+    /// [`opendir`][PathFilesystem::opendir] method didn\'t set any value.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn releasedir(&self, req: Request, path: &OsStr, fh: u64, flags: u32) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
 
-    async fn releasedir(
-        &self,
-        _req: Request,
-        _path: &OsStr,
-        _fh: u64,
-        _flags: u32,
-    ) -> Result<()> {
-        println!("releasedir");
         Ok(())
     }
 
-
-    /*
-
-    è solo un mock per far funzionare le altre cose...
-    restituiamo un valore di default a caso, i dati veri saranno da collegare poi
-
-     */
-
-    async fn getattr(
-        &self,
-        _req: Request,
-        _path: Option<&OsStr>,
-        _fh: Option<u64>,
-        _flags: u32,
-    ) -> Result<ReplyAttr> {
-        println!("gettattr");
-        let attr = self.mock_file_attr();
-        Ok(ReplyAttr {
-            ttl: TTL,
-            attr
-        })
+    /// synchronize directory contents. If the `datasync` is true, then only the directory contents
+    /// should be flushed, not the metadata. `fh` will contain the value set by the
+    /// [`opendir`][PathFilesystem::opendir] method, or will be undefined if the
+    /// [`opendir`][PathFilesystem::opendir] method didn\'t set any value.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn fsyncdir(&self, req: Request, path: &OsStr, fh: u64, datasync: bool) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
     }
 
-
-    /*
-
-    idem
-
-     */
-
-    async fn lookup(
+    /// rename a file or directory.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn rename(
         &self,
-        _req: Request,
-        _parent: &OsStr,
-        _name: &OsStr) -> Result<ReplyEntry> {
-        println!("lookup");
-        let attr = self.mock_file_attr();
-        Ok(ReplyEntry {
-            ttl: TTL,
-            attr,
-        })
+        req: Request,
+        origin_parent: &OsStr,
+        origin_name: &OsStr,
+        parent: &OsStr,
+        name: &OsStr,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
     }
 
-    /*
-
-
-        async fn forget(&self, _req: Request, _parent: &OsStr, _nlookup: u64) {}
-
-
-
-        async fn setattr(
-            &self,
-            _req: Request,
-            path: Option<&OsStr>,
-            _fh: Option<u64>,
-            set_attr: SetAttr,
-        ) -> Result<ReplyAttr> {
-            let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
-            let paths = split_path(&path);
-
-            let mut entry = &mut self.0.write().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get_mut(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            Ok(ReplyAttr {
-                ttl: TTL,
-                attr: entry.set_attr(set_attr),
-            })
-        }
-
-        async fn mkdir(
-            &self,
-            _req: Request,
-            parent: &OsStr,
-            name: &OsStr,
-            mode: u32,
-            _umask: u32,
-        ) -> Result<ReplyEntry> {
-            let path = parent.to_string_lossy();
-            let paths = split_path(&path);
-
-            let mut entry = &mut self.0.write().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get_mut(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            if let Entry::Dir(dir) = entry {
-                if dir.children.contains_key(name) {
-                    return Err(Errno::new_exist());
-                }
-
-                let entry = Entry::Dir(Dir {
-                    name: name.to_owned(),
-                    children: Default::default(),
-                    mode: mode as mode_t,
-                });
-                let attr = entry.attr();
-
-                dir.children.insert(name.to_owned(), entry);
-
-                Ok(ReplyEntry { ttl: TTL, attr })
-            } else {
-                Err(Errno::new_is_not_dir())
-            }
-        }
-
-        async fn unlink(&self, _req: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
-            let path = parent.to_string_lossy();
-            let paths = split_path(&path);
-
-            let mut entry = &mut self.0.write().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get_mut(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            if let Entry::Dir(dir) = entry {
-                if dir
-                    .children
-                    .get(name)
-                    .ok_or_else(Errno::new_not_exist)?
-                    .is_dir()
-                {
-                    return Err(Errno::new_is_dir());
-                }
-
-                dir.children.remove(name);
-
-                Ok(())
-            } else {
-                Err(Errno::new_is_not_dir())
-            }
-        }
-
-        async fn rmdir(&self, _req: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
-            let path = parent.to_string_lossy();
-            let paths = split_path(&path);
-
-            let mut entry = &mut self.0.write().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get_mut(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            if let Entry::Dir(dir) = entry {
-                let child_dir = dir.children.get(name).ok_or_else(Errno::new_not_exist)?;
-                if let Entry::Dir(child_dir) = child_dir {
-                    if !child_dir.children.is_empty() {
-                        return Err(Errno::from(libc::ENOTEMPTY));
-                    }
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-
-                dir.children.remove(name);
-
-                Ok(())
-            } else {
-                Err(Errno::new_is_not_dir())
-            }
-        }
-
-
-        async fn rename(
-            &self,
-            _req: Request,
-            origin_parent: &OsStr,
-            origin_name: &OsStr,
-            parent: &OsStr,
-            name: &OsStr,
-        ) -> Result<()> {
-            let origin_parent = origin_parent.to_string_lossy();
-            let origin_parent_paths = split_path(&origin_parent);
-
-            let inner_fs = &mut *self.0.write().await;
-            let mut origin_parent_entry = &inner_fs.root;
-
-            for path in &origin_parent_paths {
-                if let Entry::Dir(dir) = origin_parent_entry {
-                    origin_parent_entry = dir
-                        .children
-                        .get(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            if origin_parent_entry.is_file() {
-                return Err(Errno::new_is_not_dir());
-            }
-
-            let mut parent_entry = &inner_fs.root;
-
-            let parent = parent.to_string_lossy();
-            let parent_paths = split_path(&parent);
-
-            for path in &parent_paths {
-                if let Entry::Dir(dir) = parent_entry {
-                    parent_entry = dir
-                        .children
-                        .get(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            if parent_entry.is_file() {
-                return Err(Errno::new_is_not_dir());
-            }
-
-            let mut origin_parent_entry = &mut inner_fs.root;
-
-            for path in origin_parent_paths {
-                if let Entry::Dir(dir) = origin_parent_entry {
-                    origin_parent_entry = dir.children.get_mut(OsStr::new(path)).unwrap();
-                } else {
-                    unreachable!()
-                }
-            }
-
-            let entry = if let Entry::Dir(dir) = origin_parent_entry {
-                dir.children
-                    .remove(origin_name)
-                    .ok_or_else(Errno::new_not_exist)?
-            } else {
-                return Err(Errno::new_is_not_dir());
-            };
-
-            let mut parent_entry = &mut inner_fs.root;
-
-            for path in parent_paths {
-                if let Entry::Dir(dir) = parent_entry {
-                    parent_entry = dir.children.get_mut(OsStr::new(path)).unwrap();
-                } else {
-                    unreachable!()
-                }
-            }
-
-            if let Entry::Dir(dir) = parent_entry {
-                dir.children.insert(name.to_owned(), entry);
-            } else {
-                unreachable!()
-            }
-
-            Ok(())
-        }
-
-        async fn open(&self, _req: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
-            let path = path.to_string_lossy();
-            let paths = split_path(&path);
-
-
-            let mut entry = &self.0.read().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            if entry.is_dir() {
-                Err(Errno::new_is_dir())
-            } else {
-                Ok(ReplyOpen { fh: 0, flags })
-            }
-        }
-
-        async fn read(
-            &self,
-            _req: Request,
-            path: Option<&OsStr>,
-            _fh: u64,
-            offset: u64,
-            size: u32,
-        ) -> Result<ReplyData> {
-            let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
-            let paths = split_path(&path);
-
-
-            let mut entry = &self.0.read().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            let file = if let Entry::File(file) = entry {
-                file
-            } else {
-                return Err(Errno::new_is_dir());
-            };
-
-            let mut cursor = Cursor::new(&file.content);
-            cursor.set_position(offset);
-
-            let size = cursor.remaining().min(size as _);
-
-            let mut data = BytesMut::with_capacity(size);
-            // safety
-            unsafe {
-                data.set_len(size);
-            }
-
-            cursor.read_exact(&mut data).unwrap();
-
-            Ok(ReplyData { data: data.into() })
-        }
-
-
-        async fn write(
-            &self,
-            _req: Request,
-            path: Option<&OsStr>,
-            _fh: u64,
-            offset: u64,
-            data: &[u8],
-            _write_flags: u32,
-            _flags: u32,
-        ) -> Result<ReplyWrite> {
-            let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
-            let paths = split_path(&path);
-
-
-            let mut entry = &mut self.0.write().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get_mut(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            let file = if let Entry::File(file) = entry {
-                file
-            } else {
-                return Err(Errno::new_is_dir());
-            };
-
-            let offset = offset as usize;
-
-            if offset < file.content.len() {
-                let mut content = &mut file.content.as_mut()[offset..];
-
-                if content.len() >= data.len() {
-                    content.write_all(data).unwrap();
-                } else {
-                    content.write_all(&data[..content.len()]).unwrap();
-                    let written = content.len();
-
-                    file.content.put(&data[written..]);
-                }
-            } else {
-                file.content.resize(offset, 0);
-                file.content.put(data);
-            }
-
-            Ok(ReplyWrite {
-                written: data.len() as _,
-            })
-        }
-
-        async fn release(
-            &self,
-            _req: Request,
-            _path: Option<&OsStr>,
-            _fh: u64,
-            _flags: u32,
-            _lock_owner: u64,
-            _flush: bool,
-        ) -> Result<()> {
-            Ok(())
-        }
-
-        async fn fsync(
-            &self,
-            _req: Request,
-            _path: Option<&OsStr>,
-            _fh: u64,
-            _datasync: bool,
-        ) -> Result<()> {
-            Ok(())
-        }
-
-        async fn flush(
-            &self,
-            _req: Request,
-            _path: Option<&OsStr>,
-            _fh: u64,
-            _lock_owner: u64,
-        ) -> Result<()> {
-            Ok(())
-        }
-
-        async fn access(&self, _req: Request, _path: &OsStr, _mask: u32) -> Result<()> {
-            Ok(())
-        }
-
-        async fn create(
-            &self,
-            _req: Request,
-            parent: &OsStr,
-            name: &OsStr,
-            mode: u32,
-            flags: u32,
-        ) -> Result<ReplyCreated> {
-            let path = parent.to_string_lossy();
-            let paths = split_path(&path);
-
-
-            let mut entry = &mut self.0.write().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get_mut(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            if let Entry::Dir(dir) = entry {
-                if dir.children.contains_key(name) {
-                    return Err(Errno::new_exist());
-                }
-
-                let entry = Entry::File(File {
-                    name: name.to_owned(),
-                    content: Default::default(),
-                    mode: mode as mode_t,
-                });
-                let attr = entry.attr();
-
-                dir.children.insert(name.to_owned(), entry);
-
-                Ok(ReplyCreated {
-                    ttl: TTL,
-                    attr,
-                    generation: 0,
-                    fh: 0,
-                    flags,
-                })
-            } else {
-                Err(Errno::new_is_not_dir())
-            }
-        }
-
-        async fn batch_forget(&self, _req: Request, _paths: &[&OsStr]) {}
-
-        // Not supported by fusefs(5) as of FreeBSD 13.0
-        #[cfg(target_os = "linux")]
-        async fn fallocate(
-            &self,
-            _req: Request,
-            path: Option<&OsStr>,
-            _fh: u64,
-            offset: u64,
-            length: u64,
-            mode: u32,
-        ) -> Result<()> {
-            use std::os::raw::c_int;
-
-            let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
-            let paths = split_path(&path);
-
-            let mut entry = &mut self.0.write().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get_mut(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            let file = if let Entry::File(file) = entry {
-                file
-            } else {
-                return Err(Errno::new_is_dir());
-            };
-
-            let offset = offset as usize;
-            let length = length as usize;
-
-            match mode as c_int {
-                0 => {
-                    if offset + length > file.content.len() {
-                        file.content.resize(offset + length, 0);
-                    }
-
-                    Ok(())
-                }
-
-                libc::FALLOC_FL_KEEP_SIZE => {
-                    if offset + length > file.content.len() {
-                        file.content.reserve(offset + length - file.content.len());
-                    }
-
-                    Ok(())
-                }
-
-                _ => Err(Errno::from(libc::EOPNOTSUPP)),
-            }
-        }
-
-        async fn rename2(
-            &self,
-            req: Request,
-            origin_parent: &OsStr,
-            origin_name: &OsStr,
-            parent: &OsStr,
-            name: &OsStr,
-            _flags: u32,
-        ) -> Result<()> {
-            self.rename(req, origin_parent, origin_name, parent, name)
-                .await
-        }
-
-        async fn lseek(
-            &self,
-            _req: Request,
-            path: Option<&OsStr>,
-            _fh: u64,
-            offset: u64,
-            whence: u32,
-        ) -> Result<ReplyLSeek> {
-            let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
-            let paths = split_path(&path);
-
-            let mut entry = &self.0.read().await.root;
-
-            for path in paths {
-                if let Entry::Dir(dir) = entry {
-                    entry = dir
-                        .children
-                        .get(OsStr::new(path))
-                        .ok_or_else(Errno::new_not_exist)?;
-                } else {
-                    return Err(Errno::new_is_not_dir());
-                }
-            }
-
-            let file = if let Entry::File(file) = entry {
-                file
-            } else {
-                return Err(Errno::new_is_dir());
-            };
-
-            let whence = whence as i32;
-
-            let offset = if whence == libc::SEEK_CUR || whence == libc::SEEK_SET {
-                offset
-            } else if whence == libc::SEEK_END {
-                let size = file.content.len();
-
-                if size >= offset as _ {
-                    size as u64 - offset
-                } else {
-                    0
-                }
-            } else {
-                return Err(libc::EINVAL.into());
-            };
-
-            Ok(ReplyLSeek { offset })
-        }
-
-
-
-        async fn copy_file_range(
-            &self,
-            req: Request,
-            from_path: Option<&OsStr>,
-            fh_in: u64,
-            offset_in: u64,
-            to_path: Option<&OsStr>,
-            fh_out: u64,
-            offset_out: u64,
-            length: u64,
-            flags: u64,
-        ) -> Result<ReplyCopyFileRange> {
-            let data = self
-                .read(req, from_path, fh_in, offset_in, length as _)
-                .await?;
-
-            // write_flags set to 0 because we don't care it in this example implement
-            let ReplyWrite { written } = self
-                .write(req, to_path, fh_out, offset_out, &data.data, 0, flags as _)
-                .await?;
-
-            Ok(ReplyCopyFileRange {
-                copied: u64::from(written),
-            })
-        }
-        */
-}
-
-
-fn split_path(path: &str) -> Vec<&str> {
-    if path == "/" {
-        vec![]
-    } else {
-        path.split(SEPARATOR).skip(1).collect()
+    /// rename a file or directory with flags.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn rename2(
+        &self,
+        req: Request,
+        origin_parent: &OsStr,
+        origin_name: &OsStr,
+        parent: &OsStr,
+        name: &OsStr,
+        flags: u32,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// create a hard link.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn link(
+        &self,
+        req: Request,
+        path: &OsStr,
+        new_parent: &OsStr,
+        new_name: &OsStr,
+    ) -> Result<ReplyEntry> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// remove a file.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn unlink(&self, req: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// read symbolic link.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn readlink(&self, req: Request, path: &OsStr) -> Result<ReplyData> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// create a symbolic link.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn symlink(
+        &self,
+        req: Request,
+        parent: &OsStr,
+        name: &OsStr,
+        link_path: &OsStr,
+    ) -> Result<ReplyEntry> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// test for a POSIX file lock.
+    ///
+    /// # Notes:
+    ///
+    /// this is supported on enable **`file-lock`** feature.
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn getlk(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        lock_owner: u64,
+        start: u64,
+        end: u64,
+        r#type: u32,
+        pid: u32,
+    ) -> Result<ReplyLock> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// acquire, modify or release a POSIX file lock."]
+    ///
+    /// # Notes:
+    ///
+    /// this is supported on enable **`file-lock`** feature.
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn setlk(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        lock_owner: u64,
+        start: u64,
+        end: u64,
+        r#type: u32,
+        pid: u32,
+        block: bool,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// handle interrupt. When a operation is interrupted, an interrupt request will send to fuse
+    /// server with the unique id of the operation.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn interrupt(&self, req: Request, unique: u64) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// poll for IO readiness events.
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn poll(
+        &self,
+        req: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        kn: Option<u64>,
+        flags: u32,
+        envents: u32,
+        notify: &Notify,
+    ) -> Result<ReplyPoll> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// receive notify reply from kernel.
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn notify_reply(
+        &self,
+        req: Request,
+        path: &OsStr,
+        offset: u64,
+        data: Bytes,
+    ) -> Result<()> {
+        // TODO:
+        tracing::warn!("[Not Implemented]");
+        Err(libc::ENOSYS.into())
+    }
+
+    /// forget more than one path. This is a batch version [`forget`][PathFilesystem::forget]
+    #[instrument(skip(self))]
+    async fn batch_forget(&self, req: Request, paths: &[&OsStr]) -> () {
+        tracing::debug!("")
     }
 }

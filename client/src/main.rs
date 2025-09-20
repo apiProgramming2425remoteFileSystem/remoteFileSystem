@@ -50,19 +50,16 @@ fn main() {
 }
 */
 
-use fuse3::path::prelude::*;
-use fuse3::MountOptions;
-use tokio::signal;
-use client::fuse::Fs;
 use anyhow;
-use client::{config, logging};
+use fuse3::MountOptions;
+use fuse3::path::prelude::*;
+use tokio::signal;
 
-
-
+use client::fuse::Fs;
+use client::{config, logging, network};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-
     // Load configuration from args/env
     let config = config::Config::from_args()?;
 
@@ -75,28 +72,30 @@ async fn main() -> anyhow::Result<()> {
     tracing::warn!("[WARN]");
     tracing::error!("[ERROR]");
 
-    println!("Done");
+    let base_url = config.server_url.clone() + network::APP_V1_BASE_URL;
 
-    let mount_path = "./mnt"; // just for testing, the one specified in config will be used...
     let mut mount_options = MountOptions::default();
     mount_options.allow_other(true);
 
     // Mount fs
     let mut mount_handle = Session::new(mount_options)
-        .mount(Fs::new(config), mount_path)
+        // .mount_with_unprivileged(Fs::new(&base_url), &config.mountpoint)
+        .mount(Fs::new(&base_url), &config.mountpoint)
         .await?;
 
-    println!("FS mounted in {}", mount_path);
+    tracing::info!("FS mounted in {:?}", config.mountpoint);
 
     let handle = &mut mount_handle;
 
     tokio::select! {
         res = handle => res?,
         _ = signal::ctrl_c() => {
-            println!("Unmounting FS...");
+            tracing::info!("Unmounting FS...");
             mount_handle.unmount().await?;
         }
     };
+
+    println!("Done");
 
     Ok(())
 }
