@@ -29,7 +29,7 @@ pub struct Config {
     pub cache_enabled: bool,
 
     /// Log targets as comma separated list
-    #[arg(short, long, value_enum, value_delimiter = ',', default_values_t = [LogTargets::All],  env = "LOG_TARGETS")]
+    #[arg(short, long, value_enum, value_delimiter = ',', default_values_t = [LogTargets::All], env = "LOG_TARGETS")]
     pub log_targets: Vec<LogTargets>,
 
     /// Log format

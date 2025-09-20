@@ -1,5 +1,6 @@
 use std::ffi::OsStr;
 use std::num::NonZeroU32;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::vec::IntoIter;
 
@@ -85,10 +86,19 @@ impl PathFilesystem for Fs {
         tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
 
-        Ok(ReplyEntry {
-            ttl: TTL,
-            attr: self.fs.mock_dir_attr().into(),
-        })
+        if Path::new(format!("{:?}{:?}", parent, name).as_str()).exists() {
+            let attr = if Path::new(name).is_dir() {
+                self.fs.mock_dir_attr()
+            } else {
+                self.fs.mock_file_attr()
+            };
+            Ok(ReplyEntry {
+                ttl: TTL,
+                attr: attr.into(),
+            })
+        } else {
+            Err(libc::ENOENT.into())
+        }
     }
 
     /// forget an path. The nlookup parameter indicates the number of lookups previously
@@ -121,10 +131,20 @@ impl PathFilesystem for Fs {
         tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
 
-        Ok(ReplyAttr {
-            ttl: TTL,
-            attr: self.fs.mock_file_attr().into(),
-        })
+        match path {
+            Some(s) => {
+                let attr = if Path::new(s).is_dir() {
+                    self.fs.mock_dir_attr()
+                } else {
+                    self.fs.mock_file_attr()
+                };
+                Ok(ReplyAttr {
+                    ttl: TTL,
+                    attr: attr.into(),
+                })
+            }
+            None => Err(libc::ENOSYS.into()),
+        }
     }
 
     /// set file fs_model. If `fh` is None, means `fh` is not set. If `path` is None, means the
@@ -140,7 +160,6 @@ impl PathFilesystem for Fs {
         // TODO:
         tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
-
         let attr = self.fs.mock_file_attr();
         Ok(ReplyAttr {
             ttl: TTL,
@@ -260,8 +279,32 @@ impl PathFilesystem for Fs {
         rdev: u32,
     ) -> Result<ReplyEntry> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        let Ok(fs_type) = fs_model::FileType::try_from(mode) else {
+            return Err(libc::EINVAL.into());
+        };
+
+        let file_attr = self
+            .fs
+            .create_file(
+                req.uid,
+                req.gid,
+                &PathBuf::from(parent),
+                &PathBuf::from(name),
+                &fs_type,
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        Ok(ReplyEntry {
+            ttl: TTL,
+            attr: file_attr.into(),
+        })
     }
 
     /// create and open a file. If the file does not exist, first create it with the specified
@@ -290,8 +333,45 @@ impl PathFilesystem for Fs {
         flags: u32,
     ) -> Result<ReplyCreated> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        let parent_path = PathBuf::from(parent);
+        let name_path = PathBuf::from(name);
+
+        let Ok(fs_type) = fs_model::FileType::try_from(mode) else {
+            return Err(libc::EINVAL.into());
+        };
+        let fs_flags = fs_model::Flags::from(flags);
+
+        if fs_flags.noctt {
+            return Err(libc::EINVAL.into());
+        }
+
+        let file_attr = self
+            .fs
+            .create_file(req.uid, req.gid, &parent_path, &name_path, &fs_type)
+            .await
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        let fh = self
+            .fs
+            .open_file(req.uid, req.gid, &parent_path.join(name_path), &fs_flags)
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        Ok(ReplyCreated {
+            ttl: TTL,
+            attr: file_attr.into(),
+            generation: 0,
+            fh,
+            flags,
+        })
     }
 
     /// open a file. Open flags (with the exception of `O_CREAT`, `O_EXCL` and `O_NOCTTY`) are
@@ -311,8 +391,24 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn open(&self, req: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        let fs_flags = fs_model::Flags::from(flags);
+
+        if fs_flags.create || fs_flags.excl || fs_flags.noctt {
+            return Err(libc::EINVAL.into());
+        }
+
+        let fh = self
+            .fs
+            .open_file(req.uid, req.gid, &PathBuf::from(path), &fs_flags)
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        Ok(ReplyOpen { fh, flags })
     }
 
     /// read data. Read should send exactly the number of bytes requested except on EOF or error,
@@ -331,8 +427,25 @@ impl PathFilesystem for Fs {
         size: u32,
     ) -> Result<ReplyData> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        let file_path = if let Some(p) = path {
+            PathBuf::from(p)
+        } else {
+            return Err(libc::EINVAL.into());
+        };
+
+        let data = self
+            .fs
+            .read_file(req.uid, req.gid, &file_path, offset as usize, size as usize)
+            .await
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        Ok(ReplyData { data: data.into() })
     }
 
     /// write data. Write should return exactly the number of bytes requested except on error. An
@@ -355,8 +468,36 @@ impl PathFilesystem for Fs {
         flags: u32,
     ) -> Result<ReplyWrite> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        let file_path = if let Some(p) = path {
+            PathBuf::from(p)
+        } else {
+            return Err(libc::EINVAL.into());
+        };
+
+        let fs_flags = fs_model::Flags::from(flags);
+
+        let write_data = self
+            .fs
+            .write_file(
+                req.uid,
+                req.gid,
+                &file_path,
+                &fs_flags,
+                offset as usize,
+                data,
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        Ok(ReplyWrite {
+            written: write_data as u32,
+        })
     }
 
     /// flush method. This is called on each `close()` of the opened file. Since file descriptors
@@ -443,8 +584,57 @@ impl PathFilesystem for Fs {
         flags: u64,
     ) -> Result<ReplyCopyFileRange> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+
+        let file_in_path = if let Some(p) = from_path {
+            PathBuf::from(p)
+        } else {
+            return Err(libc::EINVAL.into());
+        };
+
+        let file_out_path = if let Some(p) = to_path {
+            PathBuf::from(p)
+        } else {
+            return Err(libc::EINVAL.into());
+        };
+
+        let data = self
+            .fs
+            .read_file(
+                req.uid,
+                req.gid,
+                &file_in_path,
+                offset_in as usize,
+                length as usize,
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        let fs_flags = fs_model::Flags::from(flags);
+
+        let write_data = self
+            .fs
+            .write_file(
+                req.uid,
+                req.gid,
+                &file_out_path,
+                &fs_flags,
+                length as usize,
+                data.as_slice(),
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        Ok(ReplyCopyFileRange {
+            copied: write_data as u64,
+        })
     }
 
     /// allocate space for an open file. This function ensures that required space is allocated for
@@ -833,5 +1023,38 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self))]
     async fn batch_forget(&self, req: Request, paths: &[&OsStr]) -> () {
         tracing::debug!("")
+    }
+}
+
+impl From<fs_model::FileAttr> for FileAttr {
+    fn from(value: fs_model::FileAttr) -> Self {
+        Self {
+            size: value.size,
+            blocks: value.blocks,
+            atime: value.atime,
+            mtime: value.mtime,
+            ctime: value.ctime,
+            kind: value.kind.into(),
+            perm: value.perm.into(),
+            nlink: value.nlink,
+            uid: value.uid,
+            gid: value.gid,
+            rdev: value.rdev,
+            blksize: value.blksize,
+        }
+    }
+}
+
+impl From<fs_model::FileType> for FileType {
+    fn from(value: fs_model::FileType) -> Self {
+        match value {
+            fs_model::FileType::NamedPipe => Self::NamedPipe,
+            fs_model::FileType::CharDevice => Self::CharDevice,
+            fs_model::FileType::BlockDevice => Self::BlockDevice,
+            fs_model::FileType::Directory => Self::Directory,
+            fs_model::FileType::RegularFile => Self::RegularFile,
+            fs_model::FileType::Symlink => Self::Symlink,
+            fs_model::FileType::Socket => Self::Socket,
+        }
     }
 }

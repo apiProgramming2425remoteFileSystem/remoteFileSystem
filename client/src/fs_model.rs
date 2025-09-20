@@ -1,11 +1,19 @@
 use std::ffi::OsStr;
+use std::path::Path;
 use std::time::SystemTime;
 
-use fuse3::path::prelude::*;
 use tracing::{Level, instrument};
 
 use crate::network::client::RemoteClient;
 use crate::network::models::SerializableFSItem;
+
+pub mod attributes;
+pub mod directory;
+pub mod file;
+
+pub use attributes::*;
+// pub use directory::*;
+// pub use file::*;
 
 #[derive(Debug)]
 pub struct FileSystem {
@@ -33,6 +41,83 @@ impl FileSystem {
         self.remote_client.list_path(path).await
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn create_file(
+        &self,
+        uid: u32,
+        gid: u32,
+        parent: &Path,
+        name: &Path,
+        file_type: &FileType,
+    ) -> anyhow::Result<FileAttr> {
+        // TODO: check access
+
+        let path = parent.join(name);
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        self.remote_client
+            .write_file(path_str, 0, &Vec::new())
+            .await?;
+
+        Ok(self.mock_file_attr())
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn open_file(&self, uid: u32, gid: u32, path: &Path, flags: &Flags) -> anyhow::Result<u64> {
+        // TODO: check access
+
+        // TODO: assign file_handle
+        Ok(0)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn read_file(
+        &self,
+        uid: u32,
+        gid: u32,
+        path: &Path,
+        offset: usize,
+        size: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        // TODO: check access
+
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        let data = self.remote_client.read_file(path_str, offset, size).await?;
+        Ok(data)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn write_file(
+        &self,
+        uid: u32,
+        gid: u32,
+        path: &Path,
+        flags: &Flags,
+        offset: usize,
+        data: &[u8],
+    ) -> anyhow::Result<usize> {
+        // TODO: check access
+
+        if !(flags.writeonly || flags.readwrite) {
+            return Err(anyhow::anyhow!("No write access"));
+        }
+
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        self.remote_client
+            .write_file(path_str, offset, data)
+            .await?;
+
+        Ok(data.len())
+    }
+
     // TODO: remove it later
     pub fn mock_dir_attr(&self) -> FileAttr {
         FileAttr {
@@ -43,7 +128,7 @@ impl FileSystem {
             mtime: SystemTime::now(),
             ctime: SystemTime::now(),
             kind: FileType::Directory,
-            perm: 0o755,
+            perm: Permission::try_from((libc::S_IFDIR | 0o755) as u16).unwrap(),
             nlink: 2,
             uid: 1,
             gid: 1,
@@ -61,7 +146,7 @@ impl FileSystem {
             mtime: SystemTime::now(),
             ctime: SystemTime::now(),
             kind: FileType::RegularFile,
-            perm: 0o755,
+            perm: Permission::try_from((libc::S_IFREG | 0o755) as u16).unwrap(),
             nlink: 2,
             uid: 1,
             gid: 1,
