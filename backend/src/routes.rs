@@ -30,15 +30,12 @@ async fn get_file_content(
     path: web::Path<String>,
 ) -> impl Responder {
     let path = path.into_inner();
-    if let Some(node) = fs.read().unwrap().find_full(&path, None) {
-        let item = node.read().unwrap();
-        if let FSItem::File(f) = item.deref() {
-            HttpResponse::Ok().json(serialize_content(f.content.clone()))
-        } else {
-            HttpResponse::BadRequest().body("Path is not a file.")
-        }
-    } else {
-        HttpResponse::NotFound().body("Path not found")
+
+    match fs.read().unwrap().read_file(&path, 0){
+        Ok(content) => {
+            HttpResponse::Ok().json(STANDARD.encode(content))
+        },
+        Err(e) => HttpResponse::InternalServerError().json(e),
     }
 }
 

@@ -18,13 +18,18 @@ pub struct SerializableFSItem {
 
 #[derive(Serialize)]
 pub struct SerializableFileContent {
-    content: Vec<u8>,
+    content: String, // base-64 decoded data
 }
 
 #[derive(Deserialize)]
 pub struct WriteFileRequest {
     pub offset: usize,
     pub data: String, // accept base64-encoded data as string
+}
+
+#[derive(Deserialize)]
+pub struct ReadFileRequest{
+    pub offset: usize
 }
 
 pub fn serialize_node(node: &FSNode) -> SerializableFSItem {
@@ -39,6 +44,6 @@ pub fn serialize_node(node: &FSNode) -> SerializableFSItem {
     }
 }
 
-pub fn serialize_content(content: Vec<u8>) -> SerializableFileContent {
+pub fn serialize_content(content: String) -> SerializableFileContent {
     SerializableFileContent { content: content }
 }

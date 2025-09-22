@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock, Weak};
@@ -103,6 +103,13 @@ impl File {
         self.size = self.content.len();
 
         Ok(())
+    }
+
+    pub fn read_from(&self, offset: usize) -> Result<Vec<u8>, String>{
+        // This function works only conidering a fictitious file-system
+        let mut result = Vec::<u8>::new();
+        self.content[offset..].clone_into(&mut result);
+        Ok(result.clone())
     }
 }
 
@@ -374,6 +381,44 @@ impl FileSystem {
             }
         } else {
             Err("Path not found".to_string())
+        }
+    }
+
+    pub fn read_file(&self, path: &str, offset: usize) -> Result<Vec<u8>, String>{
+        if let Some(node) = self.find(&path) {
+            let mut item = node.read().unwrap();
+            match item.deref() {
+                FSItem::Directory(_) => Err("Path is a directory, cannot read data.".to_string()),
+                FSItem::File(file_mut) => {
+                    if self.side_effects {
+                        // read the file from the real file system
+                        let real_path = self.make_real_path(node.clone());
+                        let target = PathBuf::from(&real_path);
+
+                        let mut f = fs::OpenOptions::new()
+                            .read(true)
+                            .open(&target)
+                            .map_err(|e| format!("Failed to open file: {}", e))?;
+
+                        // Seek to offset
+                        f.seek(SeekFrom::Start(offset as u64))
+                            .map_err(|e| format!("Failed to seek: {}", e))?;
+
+                        let mut buffer = Vec::<u8>::new();
+                        let bytes_read = f.read(&mut buffer)
+                            .map_err(|e| format!("Failed to read: {}", e))?;
+                        buffer.truncate(bytes_read);
+                        return Ok(buffer);
+                    }
+                    // In-memory read
+                    let start = offset;
+                    let end = std::cmp::min(start, file_mut.content.len());
+                    let data = file_mut.content[start..].to_vec();
+                    Ok(data.clone())
+                }
+            }
+        } else {
+            Err("Path not found.".to_string())
         }
     }
 }
