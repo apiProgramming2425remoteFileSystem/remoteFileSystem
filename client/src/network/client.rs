@@ -1,15 +1,85 @@
-use super::models::*;
-use reqwest::blocking::Client;
-use urlencoding::encode;
+use std::ffi::OsStr;
 
-pub fn list_path(path : &str) -> Option<Vec<SerializableFSItem>>{
-    let client = Client::new();
-    let encoded = encode(path);
-    let url = format!("http://127.0.0.1:8080/list/{}", encoded);
-    println!("DEBUG fetching {}", url);
-    let resp = client
-        .get(url)
-        .send().ok()?
-        .json::<Vec<SerializableFSItem>>().ok()?;
-    Some(resp)
+use anyhow;
+use reqwest::Client;
+use tracing::{Level, instrument};
+use urlencoding;
+
+use super::models::*;
+
+#[derive(Debug)]
+pub struct RemoteClient {
+    base_url: String,
+    http_client: Client,
+}
+
+impl RemoteClient {
+    #[instrument(ret(level = Level::DEBUG))]
+    pub fn new(base_url: &str) -> Self {
+        Self {
+            base_url: base_url.to_string(),
+            http_client: Client::new(),
+        }
+    }
+
+    fn set_url(&self, api: &str, path: &str) -> String {
+        let url = format!("{}/{}/{}", self.base_url, api, urlencoding::encode(path));
+        tracing::debug!("fetching {}", url);
+        return url;
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        let url = self.set_url("list", path_str);
+
+        let resp = self.http_client.get(url).send().await?.error_for_status()?; // propagate HTTP errors as errors
+        let body = resp.json().await?;
+
+        tracing::debug!("response: {:?}", body);
+
+        Ok(body)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn read_file(
+        &self,
+        path: &str,
+        offset: usize,
+        size: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        let url = self.set_url("files", path);
+
+        let resp = self.http_client.get(url).send().await?.error_for_status()?; // propagate HTTP errors as errors
+
+        let body: ReadFile = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+
+        return body
+            .data()
+            .map_err(|_err| anyhow::anyhow!("Invalid base64 data"));
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn write_file(&self, path: &str, offset: usize, data: &[u8]) -> anyhow::Result<()> {
+        let url = self.set_url("files", path);
+
+        let write_file = WriteFile::new(offset, data);
+
+        let resp = self
+            .http_client
+            .put(url)
+            .json(&write_file)
+            .send()
+            .await?
+            .error_for_status()?; // propagate HTTP errors as errors
+
+        let body = resp.text().await?;
+        tracing::debug!("response: {:?}", body);
+
+        Ok(())
+    }
 }
