@@ -662,15 +662,31 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn mkdir(
         &self,
-        req: Request,
+        _req: Request,
         parent: &OsStr,
         name: &OsStr,
-        mode: u32,
-        umask: u32,
+        _mode: u32,
+        _umask: u32,
     ) -> Result<ReplyEntry> {
-        // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        let parent_path = Path::new(parent);
+        let complete_path = parent_path.join(name); 
+        match self.fs.mkdir(complete_path.as_os_str()).await { 
+            Ok(()) => (),
+            Err(err) => {
+                tracing::error!("mkdir failed: {err}");
+                return Err(Errno::from(libc::EIO)); //  generic I/O error
+            }
+        }; 
+        let attr = 
+        if Path::new(name).is_dir() {
+                self.fs.mock_dir_attr()
+            } else {
+                self.fs.mock_file_attr()
+            };
+        Ok(ReplyEntry {
+            ttl: TTL,
+            attr: attr.into(),
+        })
     }
 
     /// remove a directory.
@@ -729,10 +745,10 @@ impl PathFilesystem for Fs {
             }));
         }
 
-        let items = match self.fs.fetch_list_path(path).await {
+        let items = match self.fs.list_path(path).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
-                tracing::error!("fetch_list_path failed: {err}");
+                tracing::error!("list_path failed: {err}");
                 return Err(Errno::from(libc::EIO)); //  generic I/O error
             }
         };
@@ -798,10 +814,10 @@ impl PathFilesystem for Fs {
             }));
         }
 
-        let items = match self.fs.fetch_list_path(parent).await {
+        let items = match self.fs.list_path(parent).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
-                tracing::error!("fetch_list_path failed: {err}");
+                tracing::error!("list_path failed: {err}");
                 return Err(Errno::from(libc::EIO));
             }
         };

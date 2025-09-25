@@ -37,7 +37,7 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn fetch_list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
+    pub async fn list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
         self.remote_client.list_path(path).await
     }
 
@@ -116,6 +116,10 @@ impl FileSystem {
             .await?;
 
         Ok(data.len())
+    }
+
+    pub async fn mkdir(&self, path: &OsStr) -> anyhow::Result<()>{
+        self.remote_client.mkdir(path).await
     }
 
     // TODO: remove it later
