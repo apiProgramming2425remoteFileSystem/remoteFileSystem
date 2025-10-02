@@ -118,7 +118,7 @@ impl FileSystem {
         Ok(data.len())
     }
 
-    pub async fn mkdir(&self, path: &OsStr) -> anyhow::Result<()>{
+    pub async fn mkdir(&self, path: &OsStr) -> anyhow::Result<()> {
         self.remote_client.mkdir(path).await
     }
 
@@ -131,12 +131,14 @@ impl FileSystem {
             atime: SystemTime::now(),
             mtime: SystemTime::now(),
             ctime: SystemTime::now(),
+            crtime: SystemTime::now(),
             kind: FileType::Directory,
-            perm: Permission::try_from((libc::S_IFDIR | 0o755) as u16).unwrap(),
+            perm: Permission::try_from(0o755 as u16).unwrap(),
             nlink: 2,
             uid: 1,
             gid: 1,
             rdev: 0,
+            flags: 0,
         }
     }
 
@@ -149,12 +151,14 @@ impl FileSystem {
             atime: SystemTime::now(),
             mtime: SystemTime::now(),
             ctime: SystemTime::now(),
+            crtime: SystemTime::now(),
             kind: FileType::RegularFile,
-            perm: Permission::try_from((libc::S_IFREG | 0o755) as u16).unwrap(),
+            perm: Permission::try_from(0o755 as u16).unwrap(),
             nlink: 2,
             uid: 1,
             gid: 1,
             rdev: 0,
+            flags: 0,
         }
     }
 }

@@ -50,16 +50,18 @@ fn main() {
 }
 */
 
-use anyhow;
+use client::error::ClientError;
 use fuse3::MountOptions;
 use fuse3::path::prelude::*;
 use tokio::signal;
 
 use client::fuse::Fs;
-use client::{config, logging, network};
+use client::{config, error, logging, network};
+
+type Result<T> = std::result::Result<T, error::ClientError>;
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     // Load configuration from args/env
     let config = config::Config::from_args()?;
 
@@ -81,17 +83,18 @@ async fn main() -> anyhow::Result<()> {
     let mut mount_handle = Session::new(mount_options)
         // .mount_with_unprivileged(Fs::new(&base_url), &config.mountpoint)
         .mount(Fs::new(&base_url), &config.mountpoint)
-        .await?;
+        .await
+        .map_err(|op| ClientError::Daemon(error::DaemonError::StartFailed(op.to_string())))?;
 
     tracing::info!("FS mounted in {:?}", config.mountpoint);
 
     let handle = &mut mount_handle;
 
     tokio::select! {
-        res = handle => res?,
+        res = handle => res.map_err(|op| ClientError::Daemon(error::DaemonError::SignalError(op.to_string())))?,
         _ = signal::ctrl_c() => {
             tracing::info!("Unmounting FS...");
-            mount_handle.unmount().await?;
+            mount_handle.unmount().await.map_err(|op| ClientError::Daemon(error::DaemonError::SignalError(op.to_string())))?;
         }
     };
 

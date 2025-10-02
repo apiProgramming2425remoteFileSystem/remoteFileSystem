@@ -342,7 +342,9 @@ impl PathFilesystem for Fs {
         let Ok(fs_type) = fs_model::FileType::try_from(mode) else {
             return Err(libc::EINVAL.into());
         };
-        let fs_flags = fs_model::Flags::from(flags);
+        let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
+            return Err(libc::EINVAL.into());
+        };
 
         if fs_flags.noctt {
             return Err(libc::EINVAL.into());
@@ -394,7 +396,9 @@ impl PathFilesystem for Fs {
         // tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
 
-        let fs_flags = fs_model::Flags::from(flags);
+        let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
+            return Err(libc::EINVAL.into());
+        };
 
         if fs_flags.create || fs_flags.excl || fs_flags.noctt {
             return Err(libc::EINVAL.into());
@@ -477,7 +481,9 @@ impl PathFilesystem for Fs {
             return Err(libc::EINVAL.into());
         };
 
-        let fs_flags = fs_model::Flags::from(flags);
+        let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
+            return Err(libc::EINVAL.into());
+        };
 
         let write_data = self
             .fs
@@ -614,7 +620,9 @@ impl PathFilesystem for Fs {
                 libc::ENOSYS
             })?;
 
-        let fs_flags = fs_model::Flags::from(flags);
+        let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
+            return Err(libc::EINVAL.into());
+        };
 
         let write_data = self
             .fs
@@ -669,20 +677,19 @@ impl PathFilesystem for Fs {
         _umask: u32,
     ) -> Result<ReplyEntry> {
         let parent_path = Path::new(parent);
-        let complete_path = parent_path.join(name); 
-        match self.fs.mkdir(complete_path.as_os_str()).await { 
+        let complete_path = parent_path.join(name);
+        match self.fs.mkdir(complete_path.as_os_str()).await {
             Ok(()) => (),
             Err(err) => {
                 tracing::error!("mkdir failed: {err}");
                 return Err(Errno::from(libc::EIO)); //  generic I/O error
             }
-        }; 
-        let attr = 
-        if Path::new(name).is_dir() {
-                self.fs.mock_dir_attr()
-            } else {
-                self.fs.mock_file_attr()
-            };
+        };
+        let attr = if Path::new(name).is_dir() {
+            self.fs.mock_dir_attr()
+        } else {
+            self.fs.mock_file_attr()
+        };
         Ok(ReplyEntry {
             ttl: TTL,
             attr: attr.into(),

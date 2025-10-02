@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use crate::error::ConfigError;
 use crate::logging::{LogFormat, LogLevel, LogRotation, LogTargets};
 
-use anyhow;
 use clap::Parser;
 use dotenvy;
 
@@ -11,6 +11,8 @@ pub const DEFAULT_LOG_DIR: &'static str = "./logs";
 pub const DEFAULT_LOG_FILE_NAME: &'static str = "remote_fs_client";
 pub const DEFAULT_LOG_FILE_EXT: &'static str = "log";
 pub const DEFAULT_LOG_FILE_ROT: &'static str = "never";
+
+type Result<T> = std::result::Result<T, ConfigError>;
 
 /// Application configuration that includes logging settings.
 #[derive(Parser, Debug)]
@@ -72,9 +74,9 @@ pub struct Config {
 
 impl Config {
     /// Parse config from CLI and environment variables
-    pub fn from_args() -> anyhow::Result<Self> {
+    pub fn from_args() -> Result<Self> {
         // Load .env variables
-        dotenvy::dotenv()?;
+        dotenvy::dotenv().map_err(|op| ConfigError::EnvVar(op.to_string()))?;
 
         let mut config = Config::parse();
         config.normalize_targets();
