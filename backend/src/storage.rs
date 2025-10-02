@@ -106,7 +106,7 @@ impl File {
         Ok(())
     }
 
-    pub fn read_from(&self, offset: usize) -> Result<Vec<u8>, String>{
+    pub fn read_from(&self, offset: usize) -> Result<Vec<u8>, String> {
         // This function works only conidering a fictitious file-system
         let mut result = Vec::<u8>::new();
         self.content[offset..].clone_into(&mut result);
@@ -397,9 +397,9 @@ impl FileSystem {
         }
     }
 
-    pub fn read_file(&self, path: &str, offset: usize) -> Result<Vec<u8>, String>{
+    pub fn read_file(&self, path: &str, offset: usize) -> Result<Vec<u8>, String> {
         if let Some(node) = self.find(&path) {
-            let mut item = node.read().unwrap();
+            let item = node.read().unwrap();
             match item.deref() {
                 FSItem::Directory(_) => Err("Path is a directory, cannot read data.".to_string()),
                 FSItem::File(file_mut) => {
@@ -418,15 +418,14 @@ impl FileSystem {
                             .map_err(|e| format!("Failed to seek: {}", e))?;
 
                         let mut buffer = Vec::<u8>::new();
-                        let bytes_read = f.read(&mut buffer)
+                        let bytes_read = f
+                            .read(&mut buffer)
                             .map_err(|e| format!("Failed to read: {}", e))?;
                         buffer.truncate(bytes_read);
                         return Ok(buffer);
                     }
                     // In-memory read
-                    let start = offset;
-                    let end = std::cmp::min(start, file_mut.content.len());
-                    let data = file_mut.content[start..].to_vec();
+                    let data = file_mut.content[offset..].to_vec();
                     Ok(data.clone())
                 }
             }

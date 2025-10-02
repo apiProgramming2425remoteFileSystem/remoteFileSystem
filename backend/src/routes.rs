@@ -49,10 +49,8 @@ async fn get_file_content(
 ) -> impl Responder {
     let path = path.into_inner();
 
-    match fs.read().unwrap().read_file(&path, 0){
-        Ok(content) => {
-            HttpResponse::Ok().json(STANDARD.encode(content))
-        },
+    match fs.read().unwrap().read_file(&path, 0) {
+        Ok(content) => HttpResponse::Ok().json(SerializableFileContent::new(&content)),
         Err(e) => HttpResponse::InternalServerError().json(e),
     }
 }
