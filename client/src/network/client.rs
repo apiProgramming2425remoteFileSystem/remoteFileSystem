@@ -28,6 +28,12 @@ impl RemoteClient {
         return url;
     }
 
+    fn set_short_url(&self, api: &str) -> String {
+        let url = format!("{}/{}", self.base_url, api);
+        tracing::debug!("fetching {}", url);
+        return url;
+    }
+
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
         let path_str = path
@@ -95,5 +101,13 @@ impl RemoteClient {
         Ok(())
     }
 
-
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> anyhow::Result<()> {
+        let old_path_str = old_path.to_str().ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+        let new_path_str = new_path.to_str().ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+        let url = self.set_short_url("rename");
+        let rename_req = RenameRequest::new(String::from(old_path_str), String::from(new_path_str));
+        self.http_client.post(url).json(&rename_req).send().await?.error_for_status()?;
+        Ok(())
+    }
 }

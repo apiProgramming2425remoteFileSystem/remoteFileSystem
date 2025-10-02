@@ -122,6 +122,10 @@ impl FileSystem {
         self.remote_client.mkdir(path).await
     }
 
+    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> anyhow::Result<()> {
+        self.remote_client.rename(old_path, new_path).await
+    }
+
     // TODO: remove it later
     pub fn mock_dir_attr(&self) -> FileAttr {
         FileAttr {

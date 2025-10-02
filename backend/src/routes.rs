@@ -17,7 +17,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(get_file_content)
             .service(write_file)
             .service(make_directory)
-            .service(delete_item),
+            .service(delete_item)
+            .service(rename),
     );
 }
 
@@ -101,3 +102,23 @@ async fn delete_item(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>)
         Err(s) => HttpResponse::BadRequest().body(s),
     }
 }
+
+#[put("/rename")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn rename(
+    fs: web::Data<RwLock<FileSystem>>,
+    json: web::Json<RenameRequest>
+) -> impl Responder {
+    let mut fs = fs.write().unwrap(); // write lock, modificheremo la struttura
+
+    let old_path = json.old_path();
+    let new_path = json.new_path();
+
+    match fs.move_node(&old_path, &new_path){
+        Ok(()) => HttpResponse::Ok().body("Successful renaming!"),
+        Err(()) => HttpResponse::BadRequest().body("Something went wrong"),
+    }
+
+}
+
+

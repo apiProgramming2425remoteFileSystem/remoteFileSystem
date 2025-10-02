@@ -3,7 +3,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock, Weak};
-
+use actix_web::HttpResponse;
 use walkdir::WalkDir;
 
 pub enum FSItem {
@@ -432,5 +432,51 @@ impl FileSystem {
         } else {
             Err("Path not found.".to_string())
         }
+    }
+
+    pub fn move_node(&self, old_path: &str, new_path: &str) -> Result<(), ()> {
+        let (old_parent_path, old_name) = match old_path.rsplit_once('/') {
+            Some((p, name)) => (p, name),
+            None => return Err(()),
+        };
+        let parent_old = match self.find(old_parent_path) {
+            Some(n) => n,
+            None => return Err(()),
+        };
+        let (new_parent_path, new_name) = match new_path.rsplit_once('/') {
+            Some((p, name)) => (p, name),
+            None => return Err(()),
+        };
+
+        if old_parent_path == new_parent_path{
+            return match self.rename(old_path, new_name){
+                Ok(()) => Ok(()),
+                Err(_) => Err(()),
+            }
+        }
+
+        let parent_new = match self.find(new_parent_path) {
+            Some(n) => n,
+            None => return Err(()),
+        };
+
+
+        let mut parent_old_guard = parent_old.write().unwrap();
+        let node_to_move = match parent_old_guard.get_children()
+            .unwrap()
+            .iter()
+            .find(|child| child.read().unwrap().name() == old_name)
+        {
+            Some(node) => node.clone(),
+            None => return Err(()),
+        };
+
+        parent_old_guard.remove(old_name);
+        node_to_move.write().unwrap().set_name(&new_name);
+
+        let mut parent_new_guard = parent_new.write().unwrap();
+        parent_new_guard.add(node_to_move);
+
+        Ok(())
     }
 }
