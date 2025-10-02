@@ -126,6 +126,10 @@ impl FileSystem {
         self.remote_client.rename(old_path, new_path).await
     }
 
+    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()>{
+        self.remote_client.remove(path).await
+    }
+
     // TODO: remove it later
     pub fn mock_dir_attr(&self) -> FileAttr {
         FileAttr {

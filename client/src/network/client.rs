@@ -110,4 +110,14 @@ impl RemoteClient {
         self.http_client.post(url).json(&rename_req).send().await?.error_for_status()?;
         Ok(())
     }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()>{
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+        let url = self.set_url("files", path_str);
+        self.http_client.delete(url).send().await?.error_for_status()?;
+        Ok(())
+    }
 }

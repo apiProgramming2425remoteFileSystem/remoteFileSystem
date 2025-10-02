@@ -700,8 +700,13 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn rmdir(&self, req: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+        let path = Path::new(parent).join(name);
+        match self.fs.remove(path.as_os_str()).await {
+            Ok(()) => Ok(()),
+            Err(err) => Err(Errno::from(libc::EIO)),
+        }
     }
 
     /// open a directory. Filesystem may store an arbitrary file handle (pointer, index, etc) in
@@ -934,8 +939,13 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn unlink(&self, req: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
-        Err(libc::ENOSYS.into())
+        // tracing::warn!("[Not Implemented]");
+        // Err(libc::ENOSYS.into())
+        let path = Path::new(parent).join(name);
+        match self.fs.remove(path.as_os_str()).await {
+            Ok(()) => Ok(()),
+            Err(err) => Err(Errno::from(libc::EIO)),
+        }
     }
 
     /// read symbolic link.
