@@ -1,6 +1,6 @@
 use anyhow;
 
-use backend::{config, logging};
+use server::{config, logging, run_server};
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::warn!("[WARN]");
     tracing::error!("[ERROR]");
 
-    backend::run_server(&config.server_host, config.port).await?;
+    run_server(&config.server_host, config.port).await?;
 
     Ok(())
 }
