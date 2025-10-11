@@ -435,6 +435,12 @@ impl FileSystem {
     }
 
     pub fn move_node(&self, old_path: &str, new_path: &str) -> Result<(), ()> {
+
+        // avoid moving a dir in its children (mv a/b a/b/c/d)
+        if new_path == old_path || new_path.starts_with(&format!("{old_path}/")) {
+            return Err(());
+        }
+
         let (old_parent_path, old_name) = match old_path.rsplit_once('/') {
             Some((p, name)) => (p, name),
             None => return Err(()),
