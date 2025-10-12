@@ -894,7 +894,11 @@ impl PathFilesystem for Fs {
         // Err(libc::ENOSYS.into())
         let old_path = Path::new(origin_parent).join(origin_name);
         let new_path = Path::new(parent).join(name);
-        match self.fs.rename(old_path.as_os_str(), new_path.as_os_str()).await{
+        match self
+            .fs
+            .rename(old_path.as_os_str(), new_path.as_os_str())
+            .await
+        {
             Ok(_) => Ok(()),
             Err(err) => Err(Errno::from(libc::ENOENT)),
         }

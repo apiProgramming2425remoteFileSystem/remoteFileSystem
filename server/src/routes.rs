@@ -1,11 +1,10 @@
-use std::ops::Deref;
 use std::sync::RwLock;
 
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use tracing::{Level, instrument};
 
 use crate::models::*;
-use crate::storage::{FSItem, FileSystem};
+use crate::storage::FileSystem;
 
 const APP_V1_BASE_URL: &str = "/api/v1";
 
@@ -107,18 +106,15 @@ async fn delete_item(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>)
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn rename(
     fs: web::Data<RwLock<FileSystem>>,
-    json: web::Json<RenameRequest>
+    json: web::Json<RenameRequest>,
 ) -> impl Responder {
-    let mut fs = fs.write().unwrap(); // write lock, modificheremo la struttura
+    let fs = fs.write().unwrap(); // write lock, modificheremo la struttura
 
     let old_path = json.old_path();
     let new_path = json.new_path();
 
-    match fs.move_node(&old_path, &new_path){
+    match fs.move_node(&old_path, &new_path) {
         Ok(()) => HttpResponse::Ok().body("Successful renaming!"),
         Err(()) => HttpResponse::BadRequest().body("Something went wrong"),
     }
-
 }
-
-

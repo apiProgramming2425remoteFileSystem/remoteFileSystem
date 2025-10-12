@@ -3,7 +3,7 @@ FROM rust:slim as builder
 
 ARG app_path=/usr/src
 
-WORKDIR ${app_path}/backend
+WORKDIR ${app_path}/server
 COPY . .
 
 RUN cargo build --release
@@ -12,10 +12,10 @@ RUN cargo build --release
 FROM ubuntu:latest
 
 ARG app_path=/usr/src
-ARG remote_fs_backend=remote_fs_backend
+ARG remote_fs_server=remote_fs_server
 
-COPY --from=builder ${app_path}/backend/target/release/${remote_fs_backend} /usr/local/bin/remote_fs_backend
+COPY --from=builder ${app_path}/server/target/release/${remote_fs_server} /usr/local/bin/remote_fs_server
 
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/remote_fs_backend"]
+ENTRYPOINT ["/usr/local/bin/remote_fs_server"]

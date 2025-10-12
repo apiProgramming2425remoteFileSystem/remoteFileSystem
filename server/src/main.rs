@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::warn!("[WARN]");
     tracing::error!("[ERROR]");
 
-    run_server(&config.server_host, config.port).await?;
+    run_server(&config.server_host, config.port, &config.filesystem_root).await?;
 
     Ok(())
 }

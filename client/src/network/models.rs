@@ -40,15 +40,14 @@ impl WriteFile {
     }
 }
 
-
 #[derive(Debug, Serialize)]
-pub struct RenameRequest{
+pub struct RenameRequest {
     old_path: String,
-    new_path: String
+    new_path: String,
 }
 
 impl RenameRequest {
     pub fn new(old_path: String, new_path: String) -> Self {
-        RenameRequest {old_path, new_path }
+        RenameRequest { old_path, new_path }
     }
 }

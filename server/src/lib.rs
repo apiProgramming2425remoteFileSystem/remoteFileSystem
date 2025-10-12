@@ -12,8 +12,11 @@ pub mod models;
 pub mod routes;
 pub mod storage;
 
-fn create_file_system_with_structure() -> storage::FileSystem {
-    let mut fs = storage::FileSystem::new();
+use storage::FileSystem;
+
+/*
+fn create_file_system_with_structure() -> FileSystem {
+    let mut fs = FileSystem::new(".", false);
 
     fs.make_dir("/", "home").unwrap();
     fs.change_dir("/home").unwrap();
@@ -26,10 +29,11 @@ fn create_file_system_with_structure() -> storage::FileSystem {
     fs.make_file(".", "file.txt").unwrap();
     fs
 }
+*/
 
-pub async fn run_server(host: &str, port: u16) -> anyhow::Result<()> {
-    tracing::info!("Starting backend server at {}:{}", host, port);
-    let fs = web::Data::new(RwLock::new(create_file_system_with_structure()));
+pub async fn run_server(host: &str, port: u16, fs_home: &str) -> anyhow::Result<()> {
+    tracing::info!("Starting server at {}:{}", host, port);
+    let fs = web::Data::new(RwLock::new(FileSystem::from_file_system(fs_home, true)));
 
     HttpServer::new(move || {
         App::new()
