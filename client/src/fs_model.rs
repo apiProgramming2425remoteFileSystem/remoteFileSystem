@@ -1,9 +1,13 @@
+use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 use tracing::{Level, instrument};
 
+use crate::error::FsModelError;
 use crate::network::client::RemoteClient;
 use crate::network::models::SerializableFSItem;
 
@@ -15,9 +19,20 @@ pub use attributes::*;
 // pub use directory::*;
 // pub use file::*;
 
+type Result<T> = std::result::Result<T, FsModelError>;
+
+static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug)]
+struct FileHandler {
+    file_path: PathBuf,
+    attr: FileAttr,
+}
+
 #[derive(Debug)]
 pub struct FileSystem {
     remote_client: RemoteClient,
+    file_handlers: RwLock<HashMap<u64, FileHandler>>,
 }
 
 /// pub async fn template_fn(&self, args) -> Result<> {
@@ -33,12 +48,16 @@ impl FileSystem {
     pub fn new(base_url: &str) -> Self {
         Self {
             remote_client: RemoteClient::new(base_url),
+            file_handlers: RwLock::new(HashMap::new()),
         }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
-        self.remote_client.list_path(path).await
+    pub async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
+        self.remote_client
+            .list_path(path)
+            .await
+            .map_err(|op| FsModelError::Backend(op))
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -46,30 +65,65 @@ impl FileSystem {
         &self,
         uid: u32,
         gid: u32,
-        parent: &Path,
-        name: &Path,
+        path: &Path,
         file_type: &FileType,
-    ) -> anyhow::Result<FileAttr> {
+        offset: usize,
+        data: &[u8],
+    ) -> Result<FileAttr> {
         // TODO: check access
 
-        let path = parent.join(name);
         let path_str = path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         self.remote_client
-            .write_file(path_str, 0, &Vec::new())
+            .write_file(path_str, offset, data)
             .await?;
 
         Ok(self.mock_file_attr())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn open_file(&self, uid: u32, gid: u32, path: &Path, flags: &Flags) -> anyhow::Result<u64> {
+    pub fn open_file(&self, uid: u32, gid: u32, path: &Path, flags: &Flags) -> Result<u64> {
         // TODO: check access
 
-        // TODO: assign file_handle
-        Ok(0)
+        let fh = CURRENT_FH.fetch_add(1, Ordering::Relaxed);
+
+        let handler = FileHandler {
+            file_path: path.into(),
+            attr: self.mock_file_attr(),
+        };
+
+        let mut guad = self
+            .file_handlers
+            .write()
+            .map_err(|_| anyhow::anyhow!(""))?;
+
+        guad.insert(fh, handler);
+
+        Ok(fh)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn release_file(
+        &self,
+        uid: u32,
+        gid: u32,
+        path: &Path,
+        flags: &Flags,
+        fh: u64,
+        lock_owner: u64,
+    ) -> Result<()> {
+        // TODO: check access
+
+        let mut guad = self
+            .file_handlers
+            .write()
+            .map_err(|_| anyhow::anyhow!(""))?;
+
+        guad.remove(&fh);
+
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -80,12 +134,12 @@ impl FileSystem {
         path: &Path,
         offset: usize,
         size: usize,
-    ) -> anyhow::Result<Vec<u8>> {
+    ) -> Result<Vec<u8>> {
         // TODO: check access
 
         let path_str = path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         let data = self.remote_client.read_file(path_str, offset, size).await?;
         Ok(data)
@@ -100,16 +154,16 @@ impl FileSystem {
         flags: &Flags,
         offset: usize,
         data: &[u8],
-    ) -> anyhow::Result<usize> {
+    ) -> Result<usize> {
         // TODO: check access
 
         if !(flags.writeonly || flags.readwrite) {
-            return Err(anyhow::anyhow!("No write access"));
+            return Err(FsModelError::PermissionDenied);
         }
 
         let path_str = path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         self.remote_client
             .write_file(path_str, offset, data)
@@ -118,15 +172,21 @@ impl FileSystem {
         Ok(data.len())
     }
 
-    pub async fn mkdir(&self, path: &OsStr) -> anyhow::Result<()> {
-        self.remote_client.mkdir(path).await
+    pub async fn mkdir(&self, path: &OsStr) -> Result<()> {
+        self.remote_client
+            .mkdir(path)
+            .await
+            .map_err(|op| FsModelError::Backend(op))
     }
 
-    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> anyhow::Result<()> {
-        self.remote_client.rename(old_path, new_path).await
+    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> Result<()> {
+        self.remote_client
+            .rename(old_path, new_path)
+            .await
+            .map_err(|op| FsModelError::Backend(op))
     }
 
-    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()>{
+    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()> {
         self.remote_client.remove(path).await
     }
 

@@ -65,14 +65,19 @@ impl WriteFileRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RenameRequest{
+pub struct RenameRequest {
     old_path: String,
-    new_path: String
+    new_path: String,
 }
 
-impl RenameRequest{
-    pub fn new(old_path: String, new_path: String) -> Self { Self { old_path, new_path } }
-    pub fn new_path(&self) -> String { self.new_path.clone() }
-    pub fn old_path(&self) -> String { self.old_path.clone() }
-
+impl RenameRequest {
+    pub fn new(old_path: String, new_path: String) -> Self {
+        Self { old_path, new_path }
+    }
+    pub fn new_path(&self) -> String {
+        self.new_path.clone()
+    }
+    pub fn old_path(&self) -> String {
+        self.old_path.clone()
+    }
 }
