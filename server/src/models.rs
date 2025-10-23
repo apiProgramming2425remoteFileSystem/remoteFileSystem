@@ -3,7 +3,7 @@ use std::ops::Deref;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{FSItem, FSNode};
+use crate::nodes::{FSItem, FSNode};
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -20,7 +20,7 @@ pub struct SerializableFSItem {
 
 impl SerializableFSItem {
     pub fn new(node: &FSNode) -> Self {
-        let item = node.read().unwrap();
+        let item = node.read();
         let item_type = match item.deref() {
             FSItem::File(_) => ItemType::File,
             FSItem::Directory(_) => ItemType::Directory,

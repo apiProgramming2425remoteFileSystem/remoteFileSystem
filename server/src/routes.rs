@@ -26,8 +26,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 async fn list_path(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     if let Some(node) = fs.read().unwrap().find(&path) {
-        let item = node.read().unwrap();
-        if let Some(children_nodes) = item.get_children() {
+        let item = node.read();
+        if let Some(children_nodes) = item.get_childrens() {
             let children: Vec<SerializableFSItem> = children_nodes
                 .iter()
                 .map(|child| SerializableFSItem::new(child))

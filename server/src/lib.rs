@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod logging;
 pub mod models;
+pub mod nodes;
 pub mod routes;
 pub mod storage;
 
@@ -33,7 +34,7 @@ fn create_file_system_with_structure() -> FileSystem {
 
 pub async fn run_server(host: &str, port: u16, fs_home: &str) -> anyhow::Result<()> {
     tracing::info!("Starting server at {}:{}", host, port);
-    let fs = web::Data::new(RwLock::new(FileSystem::from_file_system(fs_home, true)));
+    let fs = web::Data::new(RwLock::new(FileSystem::from_file_system(fs_home)));
 
     HttpServer::new(move || {
         App::new()
