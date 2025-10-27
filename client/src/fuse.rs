@@ -16,7 +16,6 @@ use libc;
 use tracing::{Level, instrument};
 
 const TTL: Duration = Duration::from_secs(1);
-const SEPARATOR: char = '/';
 
 type Result<T> = std::result::Result<T, FuseError>;
 type SetAttr = crate::fs_model::attributes::SetAttr;

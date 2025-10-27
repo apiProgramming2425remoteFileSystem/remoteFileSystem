@@ -1,20 +1,22 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use crate::error::ConfigError;
 use crate::logging::{LogFormat, LogLevel, LogRotation, LogTargets};
 
-use anyhow;
 use clap::Parser;
 use dotenvy;
 
 pub const DEFAULT_LOG_DIR: &'static str = "./logs";
-pub const DEFAULT_LOG_FILE_NAME: &'static str = "remote_fs_backend";
+pub const DEFAULT_LOG_FILE_NAME: &'static str = "remote_fs_server";
 pub const DEFAULT_LOG_FILE_EXT: &'static str = "log";
 pub const DEFAULT_LOG_FILE_ROT: &'static str = "never";
 
+type Result<T> = std::result::Result<T, ConfigError>;
+
 /// Application configuration that includes logging settings.
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Remote Filesystem Backend")]
+#[command(author, version, about = "Remote Filesystem Server")]
 pub struct Config {
     /// Server hostname or IP to bind to
     #[arg(short, long, env = "SERVER_HOST")]
@@ -23,6 +25,10 @@ pub struct Config {
     /// Server port to listen on
     #[arg(short, long, env = "SERVER_PORT")]
     pub port: u16,
+
+    /// Root directory for the remote filesystem
+    #[arg(short, long, env = "FS_ROOT")]
+    pub filesystem_root: PathBuf,
 
     /// Log targets as comma separated list
     #[arg(short, long, value_enum, value_delimiter = ',', default_values_t = [LogTargets::All],  env = "LOG_TARGETS")]
@@ -68,9 +74,9 @@ pub struct Config {
 
 impl Config {
     /// Parse config from CLI and environment variables
-    pub fn from_args() -> anyhow::Result<Self> {
+    pub fn from_args() -> Result<Self> {
         // Load .env variables
-        dotenvy::dotenv()?;
+        dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()))?;
 
         let mut config = Config::parse();
         config.normalize_targets();

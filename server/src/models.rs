@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{FSItem, FSNode};
+use crate::nodes::{FSItem, FSNode};
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -21,7 +21,7 @@ pub struct SerializableFSItem {
 
 impl SerializableFSItem {
     pub fn new(node: &FSNode) -> Self {
-        let item = node.read().unwrap();
+        let item = node.read();
         let item_type = match item.deref() {
             FSItem::File(_) => ItemType::File,
             FSItem::Directory(_) => ItemType::Directory,
@@ -83,27 +83,27 @@ impl RenameRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SetAttrRequest{
+pub struct SetAttrRequest {
     pub uid: u32,
-    pub gid: u32, 
-    pub setattr:  SetAttr,
+    pub gid: u32,
+    pub setattr: SetAttr,
 }
 
 impl SetAttrRequest {
-    pub fn uid(&self) -> u32{
+    pub fn uid(&self) -> u32 {
         self.uid
     }
 
-    pub fn gid(&self) -> u32{
+    pub fn gid(&self) -> u32 {
         self.gid
     }
 
-    pub fn setattr(&self) -> SetAttr{
+    pub fn setattr(&self) -> SetAttr {
         self.setattr.clone()
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq,)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Permission type
 pub struct PermissionType {
     /// Read permission
@@ -114,7 +114,7 @@ pub struct PermissionType {
     pub execute: bool,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq,)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Permission
 pub struct Permission {
     /// Permissions for the file owner.
@@ -155,7 +155,7 @@ pub struct FileAttr {
     /// Flags (macOS only, see chflags(2))
     pub flags: u32,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq,)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Timestamp {
     pub sec: i64,
     pub nsec: u32,
@@ -173,8 +173,8 @@ impl From<SystemTime> for Timestamp {
     }
 }
 
-impl From<Timestamp> for SystemTime{
-    fn from(t: Timestamp) -> Self{
+impl From<Timestamp> for SystemTime {
+    fn from(t: Timestamp) -> Self {
         let duration = Duration::new(t.sec as u64, t.nsec);
         UNIX_EPOCH.checked_add(duration).unwrap()
     }
@@ -224,7 +224,7 @@ pub struct SetAttr {
 }
 
 #[derive(Debug, Serialize)]
-pub struct Stats{
+pub struct Stats {
     pub blocks: u64,
     pub bfree: u64,
     pub bavail: u64,

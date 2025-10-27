@@ -1,4 +1,3 @@
-use anyhow;
 use clap::ValueEnum;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::Rotation;
@@ -6,6 +5,7 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, Layer, Registry, fmt};
 
 use crate::config::Config;
+use crate::error::LoggingError;
 
 mod console;
 mod file;
@@ -93,6 +93,8 @@ pub struct Logging {
     _layers: LogLayer,
 }
 
+type Result<T> = std::result::Result<T, LoggingError>;
+
 impl Logging {
     pub fn new(
         _targets: Vec<LogTargets>,
@@ -109,9 +111,10 @@ impl Logging {
     }
 
     /// Initialize logging from configuration, returning the constructed Logging struct to keep alive.
-    pub fn from(config: &Config) -> anyhow::Result<Self> {
+    pub fn from(config: &Config) -> Result<Self> {
         // Build environment filter string from log level
-        let env_filter = EnvFilter::try_new(config.log_level.to_string())?;
+        let env_filter = EnvFilter::try_new(config.log_level.to_string())
+            .map_err(|err| LoggingError::InvalidValue(err.to_string()))?;
 
         let mut layers = LogLayer::new();
         for target in &config.log_targets {
@@ -141,7 +144,8 @@ impl Logging {
             tracing_subscriber::registry()
                 .with(layer)
                 .with(env_filter)
-                .try_init()?;
+                .try_init()
+                .map_err(|err| LoggingError::InitFailed(err.to_string()))?;
         }
 
         Ok(Self::new(

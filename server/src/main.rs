@@ -1,9 +1,9 @@
-use anyhow;
+use server::{config, error, logging, run_server};
 
-use backend::{config, logging};
+type Result<T> = std::result::Result<T, error::ServerError>;
 
 #[actix_web::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     // Load configuration from args/env
     let config = config::Config::from_args()?;
 
@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::warn!("[WARN]");
     tracing::error!("[ERROR]");
 
-    backend::run_server(&config.server_host, config.port).await?;
+    run_server(&config.server_host, config.port, &config.filesystem_root).await?;
 
     Ok(())
 }
