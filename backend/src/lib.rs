@@ -15,7 +15,7 @@ pub mod storage;
 fn create_file_system_with_structure() -> storage::FileSystem {
     let mut fs = storage::FileSystem::new();
 
-    fs.make_dir("/", "home").unwrap();
+    /*fs.make_dir("/", "home").unwrap();
     fs.change_dir("/home").unwrap();
     fs.make_dir(".", "user").unwrap();
     fs.change_dir("./user").unwrap();
@@ -23,7 +23,7 @@ fn create_file_system_with_structure() -> storage::FileSystem {
     fs.make_file(".", "file1.txt").unwrap();
     fs.make_dir("..", "user1").unwrap();
     fs.change_dir("../user1").unwrap();
-    fs.make_file(".", "file.txt").unwrap();
+    fs.make_file(".", "file.txt").unwrap();*/
     fs
 }
 

@@ -1,22 +1,23 @@
-use std::time::SystemTime;
+use serde::{Serialize, Deserialize};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::FsModelError;
 
 /// File attributes
-#[derive(Debug, Copy, Clone /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
+#[derive(Debug, Copy, Clone, Deserialize /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
 pub struct FileAttr {
     /// Size in bytes
     pub size: u64,
     /// Size in blocks
     pub blocks: u64,
     /// Time of last access
-    pub atime: SystemTime,
+    pub atime: Timestamp,
     /// Time of last modification
-    pub mtime: SystemTime,
+    pub mtime: Timestamp,
     /// Time of last change
-    pub ctime: SystemTime,
+    pub ctime: Timestamp,
     /// Time of creation (macOS only)
-    pub crtime: SystemTime,
+    pub crtime: Timestamp,
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
     /// Permissions
@@ -31,12 +32,12 @@ pub struct FileAttr {
     pub rdev: u32,
     /// block size
     pub blksize: u32,
-    /// Flags (macOS only, see chflags(2))
+    /// #[cfg(target_os = "macos")]
     pub flags: u32,
 }
 
 /// File types
-#[derive(Debug, Copy, Clone /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
+#[derive(Debug, Copy, Clone, Deserialize /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
 pub enum FileType {
     /// Named pipe [`libc::S_IFIFO`]
     NamedPipe,
@@ -54,7 +55,7 @@ pub enum FileType {
     Socket,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Permission type
 pub struct PermissionType {
     /// Read permission
@@ -65,7 +66,7 @@ pub struct PermissionType {
     pub execute: bool,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Permission
 pub struct Permission {
     /// Permissions for the file owner.
@@ -123,6 +124,110 @@ pub struct Flags {
     pub path: bool,
 }
 
+/// A file's timestamp, according to FUSE.
+#[derive(Debug, Clone, Serialize, Deserialize, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct Timestamp {
+    pub sec: i64,
+    pub nsec: u32,
+}
+
+impl Timestamp {
+    /// Create a new timestamp from its component parts.
+    ///
+    /// `nsec` should be less than 1_000_000_000.
+    pub fn new(sec: i64, nsec: u32) -> Self {
+        Timestamp { sec, nsec }
+    }
+}
+
+impl From<SystemTime> for Timestamp {
+    fn from(t: SystemTime) -> Self {
+        let d = t
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0));
+        Timestamp {
+            sec: d.as_secs().try_into().unwrap_or(i64::MAX),
+            nsec: d.subsec_nanos(),
+        }
+    }
+}
+
+impl From<Timestamp> for SystemTime{
+    fn from(t: Timestamp) -> Self{
+        let duration = Duration::new(t.sec as u64, t.nsec);
+        UNIX_EPOCH.checked_add(duration).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize)]
+pub struct SetAttr {
+    /// set file or directory mode.
+    pub mode: Option<Permission>,
+    /// set file or directory uid.
+    pub uid: Option<u32>,
+    /// set file or directory gid.
+    pub gid: Option<u32>,
+    /// set file or directory size.
+    pub size: Option<u64>,
+    /// the lock_owner argument.
+    pub lock_owner: Option<u64>,
+    /// set file or directory atime.
+    pub atime: Option<Timestamp>,
+    /// set file or directory mtime.
+    pub mtime: Option<Timestamp>,
+    /// set file or directory ctime.
+    pub ctime: Option<Timestamp>,
+    #[cfg(target_os = "macos")]
+    pub crtime: Option<Timestamp>,
+    #[cfg(target_os = "macos")]
+    pub chgtime: Option<Timestamp>,
+    #[cfg(target_os = "macos")]
+    pub bkuptime: Option<Timestamp>,
+    #[cfg(target_os = "macos")]
+    pub flags: Option<u32>,
+}
+
+impl From<fuse3::SetAttr> for SetAttr{
+    fn from(value: fuse3::SetAttr) -> Self {
+        SetAttr { 
+            uid: value.uid,
+            gid: value.gid,
+            size: value.size,
+            lock_owner: value.lock_owner,
+
+            // Conversione del mode (permessi)
+            // Nota: Assumiamo che il mode di fuser sia un u32 che rappresenta i permessi POSIX
+            mode: value.mode.and_then(|m| Permission::try_from(m).ok()),
+
+            // Conversione di SystemTime in Timestamp
+            atime: value.atime.map(Timestamp::from),
+            mtime: value.mtime.map(Timestamp::from),
+            ctime: value.ctime.map(Timestamp::from), 
+        }
+    }
+}
+
+impl From<fuse3::Timestamp> for Timestamp {
+    fn from(t: fuse3::Timestamp) -> Self {
+        Timestamp {
+            sec: t.sec,
+            nsec: t.nsec,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Stats{
+    pub blocks: u64,
+    pub bfree: u64,
+    pub bavail: u64,
+    pub files: u64,
+    pub ffree: u64,
+    pub bsize: u32,
+    pub namelen: u32,
+    pub frsize: u32,
+}
+
 trait Conversion<T>: Sized {
     type Error;
 
@@ -159,8 +264,10 @@ impl_conversion!(FileType, i32, u32);
 impl_conversion!(FileType, u16, u32);
 
 impl_conversion!(PermissionType, i32, i32);
+impl_conversion!(PermissionType, u8, i32);
 
 impl_conversion!(Permission, u16, i32);
+impl_conversion!(Permission, u32, i32);
 
 impl_conversion!(Flags, u32, i32);
 impl_conversion!(Flags, u64, i32);

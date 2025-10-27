@@ -1,10 +1,20 @@
-use std::fs;
+use std::fs::{self, OpenOptions, FileTimes};
+#[cfg(target_family="unix")]
+use std::os::unix::fs::PermissionsExt;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, Weak};
+use std::time::SystemTime;
 
+use crate::models::{Permission, SetAttr, Stats, Timestamp};
 use walkdir::WalkDir;
+
+use crate::models::{FileAttr, FileType};
+#[cfg(target_family="unix")]
+use nix::sys::statvfs::Statvfs;
+#[cfg(target_family="unix")]
+use nix::sys::statvfs::statvfs;
 
 pub enum FSItem {
     File(File),
@@ -90,6 +100,7 @@ pub struct File {
     pub(crate) content: Vec<u8>,
     size: usize,
     parent: FSNodeWeak,
+    attributes: FileAttr,
 }
 
 impl File {
@@ -118,6 +129,7 @@ pub struct Directory {
     name: String,
     parent: FSNodeWeak,
     children: Vec<FSNode>,
+    attributes: FileAttr,
 }
 
 pub struct FileSystem {
@@ -127,19 +139,39 @@ pub struct FileSystem {
     side_effects: bool, // enable / disable side effects on the file system
 }
 
+fn check_permission(owner_uid: u32, owner_gid:u32, uid: u32, gid: u32) -> bool{
+    owner_uid == uid || uid == 0 || owner_gid == gid
+}
+
 impl FileSystem {
     pub fn new() -> Self {
         let root = Arc::new(RwLock::new(FSItem::Directory(Directory {
             name: "".to_string(),
             parent: Weak::new(),
             children: vec![],
+            attributes: FileAttr {
+                size: 0,
+                blocks: 0,
+                atime: SystemTime::now().into(),
+                mtime: SystemTime::now().into(),
+                ctime: SystemTime::now().into(),
+                crtime: SystemTime::now().into(),
+                perm: Permission::try_from(0o755 as u16).unwrap(),
+                kind: FileType::Directory,
+                nlink: 2,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                blksize: 4096,
+                flags: 1,
+            },
         })));
 
         FileSystem {
             real_path: ".".to_string(),
             root: root.clone(),
             current: root,
-            side_effects: false,
+            side_effects: true,
         }
     }
 
@@ -266,6 +298,22 @@ impl FileSystem {
                 name: name.to_string(),
                 parent: Arc::downgrade(&node),
                 children: vec![],
+                attributes: FileAttr {
+                    size: 0,
+                    blocks: 0,
+                    atime: SystemTime::now().into(),
+                    mtime: SystemTime::now().into(),
+                    ctime: SystemTime::now().into(),
+                    crtime: SystemTime::now().into(),
+                    kind: FileType::Directory,
+                    perm: Permission::try_from(0o755 as u16).unwrap(),
+                    nlink: 2,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                    blksize: 4096,
+                    flags: 1,
+                },
             });
 
             let new_node = Arc::new(RwLock::new(new_dir));
@@ -291,6 +339,22 @@ impl FileSystem {
                 content: Vec::new(),
                 size: 0,
                 parent: Arc::downgrade(&node),
+                attributes: FileAttr {
+                    size: 0,
+                    blocks: 0,
+                    atime: SystemTime::now().into(),
+                    mtime: SystemTime::now().into(),
+                    ctime: SystemTime::now().into(),
+                    crtime: SystemTime::now().into(),
+                    kind: FileType::RegularFile,
+                    perm: Permission::try_from(0o755 as u16).unwrap(),
+                    nlink: 1,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                    blksize: 4096,
+                    flags: 1,
+                },
             });
 
             let new_node = Arc::new(RwLock::new(new_file));
@@ -483,5 +547,334 @@ impl FileSystem {
         parent_new_guard.add(node_to_move);
 
         Ok(())
+    }
+
+    /* IMPLEMENT PERMISSION MANAGEMENT VIA DB */
+    pub fn get_attributes(&self, path: &str) -> Result<FileAttr, String> {
+        if let Some(node) = self.find(path) {
+            let item = node.read().unwrap();
+            match item.deref() {
+                FSItem::Directory(dir) => {
+                    if self.side_effects {
+                        let real_path = self.make_real_path(node.clone());
+                        let target = Path::new(&real_path);
+
+                        match fs::metadata(target) {
+                            Ok(object) => {
+                                let nlink = 1;
+
+                                let attributes = FileAttr {
+                                    size: object.len(),
+                                    blocks: 0, // ? eventualmente modificare ?
+                                    atime: Timestamp::from(object.accessed().unwrap()),
+                                    mtime: Timestamp::from(object.modified().unwrap()),
+                                    ctime: Timestamp::from(SystemTime::now()), 
+                                    crtime: Timestamp::from(SystemTime::now()),
+                                    kind: FileType::Directory,
+                                    perm: Permission::try_from(0o755 as u16).unwrap(), // retrieve from db
+                                    nlink: nlink,
+                                    uid: 0,       // retrieve from db
+                                    gid: 0,       // retrieve from db
+                                    rdev: 0, // device ID of a special file in Unix-like operating systems, indicating the device associated with a file
+                                    blksize: 0, // ? eventualmente modificare ?
+                                    flags: 0, // macOS only
+                                };
+                                return Ok(attributes);
+                            }
+                            Err(_) => {
+                                return Err("Error while obtaining file metadata.".to_string());
+                            }
+                        }
+                    }
+
+                    Ok(dir.attributes.clone())
+                },
+                FSItem::File(f) => {
+                        if self.side_effects {
+                            let real_path = self.make_real_path(node.clone());
+                            let target = Path::new(&real_path);
+
+                            match fs::metadata(target) {
+                                Ok(object) => {
+                                    let attributes = FileAttr {
+                                    size: object.len(),
+                                    blocks: 0, // ? eventualmente modificare ?
+                                    atime: Timestamp::from(object.accessed().unwrap()),
+                                    mtime: Timestamp::from(object.modified().unwrap()),
+                                    ctime: Timestamp::from(SystemTime::now()), 
+                                    crtime: Timestamp::from(object.created().unwrap()),
+                                    kind: FileType::RegularFile,
+                                    perm: Permission::try_from(0o755 as u16).unwrap(), // retrieve from db
+                                    nlink: 1,
+                                    uid: 0,       // retrieve from db
+                                    gid: 0,       // retrieve from db
+                                    rdev: 0, // device ID of a special file in Unix-like operating systems, indicating the device associated with a file
+                                    blksize: 0, // ? eventualmente modificare ?
+                                    flags: 0, // macOS only
+                                };
+                                    return Ok(attributes);
+                                }
+                                Err(_) => {
+                                    return Err("Error while obtaining file metadata.".to_string());
+                                }
+                            }
+                        }
+
+                        Ok(f.attributes.clone())
+                },
+                _ => Err("No file or directory in this path".to_string()),
+            }
+        }else{
+            Err("Invalid path".to_string())
+        }
+    }
+
+    /* Inutile se lookup = getattr
+    pub fn resolve_child(&self, path: &str) -> Result<FileAttr, String>{
+        /* Suggerimento Copilot */
+        let parent_path = self.inode_map.get(&parent)?;
+        let child_path = format!("{}/{}", parent_path, name.to_string_lossy());
+
+        // Interroga il backend remoto
+        let metadata = self.client.get_metadata(&child_path).ok()?;
+
+        // Genera inode se non esiste
+        let inode = *self.path_map.entry(child_path.clone()).or_insert_with(|| {
+            let id = self.next_inode;
+            self.next_inode += 1;
+            self.inode_map.insert(id, child_path.clone());
+            id
+        });
+
+        let attr = FileAttr {
+            ino: inode,
+            size: metadata.size,
+            blocks: (metadata.size + 511) / 512,
+            atime: metadata.atime,
+            mtime: metadata.mtime,
+            ctime: metadata.ctime,
+            crtime: metadata.ctime,
+            kind: metadata.kind,
+            perm: metadata.perm,
+            nlink: 1,
+            uid: metadata.uid,
+            gid: metadata.gid,
+            rdev: 0,
+            flags: 0,
+            blksize: 512,
+        };
+
+        Some((inode, attr))
+    }*/
+
+    /* IMPLEMENT PERMISSION MANAGEMENT VIA DB */
+    pub fn set_attributes(&self, path: &str, uid: u32, gid: u32, new_attributes: SetAttr) -> Result<FileAttr, String>{
+        if let Some(node) = self.find(path){
+            let item = node.read().unwrap();
+            match item.deref() {
+                FSItem::Directory(dir) => {
+                    if self.side_effects {
+                        let real_path = self.make_real_path(node.clone());
+                        let target = Path::new(&real_path);
+
+                        match fs::metadata(target) {
+                            Ok(object) => {
+                                let owner_uid = 0; // to substitute with call to db
+                                let owner_gid = 0; // to substitute with call to db
+
+                                /* ALWAYS ALLOWED CHANGES */
+                                let new_times = FileTimes::new();
+                                
+                                // access time
+                                if new_attributes.atime.is_some(){
+                                    let new_atime = new_attributes.atime.unwrap();
+                                    new_times.set_accessed(SystemTime::from(new_atime));
+                                }
+                                // modification time
+                                if new_attributes.mtime.is_some(){
+                                    let new_mtime = new_attributes.mtime.unwrap();
+                                    new_times.set_modified(SystemTime::from(new_mtime));
+                                }
+                                // creation time is automatically managed by kernel
+
+                                /* CHANGES ALLOWED ONLY IF USER HAS PERMISSION */
+                                let has_permission = check_permission(owner_uid, owner_gid, uid, gid);
+
+                                if new_attributes.mode.is_some(){
+                                    if has_permission == false{
+                                        return Err(String::from("User has not priviledge to do this change."));
+                                    }
+                                    let new_mode = new_attributes.mode.unwrap();
+                                    // update info on db
+                                }
+
+                                if new_attributes.uid.is_some() || new_attributes.gid.is_some(){
+                                    if has_permission == false{
+                                        return Err(String::from("User has not priviledge to do this change."));
+                                    }
+                                    let new_uid = if let Some(new) = new_attributes.uid{
+                                        new
+                                    }else{
+                                        uid
+                                    };
+
+                                    let new_gid = if let Some(new) = new_attributes.gid{
+                                        new
+                                    }else{
+                                        gid
+                                    };
+
+                                    // update db
+                                }
+
+                                // returns new attributes
+                                let attributes = self.get_attributes(path).unwrap();
+                                return Ok(attributes);
+                            }
+                            Err(_) => {
+                                return Err("Error while obtaining file metadata.".to_string());
+                            }
+                        }
+                    }
+
+                    Ok(dir.attributes.clone())
+                },
+                FSItem::File(f) => {
+                        if self.side_effects {
+                            let real_path = self.make_real_path(node.clone());
+                            let target = Path::new(&real_path);
+
+                            match fs::metadata(target) {
+                                Ok(object) => {
+                                let owner_uid = 0; // to substitute with call to db
+                                let owner_gid = 0; // to substitute with call to db
+
+                                /* ALWAYS ALLOWED CHANGES */
+                                let new_times = FileTimes::new();
+                                
+                                // access time
+                                if new_attributes.atime.is_some(){
+                                    let new_atime = new_attributes.atime.unwrap();
+                                    new_times.set_accessed(SystemTime::from(new_atime));
+                                }
+                                // modification time
+                                if new_attributes.mtime.is_some(){
+                                    let new_mtime = new_attributes.mtime.unwrap();
+                                    new_times.set_modified(SystemTime::from(new_mtime));
+                                }
+                                // creation time is automatically managed by kernel
+
+                                
+                                /* CHANGES ALLOWED ONLY IF USER HAS PERMISSION */
+                                let has_permission = check_permission(owner_uid, owner_gid, uid, gid);
+
+                                if new_attributes.mode.is_some(){
+                                    if has_permission == false{
+                                        return Err(String::from("User has not priviledge to do this change."));
+                                    }
+                                    let new_mode = new_attributes.mode.unwrap();
+                                    // update info on db
+                                }
+
+                                if new_attributes.size.is_some(){
+                                    if has_permission == false{
+                                        return Err(String::from("User has not priviledge to do this change."));
+                                    }
+                                    let new_size = new_attributes.size.unwrap();
+                                    let file = OpenOptions::new().write(true).open(target).map_err(|_|String::from("Impossible to open file."))?;
+                                    file.set_len(new_size);
+                                }
+
+                                if new_attributes.uid.is_some() || new_attributes.gid.is_some(){
+                                    if has_permission == false{
+                                        return Err(String::from("User has not priviledge to do this change."));
+                                    }
+                                    let new_uid = if let Some(new) = new_attributes.uid{
+                                        new
+                                    }else{
+                                        uid
+                                    };
+
+                                    let new_gid = if let Some(new) = new_attributes.gid{
+                                        new
+                                    }else{
+                                        gid
+                                    };
+
+                                    // update db
+                                }
+
+                                // returns new attributes
+                                let attributes = self.get_attributes(path).unwrap();
+                                return Ok(attributes);
+                                },
+                                Err(_) => {
+                                    return Err("Error while obtaining file metadata.".to_string());
+                                }
+                            }
+                        }
+
+                        Ok(f.attributes.clone())
+                },
+                _ => Err("No file or directory in this path".to_string()),
+            }
+        }else{
+            Err("Invalid path".to_string())
+        }
+    }
+
+    /* IMPLEMENT PERMISSION MANAGEMENT VIA DB */
+    pub fn get_permissions(&self, path: &str) -> Result<u32, String>{
+        if let Some(node) = self.find(path) {
+            let item = node.read().unwrap();
+            match item.deref() {
+                FSItem::Directory(dir) => {
+                    if self.side_effects {
+                        let real_path = self.make_real_path(node.clone());
+                        let target = Path::new(&real_path);
+
+                        // check permissions from db
+                        return Ok(0o755 as u32);
+                    }
+
+                    Ok(0o755 as u32)
+                },
+                FSItem::File(f) => {
+                        if self.side_effects {
+                            let real_path = self.make_real_path(node.clone());
+                            let target = Path::new(&real_path);
+
+                            // check permissions from db
+                            return Ok(0o755 as u32);
+                        }
+
+                        Ok(0o755 as u32)
+                },
+                _ => Err("No file or directory in this path".to_string()),
+            }
+        }else{
+            Err("Invalid path".to_string())
+        }
+    }
+
+    #[cfg(target_family = "unix")]
+    pub fn get_fs_stats(&self, path: &str) -> Result<Stats, String> {
+        let path_object = Path::new(path);
+
+        match statvfs(path_object){
+            Ok(stats) => Ok(
+                Stats {
+                    blocks: stats.blocks(),
+                    bfree: stats.blocks_free(),
+                    bavail: stats.blocks_available(),
+                    files: stats.files(),
+                    ffree: stats.files_free(),
+                    bsize: stats.block_size() as u32,
+                    namelen: stats.name_max() as u32,
+                    frsize: stats.fragment_size() as u32,
+                }
+            ),
+            Err(e) => Err(format!("{:?}", e)),
+        }
     }
 }

@@ -1,3 +1,6 @@
+use crate::fs_model::{
+    attributes::SetAttr
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
@@ -49,5 +52,18 @@ pub struct RenameRequest {
 impl RenameRequest {
     pub fn new(old_path: String, new_path: String) -> Self {
         RenameRequest { old_path, new_path }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SetAttrRequest{
+    pub uid: u32,
+    pub gid: u32, 
+    pub setattr:  SetAttr,
+}
+
+impl SetAttrRequest {
+    pub fn new(uid: u32, gid: u32, setattr: SetAttr) -> Self{
+        Self { uid: uid, gid: gid, setattr: setattr }
     }
 }

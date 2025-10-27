@@ -4,7 +4,7 @@ use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use tracing::{Level, instrument};
 
 use crate::models::*;
-use crate::storage::FileSystem;
+use crate::storage::*;
 
 const APP_V1_BASE_URL: &str = "/api/v1";
 
@@ -17,7 +17,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(write_file)
             .service(make_directory)
             .service(delete_item)
-            .service(rename),
+            .service(rename)
+            .service(resolve_child)
+            .service(get_attributes)
+            .service(set_attributes)
+            .service(get_permissions)
+            .service(get_stats),
     );
 }
 
@@ -98,9 +103,83 @@ async fn delete_item(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>)
     let path = path.into_inner();
     match fs.write().unwrap().delete(path.as_str()) {
         Ok(_) => HttpResponse::Ok().body("Successful deletion!"),
-        Err(s) => HttpResponse::BadRequest().body(s),
+        Err(e) => HttpResponse::InternalServerError().body(e),
     }
 }
+
+/* Inutile se lookup = getAttr */
+#[get("/resolve/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn resolve_child(
+    fs: web::Data<RwLock<FileSystem>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let path = path.into_inner();
+    match fs.read().unwrap().get_attributes(path.as_str()) {
+        Ok(attributes) => HttpResponse::Ok().json(attributes),
+        Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
+    }
+}
+
+#[get("/attributes/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn get_attributes(
+    fs: web::Data<RwLock<FileSystem>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    tracing::warn!("BACKEND: Ci sono!");
+    let path = path.into_inner();
+    match fs.read().unwrap().get_attributes(path.as_str()) {
+        Ok(attributes) => HttpResponse::Ok().json(attributes),
+        Err(e) => {tracing::error!("{}", e.to_string()); return HttpResponse::InternalServerError().json(e.to_string());},
+    }
+}
+
+#[put("/attributes/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn set_attributes(
+    fs: web::Data<RwLock<FileSystem>>,
+    path: web::Path<String>,
+    json: web::Json<SetAttrRequest>,
+) -> impl Responder{
+    let path = path.into_inner();
+
+    let uid = json.uid();
+    let gid = json.gid();
+    let new_attributes = json.setattr();
+
+    match fs.read().unwrap().set_attributes(path.as_str(), uid, gid, new_attributes) {
+        Ok(attributes) => HttpResponse::Ok().json(attributes),
+        Err(e) => {tracing::error!("{}", e.to_string()); return HttpResponse::InternalServerError().json(e.to_string());},
+    }
+}
+
+#[get("/permissions/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn get_permissions(
+    fs: web::Data<RwLock<FileSystem>>,
+    path: web::Path<String>,
+) -> impl Responder{
+    let path = path.into_inner();
+
+    match fs.read().unwrap().get_permissions(path.as_str()) {
+        Ok(permissions) => HttpResponse::Ok().json(permissions),
+        Err(e) => {tracing::error!("{}", e.to_string()); return HttpResponse::InternalServerError().json(e.to_string());},
+    }
+}
+
+#[get("/stats/{path}")]
+async fn get_stats(
+    fs: web::Data<RwLock<FileSystem>>,
+    path: web::Path<String>
+    ) -> impl Responder{
+        let path = path.into_inner();
+
+        match fs.read().unwrap().get_fs_stats(path.as_str()) {
+            Ok(stats) => HttpResponse::Ok().json(stats),
+            Err(e) => {tracing::error!("{}", e.to_string()); return HttpResponse::InternalServerError().json(e.to_string());},
+        }
+    }
 
 #[put("/rename")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]

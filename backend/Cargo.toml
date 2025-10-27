@@ -21,3 +21,5 @@ tracing-subscriber = { version = "0.3", features = [
 tracing-actix-web = "0.7"
 tracing-appender = "0.2"
 walkdir = "2.3"
+[target.'cfg(unix)'.dependencies]
+nix = {version = "0.27", features = ["fs"]}

@@ -19,6 +19,7 @@ const TTL: Duration = Duration::from_secs(1);
 const SEPARATOR: char = '/';
 
 type Result<T> = std::result::Result<T, FuseError>;
+type SetAttr = crate::fs_model::attributes::SetAttr;
 
 pub struct Fs {
     fs: fs_model::FileSystem,
@@ -79,34 +80,42 @@ impl PathFilesystem for Fs {
     /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
     #[instrument(skip(self))]
     async fn destroy(&self, req: Request) -> () {
-        tracing::info!("Filesystem destroy");
+        tracing::info!("Destroying file system...");
     }
 
-    /// look up a directory entry by name and get its fs_model.
+    /// look up a directory entry by name and get its attributes.
     #[instrument(skip(self), err(level = Level::DEBUG), ret(level = Level::DEBUG))]
-    async fn lookup(&self, req: Request, parent: &OsStr, name: &OsStr) -> FuseResult<ReplyEntry> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
+    async fn lookup(&self, 
+        req: Request, 
+        parent: &OsStr, 
+        name: &OsStr) -> FuseResult<ReplyEntry> {
+        /**********************************************
+         * Di fatto agisce esattamente come la getattr...
+        ***********************************************/
 
-        if Path::new(format!("{:?}{:?}", parent, name).as_str()).exists() {
-            let attr = if Path::new(name).is_dir() {
-                self.fs.mock_dir_attr()
-            } else {
-                self.fs.mock_file_attr()
-            };
-            Ok(ReplyEntry {
-                ttl: TTL,
-                attr: attr.into(),
-            })
-        } else {
-            Err(libc::ENOENT.into())
-        }
+        let path = PathBuf::from(parent).join(name);
+
+        let attributes = self
+            .fs
+            .get_attributes(
+                &path.as_os_str()
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{}", err);
+                libc::ENOENT
+            })?;
+        
+        Ok(ReplyEntry {
+            ttl: TTL,
+            attr: attributes.into(),
+        })
     }
 
     /// forget an path. The nlookup parameter indicates the number of lookups previously
     /// performed on this path. If the filesystem implements path lifetimes, it is recommended
     /// that paths acquire a single reference on each lookup, and lose nlookup references on each
-    /// forget. The filesystem may ignore forget calls, if the paths don\'t need to have a limited
+    /// forget. The filesystem may ignore forget calls, if the paths don't need to have a limited
     /// lifetime. On unmount it is not guaranteed, that all referenced paths will receive a forget
     /// message. When filesystem is normal(not fuseblk) and unmounting, kernel may send forget
     /// request for root and this library will stop session after call forget. There is some
@@ -118,8 +127,12 @@ impl PathFilesystem for Fs {
         // TODO:
     }
 
-    /// get file fs_model. If `fh` is None, means `fh` is not set. If `path` is None, means the
-    /// path may be deleted.
+    /****************************
+     * COSA DEVO FARE CON fh? 
+    ****************************/
+    /// get file fs_model. 
+    /// If `fh` is None, means `fh` is not set. 
+    /// If `path` is None, means the path may be deleted.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn getattr(
         &self,
@@ -131,22 +144,32 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        match path {
-            Some(s) => {
-                let attr = if Path::new(s).is_dir() {
-                    self.fs.mock_dir_attr()
-                } else {
-                    self.fs.mock_file_attr()
-                };
-                Ok(ReplyAttr {
-                    ttl: TTL,
-                    attr: attr.into(),
-                })
-            }
-            None => Err(FuseError::NotImplemented.into()),
-        }
+        let path_osStr = if let Some(p) = path {
+            p
+        }else{
+            return Err(libc::ENOENT.into());
+        };
+
+        let attributes = self
+            .fs
+            .get_attributes(
+                &path_osStr
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{}", err);
+                libc::ENOENT
+            })?;
+        
+        Ok(ReplyAttr {
+            ttl: TTL,
+            attr: attributes.into(),
+        })
     }
 
+    /****************************
+     * COSA DEVO FARE CON fh? 
+    ****************************/
     /// set file fs_model. If `fh` is None, means `fh` is not set. If `path` is None, means the
     /// path may be deleted.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -155,14 +178,32 @@ impl PathFilesystem for Fs {
         req: Request,
         path: Option<&OsStr>,
         fh: Option<u64>,
-        set_attr: SetAttr,
+        set_attr: fuse3::SetAttr,
     ) -> FuseResult<ReplyAttr> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-        let attr = self.fs.mock_file_attr();
+
+        let path_osStr = if let Some(p) = path {
+            p
+        }else{
+            return Err(libc::EINVAL.into());
+        };
+
+        let attributes = self
+            .fs
+            .set_attributes(
+                req.uid,
+                req.gid,
+                &path_osStr, 
+                set_attr.into()
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{}", err);
+                libc::ENOENT
+            })?;
+
         Ok(ReplyAttr {
             ttl: TTL,
-            attr: attr.into(),
+            attr: attributes.into(),
         })
     }
 
@@ -215,7 +256,29 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn statfs(&self, req: Request, path: &OsStr) -> FuseResult<ReplyStatFs> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        //Err(FuseError::NotImplemented.into())
+
+        let stats = self
+            .fs
+            .get_fs_stats(
+                &path
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{}", err);
+                libc::ENOENT
+            })?;
+
+        Ok(ReplyStatFs{
+            blocks: stats.blocks,
+            bfree: stats.bfree,
+            bavail: stats.bavail,
+            bsize: stats.bsize,
+            frsize: stats.frsize,
+            files: stats.files,
+            ffree: stats.ffree,
+            namelen: stats.namelen
+        })
     }
 
     /// check file access permissions. This will be called for the `access()` system call. If the
@@ -224,14 +287,34 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn access(&self, req: Request, path: &OsStr, mask: u32) -> FuseResult<()> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        // Err(FuseError::NotImplemented.into())
+
+        tracing::info!("Ci sono!");
+        let permissions = self
+            .fs
+            .get_permissions(
+                &path
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("{}", err);
+                libc::ENOENT
+            })?;
+
+            tracing::debug!("{}", permissions);
+            if permissions == mask {
+                Ok(())
+            }else{
+                Err(libc::EACCES.into())
+            }
+
     }
 
     /// map block index within file to block index within device.
     ///
     /// # Notes:
     ///
-    /// This may not works because currently this crate doesn\'t support fuseblk mode yet.
+    /// This may not works because currently this crate doesn't support fuseblk mode yet.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn bmap(
         &self,
@@ -1105,9 +1188,9 @@ impl From<fs_model::FileAttr> for FileAttr {
         Self {
             size: value.size,
             blocks: value.blocks,
-            atime: value.atime,
-            mtime: value.mtime,
-            ctime: value.ctime,
+            atime: value.atime.into(),
+            mtime: value.mtime.into(),
+            ctime: value.ctime.into(),
             kind: value.kind.into(),
             perm: u16::from(value.kind) | u16::from(value.perm),
             nlink: value.nlink,

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -9,7 +10,8 @@ use tracing::{Level, instrument};
 
 use crate::error::FsModelError;
 use crate::network::client::RemoteClient;
-use crate::network::models::SerializableFSItem;
+use crate::network::models::{SerializableFSItem};
+use crate::fs_model::attributes::{SetAttr};
 
 pub mod attributes;
 pub mod directory;
@@ -54,6 +56,7 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
+        
         self.remote_client
             .list_path(path)
             .await
@@ -190,16 +193,57 @@ impl FileSystem {
         self.remote_client.remove(path).await
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn resolve_child(&self, uid: u32, gid: u32, path: &OsStr) -> anyhow::Result<FileAttr> {
+        let attributes = self.remote_client
+            .resolve_child(uid, gid, path)
+            .await?;
+
+        Ok(attributes)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_attributes(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
+        let attributes = self.remote_client.
+                        get_attributes(path)
+                        .await?;
+        Ok(attributes)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn set_attributes(&self, uid: u32, gid: u32, path: &OsStr, new_attributes: SetAttr) -> anyhow::Result<FileAttr>{
+        let attributes = self.remote_client
+                                        .set_attributes(uid, gid, path, new_attributes)
+                                        .await?;
+        Ok(attributes)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_permissions(&self, path: &OsStr) -> anyhow::Result<u32>{
+        let permissions = self.remote_client
+                                        .get_permissions(path)
+                                        .await?;
+        Ok(permissions)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_fs_stats(&self, path: &OsStr) -> anyhow::Result<Stats>{
+        let stats = self.remote_client
+                                        .get_stats(path)
+                                        .await?;
+        Ok(stats)
+    }
+
     // TODO: remove it later
     pub fn mock_dir_attr(&self) -> FileAttr {
         FileAttr {
             size: 0,
             blocks: 0,
             blksize: 0,
-            atime: SystemTime::now(),
-            mtime: SystemTime::now(),
-            ctime: SystemTime::now(),
-            crtime: SystemTime::now(),
+            atime: Timestamp::from(SystemTime::now()),
+            mtime: Timestamp::from(SystemTime::now()),
+            ctime: Timestamp::from(SystemTime::now()),
+            crtime: Timestamp::from(SystemTime::now()),
             kind: FileType::Directory,
             perm: Permission::try_from(0o755 as u16).unwrap(),
             nlink: 2,
@@ -216,10 +260,10 @@ impl FileSystem {
             size: 0,
             blocks: 0,
             blksize: 0,
-            atime: SystemTime::now(),
-            mtime: SystemTime::now(),
-            ctime: SystemTime::now(),
-            crtime: SystemTime::now(),
+            atime: Timestamp::from(SystemTime::now()),
+            mtime: Timestamp::from(SystemTime::now()),
+            ctime: Timestamp::from(SystemTime::now()),
+            crtime: Timestamp::from(SystemTime::now()),
             kind: FileType::RegularFile,
             perm: Permission::try_from(0o755 as u16).unwrap(),
             nlink: 2,

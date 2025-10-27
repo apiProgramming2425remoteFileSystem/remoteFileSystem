@@ -5,6 +5,8 @@ use reqwest::Client;
 use tracing::{Level, instrument};
 use urlencoding;
 
+use crate::fs_model::{attributes::SetAttr, FileAttr, Stats};
+
 use super::models::*;
 
 #[derive(Debug)]
@@ -136,5 +138,103 @@ impl RemoteClient {
             .await?
             .error_for_status()?;
         Ok(())
+    }    
+    
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn resolve_child(&self, uid: u32, gid: u32, path: &OsStr) -> anyhow::Result<FileAttr> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        let url = self.set_url("attributes/directory", path_str);
+
+        let resp = self.http_client.get(url).send().await?.error_for_status()?;
+
+        let body: FileAttr = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+
+        Ok(body)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_attributes(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        let url = self.set_url("attributes", path_str);
+        tracing::debug!("qui ci sono");
+
+        let resp = self.http_client
+                                    .get(url)
+                                    .send()
+                                    .await?
+                                    .error_for_status()?;
+        tracing::warn!("qua ci sono: {:?}", resp);
+        let body: FileAttr = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+
+        Ok(body)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn set_attributes(&self, uid: u32, gid: u32, path: &OsStr, new_attributes: SetAttr) -> anyhow::Result<FileAttr> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        let url = self.set_url("attributes", path_str);
+
+        let resp = self.http_client
+                                    .put(url)
+                                    .json(&SetAttrRequest::new(uid, gid, new_attributes))
+                                    .send()
+                                    .await?
+                                    .error_for_status()?;
+
+        let body: FileAttr = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+
+        Ok(body)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_permissions(&self, path: &OsStr) -> anyhow::Result<u32> {
+        let path_str: &str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        let url = self.set_url("permissions", path_str);
+
+        let resp = self.http_client
+                                    .get(url)
+                                    .send()
+                                    .await?
+                                    .error_for_status()?;
+
+        let body: u32 = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+
+        Ok(body)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_stats(&self, path: &OsStr) -> anyhow::Result<Stats>{
+        let path_str: &str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        let url = self.set_url("stats", path_str);
+
+        let resp = self.http_client
+                                    .get(url)
+                                    .send()
+                                    .await?
+                                    .error_for_status()?;
+
+        let body = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+
+        Ok(body)
     }
 }
