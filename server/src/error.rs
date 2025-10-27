@@ -45,6 +45,9 @@ pub enum StorageError {
     #[error("Conversion failed")]
     ConversionFailed,
 
+    #[error("Metadata error: {0}")]
+    MetadataError(String),
+
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
 }

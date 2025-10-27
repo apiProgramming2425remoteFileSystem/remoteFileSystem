@@ -4,8 +4,10 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
+use std::time::SystemTime;
 
 use crate::error::StorageError;
+use crate::models::{FileAttr, FileType, Permission, SetAttr, Stats, Timestamp};
 
 type Result<T> = std::result::Result<T, StorageError>;
 
@@ -13,12 +15,14 @@ pub struct File {
     name: OsString,
     size: usize,
     parent: FSNodeWeak,
+    attributes: FileAttr,
 }
 
 pub struct Directory {
     name: OsString,
     parent: FSNodeWeak,
     children: HashMap<PathBuf, FSNode>,
+    attributes: FileAttr,
 }
 
 #[derive(Debug)]
@@ -40,6 +44,22 @@ impl File {
             name: name.as_ref().to_owned(),
             size,
             parent,
+            attributes: FileAttr {
+                size: 0,
+                blocks: 0,
+                atime: SystemTime::now().into(),
+                mtime: SystemTime::now().into(),
+                ctime: SystemTime::now().into(),
+                crtime: SystemTime::now().into(),
+                kind: FileType::RegularFile,
+                perm: Permission::try_from(0o755 as u16).unwrap(),
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                blksize: 4096,
+                flags: 1,
+            },
         }
     }
 
@@ -54,6 +74,22 @@ impl Directory {
             name: name.as_ref().to_owned(),
             parent,
             children: HashMap::new(),
+            attributes: FileAttr {
+                size: 0,
+                blocks: 0,
+                atime: SystemTime::now().into(),
+                mtime: SystemTime::now().into(),
+                ctime: SystemTime::now().into(),
+                crtime: SystemTime::now().into(),
+                perm: Permission::try_from(0o755 as u16).unwrap(),
+                kind: FileType::Directory,
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                blksize: 4096,
+                flags: 1,
+            },
         }
     }
 

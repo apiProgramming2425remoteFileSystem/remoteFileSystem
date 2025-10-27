@@ -1,22 +1,73 @@
 use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::fs;
+use std::fmt::{Debug, format};
+use std::fs::{self, FileTimes, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
+#[cfg(target_family = "unix")]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Weak;
+use std::sync::{Arc, RwLock, Weak};
+use std::time::SystemTime;
 
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
 use crate::error::StorageError;
+use crate::models::{Permission, SetAttr, Stats, Timestamp};
 use crate::nodes::{Directory, FSItem, FSNode, FSNodeWeak, File};
+
+use crate::models::{FileAttr, FileType};
+#[cfg(target_family = "unix")]
+use nix::sys::statvfs::{Statvfs, statvfs};
 
 type Result<T> = std::result::Result<T, StorageError>;
 /// Represents the in-memory file system structure
 pub struct FileSystem {
     real_path: PathBuf, // the real path of the file system
     root: FSNode,
+}
+
+fn check_permission(owner_uid: u32, owner_gid: u32, uid: u32, gid: u32) -> bool {
+    owner_uid == uid || uid == 0 || owner_gid == gid
+}
+
+fn get_attributes_by_path(path: &Path) -> Result<FileAttr> {
+    match fs::metadata(path) {
+        Ok(object) => {
+            let nlink = 1;
+
+            let kind = if object.is_dir() {
+                FileType::Directory
+            } else if object.is_file() {
+                FileType::RegularFile
+            } else {
+                FileType::Symlink
+            };
+
+            let attributes = FileAttr {
+                size: object.len(),
+                blocks: 0, // ? eventualmente modificare ?
+                atime: Timestamp::from(object.accessed().unwrap()),
+                mtime: Timestamp::from(object.modified().unwrap()),
+                ctime: Timestamp::from(SystemTime::now()),
+                crtime: Timestamp::from(SystemTime::now()),
+                kind: kind,
+                perm: Permission::try_from(0o755 as u16).unwrap(),
+                nlink: nlink,
+                uid: 0,     // retrieve from db
+                gid: 0,     // retrieve from db
+                rdev: 0, // device ID of a special file in Unix-like operating systems, indicating the device associated with a file
+                blksize: 0, // ? eventualmente modificare ?
+                flags: 0, // macOS only
+            };
+            return Ok(attributes);
+        }
+        Err(_) => {
+            return Err(StorageError::InvalidPath(
+                "Error while obtaining file metadata.".to_string(),
+            ));
+        }
+    }
 }
 
 impl FileSystem {
@@ -302,6 +353,13 @@ impl FileSystem {
     }
 
     pub fn move_node<P: AsRef<Path> + Debug>(&self, old_path: P, new_path: P) -> Result<()> {
+        // avoid moving a dir in its children (mv a/b a/b/c/d)
+        if new_path.as_ref() == old_path.as_ref()
+            || new_path.as_ref().starts_with(old_path.as_ref())
+        {
+            return Err(StorageError::InvalidPath("Old path has no parent".into()));
+        }
+
         let old_parent_path = old_path
             .as_ref()
             .parent()
@@ -345,6 +403,175 @@ impl FileSystem {
         parent_new_guard.add(node_to_move);
 
         Ok(())
+    }
+
+    /* IMPLEMENT PERMISSION MANAGEMENT VIA DB */
+    pub fn get_attributes(&self, path: &str) -> Result<FileAttr> {
+        if let Some(node) = self.find(path) {
+            let real_path = self.make_real_path(node.clone())?;
+            let target = Path::new(&real_path);
+
+            return get_attributes_by_path(target);
+        } else {
+            Err(StorageError::InvalidPath(format!("{}", path)))
+        }
+    }
+
+    /* Inutile se lookup = getattr
+    pub fn resolve_child(&self, path: &str) -> Result<FileAttr, String>{
+        /* Suggerimento Copilot */
+        let parent_path = self.inode_map.get(&parent)?;
+        let child_path = format!("{}/{}", parent_path, name.to_string_lossy());
+
+        // Interroga il backend remoto
+        let metadata = self.client.get_metadata(&child_path).ok()?;
+
+        // Genera inode se non esiste
+        let inode = *self.path_map.entry(child_path.clone()).or_insert_with(|| {
+            let id = self.next_inode;
+            self.next_inode += 1;
+            self.inode_map.insert(id, child_path.clone());
+            id
+        });
+
+        let attr = FileAttr {
+            ino: inode,
+            size: metadata.size,
+            blocks: (metadata.size + 511) / 512,
+            atime: metadata.atime,
+            mtime: metadata.mtime,
+            ctime: metadata.ctime,
+            crtime: metadata.ctime,
+            kind: metadata.kind,
+            perm: metadata.perm,
+            nlink: 1,
+            uid: metadata.uid,
+            gid: metadata.gid,
+            rdev: 0,
+            flags: 0,
+            blksize: 512,
+        };
+
+        Some((inode, attr))
+    }*/
+
+    /* IMPLEMENT PERMISSION MANAGEMENT VIA DB */
+    pub fn set_attributes(
+        &self,
+        path: &str,
+        uid: u32,
+        gid: u32,
+        new_attributes: SetAttr,
+    ) -> Result<FileAttr> {
+        if let Some(node) = self.find(path) {
+            let real_path = self.make_real_path(node.clone())?;
+            let target = Path::new(&real_path);
+
+            match fs::metadata(target) {
+                Ok(object) => {
+                    let owner_uid = 0; // to substitute with call to db
+                    let owner_gid = 0; // to substitute with call to db
+
+                    /* ALWAYS ALLOWED CHANGES */
+                    let new_times = FileTimes::new();
+
+                    // access time
+                    if new_attributes.atime.is_some() {
+                        let new_atime = new_attributes.atime.unwrap();
+                        new_times.set_accessed(SystemTime::from(new_atime));
+                    }
+                    // modification time
+                    if new_attributes.mtime.is_some() {
+                        let new_mtime = new_attributes.mtime.unwrap();
+                        new_times.set_modified(SystemTime::from(new_mtime));
+                    }
+                    // creation time is automatically managed by kernel
+
+                    /* CHANGES ALLOWED ONLY IF USER HAS PERMISSION */
+                    let has_permission = check_permission(owner_uid, owner_gid, uid, gid);
+
+                    if new_attributes.mode.is_some() {
+                        if has_permission == false {
+                            return Err(StorageError::PermissionDenied);
+                        }
+                        let new_mode = new_attributes.mode.unwrap();
+                        // update info on db
+                    }
+
+                    if new_attributes.size.is_some() {
+                        if has_permission == false {
+                            return Err(StorageError::PermissionDenied);
+                        }
+                        let new_size = new_attributes.size.unwrap();
+                        let file = OpenOptions::new().write(true).open(target)?;
+                        file.set_len(new_size);
+                    }
+
+                    if new_attributes.uid.is_some() || new_attributes.gid.is_some() {
+                        if has_permission == false {
+                            return Err(StorageError::PermissionDenied);
+                        }
+                        let new_uid = if let Some(new) = new_attributes.uid {
+                            new
+                        } else {
+                            uid
+                        };
+
+                        let new_gid = if let Some(new) = new_attributes.gid {
+                            new
+                        } else {
+                            gid
+                        };
+
+                        // update db
+                    }
+
+                    // returns new attributes
+                    let attributes = self.get_attributes(path).unwrap();
+                    return Ok(attributes);
+                }
+                Err(_) => {
+                    return Err(StorageError::MetadataError(
+                        "Error while obtaining file metadata.".to_string(),
+                    ));
+                }
+            }
+        } else {
+            Err(StorageError::InvalidPath(format!("{}", path)))
+        }
+    }
+
+    /* IMPLEMENT PERMISSION MANAGEMENT VIA DB */
+    pub fn get_permissions(&self, path: &str) -> Result<u32> {
+        if let Some(node) = self.find(path) {
+            let item = node.read();
+            let real_path = self.make_real_path(node.clone())?;
+            // let target = Path::new(&real_path);
+
+            // check permissions from db
+            Ok(0o755 as u32)
+        } else {
+            Err(StorageError::InvalidPath(format!("{}", path)))
+        }
+    }
+
+    #[cfg(target_family = "unix")]
+    pub fn get_fs_stats(&self, path: &str) -> Result<Stats> {
+        let path_object = Path::new(path);
+
+        match statvfs(path_object) {
+            Ok(stats) => Ok(Stats {
+                blocks: stats.blocks(),
+                bfree: stats.blocks_free(),
+                bavail: stats.blocks_available(),
+                files: stats.files(),
+                ffree: stats.files_free(),
+                bsize: stats.block_size() as u32,
+                namelen: stats.name_max() as u32,
+                frsize: stats.fragment_size() as u32,
+            }),
+            Err(e) => Err(StorageError::MetadataError(format!("{:?}", e))),
+        }
     }
 }
 
