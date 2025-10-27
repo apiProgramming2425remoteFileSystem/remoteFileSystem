@@ -288,7 +288,6 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        tracing::info!("Ci sono!");
         let permissions = self
             .fs
             .get_permissions(
@@ -300,11 +299,32 @@ impl PathFilesystem for Fs {
                 libc::ENOENT
             })?;
 
-            tracing::debug!("{}", permissions);
-            if permissions == mask {
+            /*if (permissions & 0o100) == mask {
                 Ok(())
             }else{
                 Err(libc::EACCES.into())
+            }*/
+            match mask {
+                0 => Ok(()),
+                1 => if permissions & 0o100 != 0{
+                    Ok(())
+                }
+                else{
+                    Err(libc::EACCES.into())
+                },
+                2 => if permissions & 0o200 != 0{
+                    Ok(())
+                }
+                else{
+                    Err(libc::EACCES.into())
+                },
+                4 => if permissions & 0o400 != 0{
+                    Ok(())
+                }
+                else{
+                    Err(libc::EACCES.into())
+                },
+                _ => Err(libc::EACCES.into())
             }
 
     }
@@ -1222,6 +1242,35 @@ impl From<FuseError> for Errno {
             FuseError::NotImplemented => libc::ENOSYS.into(),
             FuseError::InvalidFileHandle(_) => todo!(),
             FuseError::UnsupportedOperation => todo!(),
+        }
+    }
+}
+
+impl From<fuse3::SetAttr> for SetAttr{
+    fn from(value: fuse3::SetAttr) -> Self {
+        SetAttr { 
+            uid: value.uid,
+            gid: value.gid,
+            size: value.size,
+            lock_owner: value.lock_owner,
+
+            // Conversione del mode (permessi)
+            // Nota: Assumiamo che il mode di fuser sia un u32 che rappresenta i permessi POSIX
+            mode: value.mode.and_then(|m| fs_model::Permission::try_from(m).ok()),
+
+            // Conversione di SystemTime in Timestamp
+            atime: value.atime.map(fs_model::attributes::Timestamp::from),
+            mtime: value.mtime.map(fs_model::attributes::Timestamp::from),
+            ctime: value.ctime.map(fs_model::attributes::Timestamp::from), 
+        }
+    }
+}
+
+impl From<fuse3::Timestamp> for fs_model::attributes::Timestamp {
+    fn from(t: fuse3::Timestamp) -> Self {
+        fs_model::attributes::Timestamp {
+            sec: t.sec,
+            nsec: t.nsec,
         }
     }
 }

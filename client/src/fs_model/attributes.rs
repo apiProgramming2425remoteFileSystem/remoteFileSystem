@@ -187,35 +187,6 @@ pub struct SetAttr {
     pub flags: Option<u32>,
 }
 
-impl From<fuse3::SetAttr> for SetAttr{
-    fn from(value: fuse3::SetAttr) -> Self {
-        SetAttr { 
-            uid: value.uid,
-            gid: value.gid,
-            size: value.size,
-            lock_owner: value.lock_owner,
-
-            // Conversione del mode (permessi)
-            // Nota: Assumiamo che il mode di fuser sia un u32 che rappresenta i permessi POSIX
-            mode: value.mode.and_then(|m| Permission::try_from(m).ok()),
-
-            // Conversione di SystemTime in Timestamp
-            atime: value.atime.map(Timestamp::from),
-            mtime: value.mtime.map(Timestamp::from),
-            ctime: value.ctime.map(Timestamp::from), 
-        }
-    }
-}
-
-impl From<fuse3::Timestamp> for Timestamp {
-    fn from(t: fuse3::Timestamp) -> Self {
-        Timestamp {
-            sec: t.sec,
-            nsec: t.nsec,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub struct Stats{
     pub blocks: u64,
