@@ -15,7 +15,6 @@ use libc;
 use tracing::{Level, instrument};
 
 const TTL: Duration = Duration::from_secs(1);
-const SEPARATOR: char = '/';
 
 pub struct Fs {
     fs: fs_model::FileSystem,

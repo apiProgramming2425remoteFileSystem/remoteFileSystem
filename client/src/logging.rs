@@ -1,4 +1,3 @@
-use anyhow;
 use clap::ValueEnum;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::Rotation;
@@ -115,7 +114,7 @@ impl Logging {
     pub fn from(config: &Config) -> Result<Self> {
         // Build environment filter string from log level
         let env_filter = EnvFilter::try_new(config.log_level.to_string())
-            .map_err(|op| LoggingError::InvalidValue(op.to_string()))?;
+            .map_err(|err| LoggingError::InvalidValue(err.to_string()))?;
 
         let mut layers = LogLayer::new();
         for target in &config.log_targets {
@@ -146,7 +145,7 @@ impl Logging {
                 .with(layer)
                 .with(env_filter)
                 .try_init()
-                .map_err(|op| LoggingError::InitFailed(op.to_string()))?;
+                .map_err(|err| LoggingError::InitFailed(err.to_string()))?;
         }
 
         Ok(Self::new(

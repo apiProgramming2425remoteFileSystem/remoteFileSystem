@@ -2,15 +2,17 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Weak;
 
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
+use crate::error::StorageError;
 use crate::nodes::{Directory, FSItem, FSNode, FSNodeWeak, File};
 
+type Result<T> = std::result::Result<T, StorageError>;
 /// Represents the in-memory file system structure
 pub struct FileSystem {
     real_path: PathBuf, // the real path of the file system
@@ -27,7 +29,7 @@ impl FileSystem {
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn from_file_system<P: AsRef<Path> + Debug>(base_path: P) -> Self {
+    pub fn from_file_system<P: AsRef<Path> + Debug>(base_path: P) -> Result<Self> {
         let base = base_path.as_ref();
         let fs = FileSystem::new(base);
 
@@ -92,21 +94,22 @@ impl FileSystem {
             current.write().add(new_node.clone());
         }
 
-        fs
+        Ok(fs)
     }
 
     #[instrument(skip(self), ret(level = Level::TRACE))]
-    fn make_real_path(&self, node: FSNode) -> PathBuf {
-        let mut abs_path = node.read().abs_path();
+    fn make_real_path(&self, node: FSNode) -> Result<PathBuf> {
+        let node = node.read();
+        let mut abs_path = node.abs_path();
 
         abs_path = abs_path
             .components()
             .filter(|c| *c != Component::RootDir)
             .collect();
 
-        PathBuf::from(&self.real_path)
+        Ok(PathBuf::from(&self.real_path)
             .join(&abs_path)
-            .join(node.read().name())
+            .join(node.name()))
     }
 
     #[instrument(ret(level = Level::TRACE))]
@@ -147,24 +150,21 @@ impl FileSystem {
         &mut self,
         path: P,
         name: S,
-    ) -> Result<(), String> {
-        let path = path.as_ref();
+    ) -> Result<()> {
+        let Some(node) = self.find(path.as_ref()) else {
+            return Err(StorageError::NotFound(format!("Directory {:?}", path)));
+        };
+
         let name = name.as_ref();
 
-        if let Some(node) = self.find(path) {
-            // create the directory on the file system
-            let target = self.make_real_path(node.clone()).join(name);
-            fs::create_dir(&target).map_err(|e| e.to_string())?;
+        // create the directory on the file system
+        let target = self.make_real_path(node.clone())?.join(name);
+        fs::create_dir(&target)?;
 
-            let new_dir = FSItem::Directory(Directory::new(name, FSNodeWeak::from(&node)));
-
-            let new_node = FSNode::new(new_dir);
-            node.write().add(new_node.clone());
-
-            Ok(())
-        } else {
-            return Err(format!("Directory {:#?} not found", path));
-        }
+        let new_dir = FSItem::Directory(Directory::new(name, FSNodeWeak::from(&node)));
+        let new_node = FSNode::new(new_dir);
+        node.write().add(new_node.clone());
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -172,22 +172,23 @@ impl FileSystem {
         &mut self,
         path: P,
         name: S,
-    ) -> Result<(), String> {
-        let path = path.as_ref();
+    ) -> Result<()> {
+        let Some(node) = self.find(path.as_ref()) else {
+            return Err(StorageError::NotFound(format!("Directory {:?}", path)));
+        };
+
         let name = name.as_ref();
+        let target = self.make_real_path(node.clone())?.join(name);
 
-        if let Some(node) = self.find(path) {
-            let target = self.make_real_path(node.clone()).join(name);
-            fs::File::create(&target).map_err(|e| e.to_string())?;
-
-            let new_file = FSItem::File(File::new(name, 0, FSNodeWeak::from(&node)));
-
-            let new_node = FSNode::new(new_file);
-            node.write().add(new_node.clone());
-            Ok(())
-        } else {
-            return Err(format!("Directory {:#?} not found", path));
+        if target.exists() {
+            return Err(StorageError::AlreadyExists(format!("{:?}", target)));
         }
+        fs::File::create(&target)?;
+
+        let new_file = FSItem::File(File::new(name, 0, FSNodeWeak::from(&node)));
+        let new_node = FSNode::new(new_file);
+        node.write().add(new_node.clone());
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -195,51 +196,44 @@ impl FileSystem {
         &self,
         path: P,
         new_name: S,
-    ) -> Result<(), String> {
-        let path = path.as_ref();
+    ) -> Result<()> {
+        let Some(node) = self.find(path.as_ref()) else {
+            return Err(StorageError::NotFound(format!("Item {:?}", path)));
+        };
+
         let new_name = new_name.as_ref();
+        let real_path = self.make_real_path(node.clone())?;
+        let new_path = real_path.with_file_name(new_name);
 
-        let node = self.find(path);
-        if let Some(n) = node {
-            let real_path = self.make_real_path(n.clone());
-            let new_path = real_path.with_file_name(new_name);
-
-            fs::rename(&real_path, &new_path).map_err(|e| e.to_string())?;
-
-            n.write().set_name(new_name);
-            Ok(())
-        } else {
-            Err(format!("Item {:#?} not found", path))
-        }
+        fs::rename(&real_path, &new_path)?;
+        node.write().set_name(new_name);
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn delete<P: AsRef<Path> + Debug>(&self, path: P) -> Result<(), String> {
+    pub fn delete<P: AsRef<Path> + Debug>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
 
-        let node = self.find(path);
-        if let Some(n) = node {
-            let fs_item = n.read();
+        let Some(node) = self.find(path) else {
+            return Err(StorageError::NotFound(format!("Item {:?}", path)));
+        };
+        let fs_item = node.read();
 
-            match fs_item.deref() {
-                FSItem::File(_) => {
-                    let real_path = self.make_real_path(n.clone());
-                    fs::remove_file(&real_path).map_err(|e| e.to_string())?;
-                }
-                FSItem::Directory(_) => {
-                    let real_path = self.make_real_path(n.clone());
-                    fs::remove_dir_all(&real_path).map_err(|e| e.to_string())?;
-                }
+        match fs_item.deref() {
+            FSItem::File(_) => {
+                let real_path = self.make_real_path(node.clone())?;
+                fs::remove_file(&real_path)?;
             }
-
-            let parent = FSNode::try_from(&fs_item.parent())
-                .map_err(|_| "Failed to get parent".to_string())?;
-
-            parent.write().remove(&fs_item.name());
-            Ok(())
-        } else {
-            Err(format!("Item {:#?} not found", path))
+            FSItem::Directory(_) => {
+                let real_path = self.make_real_path(node.clone())?;
+                fs::remove_dir_all(&real_path)?;
+            }
         }
+
+        let parent = FSNode::try_from(&fs_item.parent())?;
+
+        parent.write().remove(&fs_item.name());
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -248,7 +242,7 @@ impl FileSystem {
         path: P,
         data: &[u8],
         offset: usize,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let path = path.as_ref();
 
         // Try to find node, or create file if not exists
@@ -256,96 +250,93 @@ impl FileSystem {
             let name = path.file_name()?;
             let dir = path.parent()?;
 
+            // create file if not exists
             self.make_file(dir, name).ok()?;
             self.find(path)
         });
 
-        let node = node_opt.ok_or_else(|| "Path not found".to_string())?;
+        let node = node_opt.ok_or_else(|| StorageError::NotFound("Path".into()))?;
 
-        let mut item = node.write();
-        match item.deref_mut() {
-            FSItem::Directory(_) => Err("Path is a directory, cannot write data".to_string()),
-            FSItem::File(_) => {
-                // write the file on the file system
-                let real_path = self.make_real_path(node.clone());
-                let mut f = fs::OpenOptions::new()
-                    .write(true)
-                    .open(&real_path)
-                    .map_err(|e| format!("Failed to open file: {}", e))?;
-
-                // Seek to offset
-                f.seek(SeekFrom::Start(offset as u64))
-                    .map_err(|e| format!("Failed to seek: {}", e))?;
-                // Write data
-                f.write_all(data)
-                    .map_err(|e| format!("Failed to write: {}", e))?;
-                // Rewind to start to read the updated file content
-                f.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-                Ok(())
-            }
+        if node.is_directory() {
+            return Err(StorageError::UnsupportedOperation(
+                "Path is a directory, cannot write data".into(),
+            ));
         }
+
+        // write the file on the file system
+        let real_path = self.make_real_path(node.clone())?;
+        let file = node.write();
+        let mut f = fs::OpenOptions::new().write(true).open(&real_path)?;
+        // Seek to offset
+        f.seek(SeekFrom::Start(offset as u64))?;
+        // Write data
+        f.write_all(data)?;
+        // Rewind to start to read the updated file content
+        f.seek(SeekFrom::Start(0))?;
+        drop(file);
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn read_file<P: AsRef<Path> + Debug>(
-        &self,
-        path: P,
-        offset: usize,
-    ) -> Result<Vec<u8>, String> {
-        let path = path.as_ref();
+    pub fn read_file<P: AsRef<Path> + Debug>(&self, path: P, offset: usize) -> Result<Vec<u8>> {
+        let Some(node) = self.find(path.as_ref()) else {
+            return Err(StorageError::NotFound(format!("Path {:?}", path)));
+        };
 
-        if let Some(node) = self.find(path) {
-            let item = node.read();
-            match item.deref() {
-                FSItem::Directory(_) => Err("Path is a directory, cannot read data.".to_string()),
-                FSItem::File(_) => {
-                    // read the file from the real file system
-                    let real_path = self.make_real_path(node.clone());
-
-                    let mut f = fs::OpenOptions::new()
-                        .read(true)
-                        .open(&real_path)
-                        .map_err(|e| format!("Failed to open file: {}", e))?;
-
-                    // Seek to offset
-                    f.seek(SeekFrom::Start(offset as u64))
-                        .map_err(|e| format!("Failed to seek: {}", e))?;
-
-                    let mut buffer = Vec::<u8>::new();
-                    let bytes_read = f
-                        .read(&mut buffer)
-                        .map_err(|e| format!("Failed to read: {}", e))?;
-                    buffer.truncate(bytes_read);
-                    return Ok(buffer);
-                }
-            }
-        } else {
-            Err("Path not found.".to_string())
+        if node.is_directory() {
+            return Err(StorageError::UnsupportedOperation(
+                "Path is a directory, cannot read data.".into(),
+            ));
         }
+
+        // read the file from the real file system
+        let real_path = self.make_real_path(node.clone())?;
+
+        let mut f = fs::OpenOptions::new().read(true).open(&real_path)?;
+        // Seek to offset
+        f.seek(SeekFrom::Start(offset as u64))?;
+        let mut buffer = Vec::<u8>::new();
+        f.read_to_end(&mut buffer)?;
+
+        Ok(buffer)
     }
 
-    pub fn move_node<P: AsRef<Path> + Debug>(&self, old_path: P, new_path: P) -> Result<(), ()> {
-        let old_parent_path = old_path.as_ref().parent().unwrap();
-        let old_name = old_path.as_ref().file_name().unwrap();
+    pub fn move_node<P: AsRef<Path> + Debug>(&self, old_path: P, new_path: P) -> Result<()> {
+        let old_parent_path = old_path
+            .as_ref()
+            .parent()
+            .ok_or_else(|| StorageError::InvalidPath("Old path has no parent".into()))?;
+        let old_name = old_path
+            .as_ref()
+            .file_name()
+            .ok_or_else(|| StorageError::InvalidPath("Old path has no file name".into()))?;
 
-        let Some(parent_old) = self.find(old_parent_path) else {
-            return Err(());
-        };
+        let parent_old = self
+            .find(old_parent_path)
+            .ok_or_else(|| StorageError::NotFound(format!("Old parent {:?}", old_parent_path)))?;
 
-        let new_parent_path = new_path.as_ref().parent().unwrap();
-        let new_name = new_path.as_ref().file_name().unwrap();
+        let new_parent_path = new_path
+            .as_ref()
+            .parent()
+            .ok_or_else(|| StorageError::InvalidPath("New path has no parent".into()))?;
+        let new_name = new_path
+            .as_ref()
+            .file_name()
+            .ok_or_else(|| StorageError::InvalidPath("New path has no file name".into()))?;
 
         if old_parent_path == new_parent_path {
-            return self.rename(old_path, new_name).map_err(|_| {});
+            return self.rename(old_path, new_name);
         }
 
-        let Some(parent_new) = self.find(new_parent_path) else {
-            return Err(());
-        };
+        let parent_new = self
+            .find(new_parent_path)
+            .ok_or_else(|| StorageError::NotFound(format!("New parent {:?}", new_parent_path)))?;
 
         let mut parent_old_guard = parent_old.write();
 
-        let node_to_move = parent_old_guard.get_children(old_name).ok_or_else(|| {})?;
+        let node_to_move = parent_old_guard
+            .get_child(old_name)
+            .ok_or_else(|| StorageError::NotFound(format!("Child {:?}", old_name)))?;
 
         parent_old_guard.remove(old_name);
         node_to_move.write().set_name(&new_name);
@@ -370,12 +361,12 @@ impl Debug for FileSystem {
 
 // Helper function to recursively write directory tree with branches
 fn draw_tree(f: &mut std::fmt::Formatter<'_>, node: &FSNode, prefix: &str) -> std::fmt::Result {
-    match &*node.read() {
+    match node.read().deref() {
         FSItem::File(file) => writeln!(f, "{:?}", file),
         FSItem::Directory(dir) => {
             writeln!(f, "{:?}", dir)?;
-            let len = dir.get_childrens().len();
-            for (i, child) in dir.get_childrens().iter().enumerate() {
+            let len = dir.get_children().len();
+            for (i, child) in dir.get_children().iter().enumerate() {
                 let (new_prefix, branch) = if i + 1 == len {
                     (format!("{}    ", prefix), "└── ")
                 } else {

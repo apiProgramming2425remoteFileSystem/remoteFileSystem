@@ -50,11 +50,13 @@ fn main() {
 }
 */
 
-use client::error::ClientError;
+use std::fs;
+
 use fuse3::MountOptions;
 use fuse3::path::prelude::*;
 use tokio::signal;
 
+use client::error::ClientError;
 use client::fuse::Fs;
 use client::{config, error, logging, network};
 
@@ -74,6 +76,16 @@ async fn main() -> Result<()> {
     tracing::warn!("[WARN]");
     tracing::error!("[ERROR]");
 
+    // Create mountpoint directory if it doesn't exist
+    if !config.mountpoint.exists() {
+        tracing::info!(
+            "Mountpoint directory {:?} does not exist. Creating it.",
+            config.mountpoint
+        );
+        fs::create_dir_all(&config.mountpoint)
+            .map_err(|err| ClientError::Daemon(error::DaemonError::StartFailed(err.to_string())))?;
+    }
+
     let base_url = config.server_url.clone() + network::APP_V1_BASE_URL;
 
     let mut mount_options = MountOptions::default();
@@ -84,17 +96,17 @@ async fn main() -> Result<()> {
         // .mount_with_unprivileged(Fs::new(&base_url), &config.mountpoint)
         .mount(Fs::new(&base_url), &config.mountpoint)
         .await
-        .map_err(|op| ClientError::Daemon(error::DaemonError::StartFailed(op.to_string())))?;
+        .map_err(|err| ClientError::Daemon(error::DaemonError::StartFailed(err.to_string())))?;
 
     tracing::info!("FS mounted in {:?}", config.mountpoint);
 
     let handle = &mut mount_handle;
 
     tokio::select! {
-        res = handle => res.map_err(|op| ClientError::Daemon(error::DaemonError::SignalError(op.to_string())))?,
+        res = handle => res.map_err(|err| ClientError::Daemon(error::DaemonError::SignalError(err.to_string())))?,
         _ = signal::ctrl_c() => {
             tracing::info!("Unmounting FS...");
-            mount_handle.unmount().await.map_err(|op| ClientError::Daemon(error::DaemonError::SignalError(op.to_string())))?;
+            mount_handle.unmount().await.map_err(|err| ClientError::Daemon(error::DaemonError::SignalError(err.to_string())))?;
         }
     };
 

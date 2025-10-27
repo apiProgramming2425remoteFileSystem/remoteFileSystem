@@ -1,9 +1,9 @@
-use anyhow;
+use server::{config, error, logging, run_server};
 
-use server::{config, logging, run_server};
+type Result<T> = std::result::Result<T, error::ServerError>;
 
 #[actix_web::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     // Load configuration from args/env
     let config = config::Config::from_args()?;
 

@@ -1,8 +1,13 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
+
+use crate::error::StorageError;
+
+type Result<T> = std::result::Result<T, StorageError>;
 
 pub struct File {
     name: OsString,
@@ -56,7 +61,7 @@ impl Directory {
         self.parent.clone()
     }
 
-    pub fn get_childrens(&self) -> Vec<FSNode> {
+    pub fn get_children(&self) -> Vec<FSNode> {
         self.children.iter().map(|(_, n)| n.clone()).collect()
     }
 
@@ -65,7 +70,7 @@ impl Directory {
             .insert(PathBuf::from(item.clone().read().name()), item);
     }
 
-    pub fn get_children<P: AsRef<Path>>(&self, name: P) -> Option<FSNode> {
+    pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSNode> {
         self.children.get(&name.as_ref().to_path_buf()).cloned()
     }
 
@@ -92,9 +97,9 @@ impl FSItem {
         }
     }
 
-    pub fn get_childrens(&self) -> Option<Vec<FSNode>> {
+    pub fn get_children(&self) -> Option<Vec<FSNode>> {
         match self {
-            FSItem::Directory(d) => Some(d.get_childrens()),
+            FSItem::Directory(d) => Some(d.get_children()),
             _ => None,
         }
     }
@@ -107,9 +112,9 @@ impl FSItem {
         }
     }
 
-    pub fn get_children<P: AsRef<Path>>(&self, name: P) -> Option<FSNode> {
+    pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSNode> {
         match self {
-            FSItem::Directory(d) => d.get_children(name.as_ref()),
+            FSItem::Directory(d) => d.get_child(name.as_ref()),
             _ => None,
         }
     }
@@ -152,11 +157,11 @@ impl FSNode {
         Self(Arc::new(RwLock::new(item)))
     }
 
-    pub fn read(&self) -> std::sync::RwLockReadGuard<'_, FSItem> {
+    pub fn read(&self) -> RwLockReadGuard<'_, FSItem> {
         self.0.read().expect("FSNode read lock poisoned")
     }
 
-    pub fn write(&self) -> std::sync::RwLockWriteGuard<'_, FSItem> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, FSItem> {
         self.0.write().expect("FSNode write lock poisoned")
     }
 
@@ -167,20 +172,34 @@ impl FSNode {
         } else if path == Component::ParentDir.as_os_str() {
             FSNode::try_from(&self.read().parent()).ok()?
         } else {
-            self.read().get_children(name)?
+            self.read().get_child(name)?
         };
 
         Some(next_node)
     }
+
+    pub fn is_directory(&self) -> bool {
+        match self.read().deref() {
+            FSItem::Directory(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_file(&self) -> bool {
+        match self.read().deref() {
+            FSItem::File(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl TryFrom<&FSNodeWeak> for FSNode {
-    type Error = (); // TODO: define proper error type
+    type Error = StorageError;
 
-    fn try_from(value: &FSNodeWeak) -> Result<Self, Self::Error> {
+    fn try_from(value: &FSNodeWeak) -> Result<Self> {
         match value.upgrade() {
             Some(arc) => Ok(FSNode(arc)),
-            None => Err(()),
+            None => Err(StorageError::ConversionFailed),
         }
     }
 }
