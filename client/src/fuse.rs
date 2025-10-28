@@ -84,27 +84,22 @@ impl PathFilesystem for Fs {
 
     /// look up a directory entry by name and get its attributes.
     #[instrument(skip(self), err(level = Level::DEBUG), ret(level = Level::DEBUG))]
-    async fn lookup(&self, 
-        req: Request, 
-        parent: &OsStr, 
-        name: &OsStr) -> FuseResult<ReplyEntry> {
+    async fn lookup(&self, req: Request, parent: &OsStr, name: &OsStr) -> FuseResult<ReplyEntry> {
         /**********************************************
          * Di fatto agisce esattamente come la getattr...
-        ***********************************************/
+         ***********************************************/
 
         let path = PathBuf::from(parent).join(name);
 
         let attributes = self
             .fs
-            .get_attributes(
-                &path.as_os_str()
-            )
+            .get_attributes(&path.as_os_str())
             .await
             .map_err(|err| {
                 tracing::error!("{}", err);
                 libc::ENOENT
             })?;
-        
+
         Ok(ReplyEntry {
             ttl: TTL,
             attr: attributes.into(),
@@ -127,10 +122,10 @@ impl PathFilesystem for Fs {
     }
 
     /****************************
-     * COSA DEVO FARE CON fh? 
-    ****************************/
-    /// get file fs_model. 
-    /// If `fh` is None, means `fh` is not set. 
+     * COSA DEVO FARE CON fh?
+     ****************************/
+    /// get file fs_model.
+    /// If `fh` is None, means `fh` is not set.
     /// If `path` is None, means the path may be deleted.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn getattr(
@@ -145,21 +140,15 @@ impl PathFilesystem for Fs {
 
         let path_osStr = if let Some(p) = path {
             p
-        }else{
+        } else {
             return Err(libc::ENOENT.into());
         };
 
-        let attributes = self
-            .fs
-            .get_attributes(
-                &path_osStr
-            )
-            .await
-            .map_err(|err| {
-                tracing::error!("{}", err);
-                libc::ENOENT
-            })?;
-        
+        let attributes = self.fs.get_attributes(&path_osStr).await.map_err(|err| {
+            tracing::error!("{}", err);
+            libc::ENOENT
+        })?;
+
         Ok(ReplyAttr {
             ttl: TTL,
             attr: attributes.into(),
@@ -167,8 +156,8 @@ impl PathFilesystem for Fs {
     }
 
     /****************************
-     * COSA DEVO FARE CON fh? 
-    ****************************/
+     * COSA DEVO FARE CON fh?
+     ****************************/
     /// set file fs_model. If `fh` is None, means `fh` is not set. If `path` is None, means the
     /// path may be deleted.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -179,21 +168,15 @@ impl PathFilesystem for Fs {
         fh: Option<u64>,
         set_attr: fuse3::SetAttr,
     ) -> FuseResult<ReplyAttr> {
-
         let path_osStr = if let Some(p) = path {
             p
-        }else{
+        } else {
             return Err(libc::EINVAL.into());
         };
 
         let attributes = self
             .fs
-            .set_attributes(
-                req.uid,
-                req.gid,
-                &path_osStr, 
-                set_attr.into()
-            )
+            .set_attributes(req.uid, req.gid, &path_osStr, set_attr.into())
             .await
             .map_err(|err| {
                 tracing::error!("{}", err);
@@ -257,18 +240,12 @@ impl PathFilesystem for Fs {
         // TODO:
         //Err(FuseError::NotImplemented.into())
 
-        let stats = self
-            .fs
-            .get_fs_stats(
-                &path
-            )
-            .await
-            .map_err(|err| {
-                tracing::error!("{}", err);
-                libc::ENOENT
-            })?;
+        let stats = self.fs.get_fs_stats(&path).await.map_err(|err| {
+            tracing::error!("{}", err);
+            libc::ENOENT
+        })?;
 
-        Ok(ReplyStatFs{
+        Ok(ReplyStatFs {
             blocks: stats.blocks,
             bfree: stats.bfree,
             bavail: stats.bavail,
@@ -276,7 +253,7 @@ impl PathFilesystem for Fs {
             frsize: stats.frsize,
             files: stats.files,
             ffree: stats.ffree,
-            namelen: stats.namelen
+            namelen: stats.namelen,
         })
     }
 
@@ -288,45 +265,41 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        let permissions = self
-            .fs
-            .get_permissions(
-                &path
-            )
-            .await
-            .map_err(|err| {
-                tracing::error!("{}", err);
-                libc::ENOENT
-            })?;
+        let permissions = self.fs.get_permissions(&path).await.map_err(|err| {
+            tracing::error!("{}", err);
+            libc::ENOENT
+        })?;
 
-            /*if (permissions & 0o100) == mask {
-                Ok(())
-            }else{
-                Err(libc::EACCES.into())
-            }*/
-            match mask {
-                0 => Ok(()),
-                1 => if permissions & 0o100 != 0{
+        /*if (permissions & 0o100) == mask {
+            Ok(())
+        }else{
+            Err(libc::EACCES.into())
+        }*/
+        match mask {
+            0 => Ok(()),
+            1 => {
+                if permissions & 0o100 != 0 {
                     Ok(())
-                }
-                else{
+                } else {
                     Err(libc::EACCES.into())
-                },
-                2 => if permissions & 0o200 != 0{
-                    Ok(())
                 }
-                else{
-                    Err(libc::EACCES.into())
-                },
-                4 => if permissions & 0o400 != 0{
-                    Ok(())
-                }
-                else{
-                    Err(libc::EACCES.into())
-                },
-                _ => Err(libc::EACCES.into())
             }
-
+            2 => {
+                if permissions & 0o200 != 0 {
+                    Ok(())
+                } else {
+                    Err(libc::EACCES.into())
+                }
+            }
+            4 => {
+                if permissions & 0o400 != 0 {
+                    Ok(())
+                } else {
+                    Err(libc::EACCES.into())
+                }
+            }
+            _ => Err(libc::EACCES.into()),
+        }
     }
 
     /// map block index within file to block index within device.
@@ -1246,9 +1219,9 @@ impl From<FuseError> for Errno {
     }
 }
 
-impl From<fuse3::SetAttr> for SetAttr{
+impl From<fuse3::SetAttr> for SetAttr {
     fn from(value: fuse3::SetAttr) -> Self {
-        SetAttr { 
+        SetAttr {
             uid: value.uid,
             gid: value.gid,
             size: value.size,
@@ -1256,12 +1229,14 @@ impl From<fuse3::SetAttr> for SetAttr{
 
             // Conversione del mode (permessi)
             // Nota: Assumiamo che il mode di fuser sia un u32 che rappresenta i permessi POSIX
-            mode: value.mode.and_then(|m| fs_model::Permission::try_from(m).ok()),
+            mode: value
+                .mode
+                .and_then(|m| fs_model::Permission::try_from(m).ok()),
 
             // Conversione di SystemTime in Timestamp
             atime: value.atime.map(fs_model::attributes::Timestamp::from),
             mtime: value.mtime.map(fs_model::attributes::Timestamp::from),
-            ctime: value.ctime.map(fs_model::attributes::Timestamp::from), 
+            ctime: value.ctime.map(fs_model::attributes::Timestamp::from),
         }
     }
 }

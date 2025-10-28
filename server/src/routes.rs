@@ -119,12 +119,9 @@ async fn delete_item(fs: web::Data<FS>, path: web::Path<String>) -> impl Respond
 /* Inutile se lookup = getAttr */
 #[get("/resolve/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn resolve_child(
-    fs: web::Data<RwLock<FileSystem>>,
-    path: web::Path<String>,
-) -> impl Responder {
+async fn resolve_child(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    match fs.read().unwrap().get_attributes(path.as_str()) {
+    match fs.read().get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
         Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
     }
@@ -132,13 +129,9 @@ async fn resolve_child(
 
 #[get("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_attributes(
-    fs: web::Data<RwLock<FileSystem>>,
-    path: web::Path<String>,
-) -> impl Responder {
-    tracing::warn!("BACKEND: Ci sono!");
+async fn get_attributes(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    match fs.read().unwrap().get_attributes(path.as_str()) {
+    match fs.read().get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -150,7 +143,7 @@ async fn get_attributes(
 #[put("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn set_attributes(
-    fs: web::Data<RwLock<FileSystem>>,
+    fs: web::Data<FS>,
     path: web::Path<String>,
     json: web::Json<SetAttrRequest>,
 ) -> impl Responder {
@@ -162,7 +155,6 @@ async fn set_attributes(
 
     match fs
         .read()
-        .unwrap()
         .set_attributes(path.as_str(), uid, gid, new_attributes)
     {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
@@ -175,13 +167,10 @@ async fn set_attributes(
 
 #[get("/permissions/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_permissions(
-    fs: web::Data<RwLock<FileSystem>>,
-    path: web::Path<String>,
-) -> impl Responder {
+async fn get_permissions(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
-    match fs.read().unwrap().get_permissions(path.as_str()) {
+    match fs.read().get_permissions(path.as_str()) {
         Ok(permissions) => HttpResponse::Ok().json(permissions),
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -191,10 +180,10 @@ async fn get_permissions(
 }
 
 #[get("/stats/{path}")]
-async fn get_stats(fs: web::Data<RwLock<FileSystem>>, path: web::Path<String>) -> impl Responder {
+async fn get_stats(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
-    match fs.read().unwrap().get_fs_stats(path.as_str()) {
+    match fs.read().get_fs_stats(path.as_str()) {
         Ok(stats) => HttpResponse::Ok().json(stats),
         Err(e) => {
             tracing::error!("{}", e.to_string());

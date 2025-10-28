@@ -9,9 +9,9 @@ use std::time::SystemTime;
 use tracing::{Level, instrument};
 
 use crate::error::FsModelError;
+use crate::fs_model::attributes::SetAttr;
 use crate::network::client::RemoteClient;
-use crate::network::models::{SerializableFSItem};
-use crate::fs_model::attributes::{SetAttr};
+use crate::network::models::SerializableFSItem;
 
 pub mod attributes;
 pub mod directory;
@@ -56,7 +56,6 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
-        
         self.remote_client
             .list_path(path)
             .await
@@ -194,43 +193,47 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn resolve_child(&self, uid: u32, gid: u32, path: &OsStr) -> anyhow::Result<FileAttr> {
-        let attributes = self.remote_client
-            .resolve_child(uid, gid, path)
-            .await?;
+    pub async fn resolve_child(
+        &self,
+        uid: u32,
+        gid: u32,
+        path: &OsStr,
+    ) -> anyhow::Result<FileAttr> {
+        let attributes = self.remote_client.resolve_child(uid, gid, path).await?;
 
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_attributes(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
-        let attributes = self.remote_client.
-                        get_attributes(path)
-                        .await?;
+        let attributes = self.remote_client.get_attributes(path).await?;
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_attributes(&self, uid: u32, gid: u32, path: &OsStr, new_attributes: SetAttr) -> anyhow::Result<FileAttr>{
-        let attributes = self.remote_client
-                                        .set_attributes(uid, gid, path, new_attributes)
-                                        .await?;
+    pub async fn set_attributes(
+        &self,
+        uid: u32,
+        gid: u32,
+        path: &OsStr,
+        new_attributes: SetAttr,
+    ) -> anyhow::Result<FileAttr> {
+        let attributes = self
+            .remote_client
+            .set_attributes(uid, gid, path, new_attributes)
+            .await?;
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions(&self, path: &OsStr) -> anyhow::Result<u32>{
-        let permissions = self.remote_client
-                                        .get_permissions(path)
-                                        .await?;
+    pub async fn get_permissions(&self, path: &OsStr) -> anyhow::Result<u32> {
+        let permissions = self.remote_client.get_permissions(path).await?;
         Ok(permissions)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_fs_stats(&self, path: &OsStr) -> anyhow::Result<Stats>{
-        let stats = self.remote_client
-                                        .get_stats(path)
-                                        .await?;
+    pub async fn get_fs_stats(&self, path: &OsStr) -> anyhow::Result<Stats> {
+        let stats = self.remote_client.get_stats(path).await?;
         Ok(stats)
     }
 

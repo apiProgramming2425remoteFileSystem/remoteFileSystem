@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::FsModelError;
@@ -152,8 +152,8 @@ impl From<SystemTime> for Timestamp {
     }
 }
 
-impl From<Timestamp> for SystemTime{
-    fn from(t: Timestamp) -> Self{
+impl From<Timestamp> for SystemTime {
+    fn from(t: Timestamp) -> Self {
         let duration = Duration::new(t.sec as u64, t.nsec);
         UNIX_EPOCH.checked_add(duration).unwrap()
     }
@@ -188,7 +188,7 @@ pub struct SetAttr {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Stats{
+pub struct Stats {
     pub blocks: u64,
     pub bfree: u64,
     pub bavail: u64,
