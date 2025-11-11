@@ -118,7 +118,7 @@ impl RemoteClient {
         let url = self.set_short_url("rename");
         let rename_req = RenameRequest::new(String::from(old_path_str), String::from(new_path_str));
         self.http_client
-            .post(url)
+            .put(url)
             .json(&rename_req)
             .send()
             .await?
