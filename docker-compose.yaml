@@ -45,7 +45,7 @@ services:
       # - ./server:${APP_PATH}/server/
       # - ./client:${APP_PATH}/client/
       - .:${APP_PATH}/
-      - ./mount:${MOUNT_POINT} # Host directory to see FS mount
+      - ./mount:${FS_ROOT} # Host directory to see FS mount
     working_dir: ${APP_PATH}/
     tty: true # Keep the terminal open
     restart: unless-stopped # Automatically restart unless stopped manually

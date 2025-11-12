@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,15 +26,9 @@ type Result<T> = std::result::Result<T, FsModelError>;
 static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug)]
-struct FileHandler {
-    file_path: PathBuf,
-    attr: FileAttr,
-}
-
-#[derive(Debug)]
 pub struct FileSystem {
     remote_client: RemoteClient,
-    file_handlers: RwLock<HashMap<u64, FileHandler>>,
+    file_handlers: RwLock<HashMap<u64, OsString>>,
 }
 
 /// pub async fn template_fn(&self, args) -> Result<> {
@@ -52,6 +46,12 @@ impl FileSystem {
             remote_client: RemoteClient::new(base_url),
             file_handlers: RwLock::new(HashMap::new()),
         }
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<OsString>> {
+        let map = self.file_handlers.read().map_err(|_| { return FsModelError::ConversionFailed;})?;
+        Ok(map.get(&fh).cloned())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -86,22 +86,17 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn open_file(&self, uid: u32, gid: u32, path: &Path, flags: &Flags) -> Result<u64> {
+    pub fn open_file(&self, uid: u32, gid: u32, path: &OsStr, flags: &Flags) -> Result<u64> {
         // TODO: check access
 
         let fh = CURRENT_FH.fetch_add(1, Ordering::Relaxed);
-
-        let handler = FileHandler {
-            file_path: path.into(),
-            attr: self.mock_file_attr(),
-        };
 
         let mut guad = self
             .file_handlers
             .write()
             .map_err(|_| anyhow::anyhow!(""))?;
 
-        guad.insert(fh, handler);
+        guad.insert(fh, path.to_os_string());
 
         Ok(fh)
     }

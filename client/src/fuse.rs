@@ -138,13 +138,19 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        let path_osStr = if let Some(p) = path {
-            p
+        let path_osString = if let Some(p) = path {
+            p.to_os_string()
         } else {
-            return Err(libc::ENOENT.into());
+            let Some(fh) = fh else {
+                return Err(libc::ENOENT.into());
+            };
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh) else {
+                return Err(libc::ENOENT.into());
+            };
+            p
         };
 
-        let attributes = self.fs.get_attributes(&path_osStr).await.map_err(|err| {
+        let attributes = self.fs.get_attributes(path_osString.as_os_str()).await.map_err(|err| {
             tracing::error!("{}", err);
             libc::ENOENT
         })?;
@@ -421,7 +427,7 @@ impl PathFilesystem for Fs {
 
         let fh = self
             .fs
-            .open_file(req.uid, req.gid, &file_path, &fs_flags)
+            .open_file(req.uid, req.gid, file_path.as_os_str(), &fs_flags)
             .map_err(|err| {
                 tracing::error!("{err}");
                 libc::ENOSYS
@@ -465,7 +471,7 @@ impl PathFilesystem for Fs {
 
         let fh = self
             .fs
-            .open_file(req.uid, req.gid, &PathBuf::from(path), &fs_flags)
+            .open_file(req.uid, req.gid, path, &fs_flags)
             .map_err(|err| {
                 tracing::error!("{err}");
                 libc::ENOSYS
