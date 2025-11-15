@@ -17,6 +17,7 @@ pub enum ItemType {
 pub struct SerializableFSItem {
     name: String,
     item_type: ItemType,
+    attributes: FileAttr,
 }
 
 impl SerializableFSItem {
@@ -28,6 +29,7 @@ impl SerializableFSItem {
         Self {
             name: item.name().to_string(),
             item_type,
+            attributes: item.attributes(),
         }
     }
 }

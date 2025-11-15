@@ -861,36 +861,18 @@ impl PathFilesystem for Fs {
         offset: i64,
     ) -> FuseResult<ReplyDirectory<Self::DirEntryStream<'a>>> {
         // TODO:
-        // move . and ..
 
-        let mut entries: Vec<FuseResult<DirectoryEntry>> = Vec::new();
-
-        if offset == 0 {
-            entries.push(Ok(DirectoryEntry {
-                offset: 1,
-                name: OsStr::new(".").into(),
-                kind: FileType::Directory,
-            }));
-        }
-        if offset <= 1 {
-            entries.push(Ok(DirectoryEntry {
-                offset: 2,
-                name: OsStr::new("..").into(),
-                kind: FileType::Directory,
-            }));
-        }
-
-        let items = match self.fs.list_path(path).await {
+        let items = match self.fs.readdir(path).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
-                tracing::error!("list_path failed: {err}");
+                tracing::error!("readdir failed: {err}");
                 return Err(Errno::from(libc::EIO)); //  generic I/O error
             }
         };
 
-        let other_entries: Vec<FuseResult<DirectoryEntry>> = items
+        let entries: Vec<FuseResult<DirectoryEntry>> = items
             .into_iter()
-            .skip(offset.saturating_sub(2) as usize)
+            .skip(offset as usize)
             .enumerate()
             .map(|(idx, item)| {
                 let kind = match item.item_type {
@@ -898,14 +880,13 @@ impl PathFilesystem for Fs {
                     ItemType::Directory => FileType::Directory,
                 };
                 Ok(DirectoryEntry {
-                    offset: (offset + idx as i64 + 3),
+                    offset: (offset + idx as i64 + 1),
                     name: item.name.into(),
                     kind,
                 })
             })
             .collect();
 
-        entries.extend(other_entries);
 
         let stream = stream::iter(entries);
         Ok(ReplyDirectory { entries: stream })
@@ -923,60 +904,35 @@ impl PathFilesystem for Fs {
         lock_owner: u64,
     ) -> FuseResult<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
         // TODO:
-        // move . and ..
 
-        let mut entries: Vec<FuseResult<DirectoryEntryPlus>> = Vec::new();
 
-        if offset == 0 {
-            entries.push(Ok(DirectoryEntryPlus {
-                kind: FileType::Directory,
-                name: OsStr::new(".").into(),
-                offset: 1,
-                attr: self.fs.mock_dir_attr().into(),
-                entry_ttl: TTL,
-                attr_ttl: TTL,
-            }));
-        }
-        if offset <= 1 {
-            entries.push(Ok(DirectoryEntryPlus {
-                kind: FileType::Directory,
-                name: OsStr::new("..").into(),
-                offset: 2,
-                attr: self.fs.mock_dir_attr().into(),
-                entry_ttl: TTL,
-                attr_ttl: TTL,
-            }));
-        }
-
-        let items = match self.fs.list_path(parent).await {
+        let items = match self.fs.readdir(parent).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
-                tracing::error!("list_path failed: {err}");
+                tracing::error!("readdir failed: {err}");
                 return Err(Errno::from(libc::EIO));
             }
         };
 
-        let other_entries: Vec<FuseResult<DirectoryEntryPlus>> = items
+        let entries: Vec<FuseResult<DirectoryEntryPlus>> = items
             .into_iter()
-            .skip(offset.saturating_sub(2) as usize)
+            .skip(offset as usize)
             .enumerate()
             .map(|(idx, item)| {
                 let (kind, attr) = match item.item_type {
-                    ItemType::File => (FileType::RegularFile, self.fs.mock_file_attr()),
-                    ItemType::Directory => (FileType::Directory, self.fs.mock_dir_attr()),
+                    ItemType::File => (FileType::RegularFile, item.attributes),
+                    ItemType::Directory => (FileType::Directory, item.attributes),
                 };
                 Ok(DirectoryEntryPlus {
                     kind,
                     name: item.name.into(),
-                    offset: (offset + idx as u64 + 3) as i64,
+                    offset: (offset + idx as u64 + 1) as i64,
                     attr: attr.into(),
                     entry_ttl: TTL,
                     attr_ttl: TTL,
                 })
             })
             .collect();
-
-        entries.extend(other_entries);
 
         let stream = stream::iter(entries);
         Ok(ReplyDirectoryPlus { entries: stream })

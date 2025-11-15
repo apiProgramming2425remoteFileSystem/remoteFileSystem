@@ -30,19 +30,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    if let Some(item) = fs.find(&path) {
-        if let Some(children_nodes) = item.get_children() {
-            let children: Vec<SerializableFSItem> = children_nodes
-                .iter()
-                .map(|child| SerializableFSItem::new(child))
-                .collect();
-            HttpResponse::Ok().json(children)
-        } else {
-            HttpResponse::BadRequest().body("Path isn't a directory")
-        }
-    } else {
-        HttpResponse::NotFound().body("Path not found")
-    }
+    let Some(item) = fs.find(&path) else {
+        return HttpResponse::NotFound().body("Path not found");
+    };
+    let Some(children_nodes) = item.get_children() else {
+        return HttpResponse::BadRequest().body("Path isn't a directory");
+    };
+    let children: Vec<SerializableFSItem> = children_nodes
+        .iter()
+        .map(|child| SerializableFSItem::new(child))
+        .collect();
+    HttpResponse::Ok().json(children)
 }
 
 #[get("/files/{path}")]

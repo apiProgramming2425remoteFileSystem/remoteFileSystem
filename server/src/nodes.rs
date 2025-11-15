@@ -32,51 +32,21 @@ pub enum FSItem {
 }
 
 impl File {
-    pub fn new<S: AsRef<OsStr>>(name: S, size: usize) -> Self {
+    pub fn new<S: AsRef<OsStr>>(name: S, size: usize, attributes: FileAttr) -> Self {
         Self {
             name: name.as_ref().to_owned(),
             size,
-            attributes: FileAttr {
-                size: 0,
-                blocks: 0,
-                atime: SystemTime::now().into(),
-                mtime: SystemTime::now().into(),
-                ctime: SystemTime::now().into(),
-                crtime: SystemTime::now().into(),
-                kind: FileType::RegularFile,
-                perm: Permission::try_from(0o755 as u16).unwrap(),
-                nlink: 1,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
-                blksize: 4096,
-                flags: 1,
-            },
+            attributes,
         }
     }
 }
 
 impl Directory {
-    pub fn new<S: AsRef<OsStr>>(name: S) -> Self {
+    pub fn new<S: AsRef<OsStr>>(name: S, attributes: FileAttr) -> Self {
         Self {
             name: name.as_ref().to_owned(),
             children: HashMap::new(),
-            attributes: FileAttr {
-                size: 0,
-                blocks: 0,
-                atime: SystemTime::now().into(),
-                mtime: SystemTime::now().into(),
-                ctime: SystemTime::now().into(),
-                crtime: SystemTime::now().into(),
-                perm: Permission::try_from(0o755 as u16).unwrap(),
-                kind: FileType::Directory,
-                nlink: 1,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
-                blksize: 4096,
-                flags: 1,
-            },
+            attributes,
         }
     }
 
@@ -107,6 +77,13 @@ impl FSItem {
             FSItem::Directory(d) => &d.name,
         };
         name.to_str().unwrap()
+    }
+
+    pub fn attributes(&self) -> FileAttr {
+        match self{
+            FSItem::File(f) => f.attributes.clone(),
+            FSItem::Directory(d) => d.attributes.clone(),
+        }
     }
 
     pub fn get_children(&self) -> Option<Vec<FSItem>> {

@@ -46,7 +46,7 @@ fn get_attributes_by_path(path: &Path) -> Result<FileAttr> {
 
             let attributes = FileAttr {
                 size: object.len(),
-                blocks: 0, // ? eventualmente modificare ?
+                blocks: 0, //  ? eventualmente modificare ?
                 atime: Timestamp::from(object.accessed().unwrap()),
                 mtime: Timestamp::from(object.modified().unwrap()),
                 ctime: Timestamp::from(SystemTime::now()),
@@ -108,11 +108,11 @@ impl FileSystem {
 
         if meta.is_file() {
             let size = meta.len() as usize;
-            let file = FSItem::File(File::new(real.file_name()?, size));
+            let file = FSItem::File(File::new(real.file_name()?, size, get_attributes_by_path(&real).unwrap()));
             Some(file)
         }
         else if meta.is_dir() {
-            let mut root = FSItem::Directory(Directory::new(real.file_name()?));
+            let mut root = FSItem::Directory(Directory::new(real.file_name()?, get_attributes_by_path(&real).unwrap()));
             let entries = match fs::read_dir(&real) {
                 Ok(entries) => entries,
                 Err(err) => {
@@ -142,9 +142,11 @@ impl FileSystem {
                 let name = entry.file_name();
 
                 let child = if meta.is_file() {
-                    FSItem::File(File::new(name, meta.len() as usize))
+                    let path = real.join(name.clone());
+                    FSItem::File(File::new(name, meta.len() as usize, get_attributes_by_path(&path).unwrap()))
                 } else if meta.is_dir() {
-                    FSItem::Directory(Directory::new(name))
+                    let path = real.join(name.clone());
+                    FSItem::Directory(Directory::new(name, get_attributes_by_path(&path).unwrap()))
                 } else {
                     continue;
                 };

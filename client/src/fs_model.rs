@@ -11,7 +11,7 @@ use tracing::{Level, instrument};
 use crate::error::FsModelError;
 use crate::fs_model::attributes::SetAttr;
 use crate::network::client::RemoteClient;
-use crate::network::models::SerializableFSItem;
+use crate::network::models::{ItemType, SerializableFSItem};
 
 pub mod attributes;
 pub mod directory;
@@ -29,6 +29,22 @@ static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
 pub struct FileSystem {
     remote_client: RemoteClient,
     file_handlers: RwLock<HashMap<u64, OsString>>,
+}
+
+fn get_parent_path(path: &OsStr) -> OsString {
+    let p = Path::new(path);
+    if p.as_os_str().is_empty() {
+        return OsString::from("/");
+    }
+    if let Some(par) = p.parent() {
+        if par.as_os_str() == "." {
+            OsString::from("/")
+        } else {
+            par.into()
+        }
+    } else {
+        OsString::from("/")
+    }
 }
 
 /// pub async fn template_fn(&self, args) -> Result<> {
@@ -54,8 +70,28 @@ impl FileSystem {
         Ok(map.get(&fh).cloned())
     }
 
+
+
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
+    pub async fn readdir(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
+        let mut items: Vec<SerializableFSItem> = vec![];
+        items.push(SerializableFSItem{
+            name: ".".to_string(),
+            item_type: ItemType::Directory,
+            attributes: self.get_attributes(path).await?,
+        });
+        let parent_path = get_parent_path(path);
+        items.push(SerializableFSItem{
+            name: "..".to_string(),
+            item_type: ItemType::Directory,
+            attributes: self.get_attributes(&parent_path).await?,
+        });
+        items.extend(self.list_path(path).await?);
+        Ok(items)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
         self.remote_client
             .list_path(path)
             .await
