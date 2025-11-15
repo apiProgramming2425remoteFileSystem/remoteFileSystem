@@ -86,7 +86,7 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn open_file(&self, uid: u32, gid: u32, path: &OsStr, flags: &Flags) -> Result<u64> {
+    pub fn open(&self, uid: u32, gid: u32, path: &OsStr, flags: &Flags) -> Result<u64> {
         // TODO: check access
 
         let fh = CURRENT_FH.fetch_add(1, Ordering::Relaxed);
@@ -102,14 +102,13 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn release_file(
+    pub fn release(
         &self,
         uid: u32,
         gid: u32,
         path: &Path,
         flags: &Flags,
         fh: u64,
-        lock_owner: u64,
     ) -> Result<()> {
         // TODO: check access
 

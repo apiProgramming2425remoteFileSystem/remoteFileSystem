@@ -427,7 +427,7 @@ impl PathFilesystem for Fs {
 
         let fh = self
             .fs
-            .open_file(req.uid, req.gid, file_path.as_os_str(), &fs_flags)
+            .open(req.uid, req.gid, file_path.as_os_str(), &fs_flags)
             .map_err(|err| {
                 tracing::error!("{err}");
                 libc::ENOSYS
@@ -471,7 +471,7 @@ impl PathFilesystem for Fs {
 
         let fh = self
             .fs
-            .open_file(req.uid, req.gid, path, &fs_flags)
+            .open(req.uid, req.gid, path, &fs_flags)
             .map_err(|err| {
                 tracing::error!("{err}");
                 libc::ENOSYS
@@ -631,7 +631,7 @@ impl PathFilesystem for Fs {
         };
 
         self.fs
-            .release_file(req.uid, req.gid, &file_path, &fs_flags, fh, lock_owner)
+            .release(req.uid, req.gid, &file_path, &fs_flags, fh)
             .map_err(|err| {
                 tracing::error!("{err}");
                 libc::ENOSYS
@@ -830,7 +830,23 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        Ok(ReplyOpen { fh: 1, flags: 0 })
+        let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
+            return Err(libc::EINVAL.into());
+        };
+
+        if fs_flags.create || fs_flags.excl || fs_flags.noctt {
+            return Err(libc::EINVAL.into());
+        }
+
+        let fh = self
+            .fs
+            .open(req.uid, req.gid, path, &fs_flags)
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
+        Ok(ReplyOpen { fh, flags })
     }
 
     /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
@@ -845,7 +861,7 @@ impl PathFilesystem for Fs {
         offset: i64,
     ) -> FuseResult<ReplyDirectory<Self::DirEntryStream<'a>>> {
         // TODO:
-        // Err(FuseError::NotImplemented.into())
+        // move . and ..
 
         let mut entries: Vec<FuseResult<DirectoryEntry>> = Vec::new();
 
@@ -907,7 +923,7 @@ impl PathFilesystem for Fs {
         lock_owner: u64,
     ) -> FuseResult<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
         // TODO:
-        // Err(FuseError::NotImplemented.into())
+        // move . and ..
 
         let mut entries: Vec<FuseResult<DirectoryEntryPlus>> = Vec::new();
 
@@ -975,6 +991,19 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
+        let file_path = PathBuf::from(path);
+
+        let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
+            return Err(libc::EINVAL.into());
+        };
+
+        self.fs
+            .release(req.uid, req.gid, &file_path, &fs_flags, fh)
+            .map_err(|err| {
+                tracing::error!("{err}");
+                libc::ENOSYS
+            })?;
+
         Ok(())
     }
 
@@ -1031,7 +1060,7 @@ impl PathFilesystem for Fs {
         flags: u32,
     ) -> FuseResult<()> {
         // TODO:
-        tracing::warn!("[Not Implemented]");
+        // tracing::warn!("[Not Implemented]");
         //Err(libc::ENOSYS.into());
         let old_path = Path::new(origin_parent).join(origin_name);
         let new_path = Path::new(parent).join(name);
