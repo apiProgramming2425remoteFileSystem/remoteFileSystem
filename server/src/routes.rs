@@ -7,21 +7,6 @@ use crate::storage::*;
 
 const APP_V1_BASE_URL: &str = "/api/v1";
 
-pub struct FS(RwLock<FileSystem>);
-
-impl FS {
-    pub fn new(fs: FileSystem) -> Self {
-        Self(RwLock::new(fs))
-    }
-
-    pub fn read(&self) -> RwLockReadGuard<FileSystem> {
-        self.0.read().expect("FileSystem read lock poisoned")
-    }
-
-    pub fn write(&self) -> RwLockWriteGuard<FileSystem> {
-        self.0.write().expect("FileSystem write lock poisoned")
-    }
-}
 
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -43,10 +28,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 #[get("/list/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn list_path(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    if let Some(node) = fs.read().find(&path) {
-        let item = node.read();
+    if let Some(item) = fs.find(&path) {
         if let Some(children_nodes) = item.get_children() {
             let children: Vec<SerializableFSItem> = children_nodes
                 .iter()
@@ -63,10 +47,10 @@ async fn list_path(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder
 
 #[get("/files/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_file_content(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn get_file_content(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
-    match fs.read().read_file(&path, 0) {
+    match fs.read_file(&path, 0) {
         Ok(content) => HttpResponse::Ok().json(SerializableFileContent::new(&content)),
         Err(e) => HttpResponse::InternalServerError().json(format!("Failed to read file: {}", e)),
     }
@@ -75,7 +59,7 @@ async fn get_file_content(fs: web::Data<FS>, path: web::Path<String>) -> impl Re
 #[put("/files/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn write_file(
-    fs: web::Data<FS>,
+    fs: web::Data<FileSystem>,
     path: web::Path<String>,
     json: web::Json<WriteFileRequest>,
 ) -> impl Responder {
@@ -85,7 +69,7 @@ async fn write_file(
         return HttpResponse::BadRequest().body("Invalid base64 data");
     };
 
-    return match fs.write().write_file(&path, &data, offset) {
+    return match fs.write_file(&path, &data, offset) {
         Ok(_) => HttpResponse::Ok().body("Write successful"),
         Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
     };
@@ -93,11 +77,11 @@ async fn write_file(
 
 #[post("/mkdir/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn make_directory(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn make_directory(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     if let Some((parent, name)) = path.rsplit_once('/') {
         let parent_path = if parent.is_empty() { "/" } else { parent };
-        match fs.write().make_dir(parent_path, name) {
+        match fs.make_dir(parent_path, name) {
             Ok(_) => HttpResponse::Ok().body("Directory created"),
             Err(e) => HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e)),
         }
@@ -108,9 +92,9 @@ async fn make_directory(fs: web::Data<FS>, path: web::Path<String>) -> impl Resp
 
 #[delete("/files/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn delete_item(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn delete_item(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    match fs.write().delete(path.as_str()) {
+    match fs.delete(path.as_str()) {
         Ok(_) => HttpResponse::Ok().body("Successful deletion!"),
         Err(s) => HttpResponse::BadRequest().body(format!("Delete failed: {}", s)),
     }
@@ -119,9 +103,9 @@ async fn delete_item(fs: web::Data<FS>, path: web::Path<String>) -> impl Respond
 /* Inutile se lookup = getAttr */
 #[get("/resolve/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn resolve_child(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn resolve_child(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    match fs.read().get_attributes(path.as_str()) {
+    match fs.get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
         Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
     }
@@ -129,9 +113,9 @@ async fn resolve_child(fs: web::Data<FS>, path: web::Path<String>) -> impl Respo
 
 #[get("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_attributes(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn get_attributes(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    match fs.read().get_attributes(path.as_str()) {
+    match fs.get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -143,7 +127,7 @@ async fn get_attributes(fs: web::Data<FS>, path: web::Path<String>) -> impl Resp
 #[put("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn set_attributes(
-    fs: web::Data<FS>,
+    fs: web::Data<FileSystem>,
     path: web::Path<String>,
     json: web::Json<SetAttrRequest>,
 ) -> impl Responder {
@@ -154,7 +138,6 @@ async fn set_attributes(
     let new_attributes = json.setattr();
 
     match fs
-        .read()
         .set_attributes(path.as_str(), uid, gid, new_attributes)
     {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
@@ -167,10 +150,10 @@ async fn set_attributes(
 
 #[get("/permissions/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_permissions(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn get_permissions(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
-    match fs.read().get_permissions(path.as_str()) {
+    match fs.get_permissions(path.as_str()) {
         Ok(permissions) => HttpResponse::Ok().json(permissions),
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -180,10 +163,10 @@ async fn get_permissions(fs: web::Data<FS>, path: web::Path<String>) -> impl Res
 }
 
 #[get("/stats/{path}")]
-async fn get_stats(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder {
+async fn get_stats(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
-    match fs.read().get_fs_stats(path.as_str()) {
+    match fs.get_fs_stats(path.as_str()) {
         Ok(stats) => HttpResponse::Ok().json(stats),
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -194,13 +177,11 @@ async fn get_stats(fs: web::Data<FS>, path: web::Path<String>) -> impl Responder
 
 #[put("/rename")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn rename(fs: web::Data<FS>, json: web::Json<RenameRequest>) -> impl Responder {
-    let fs = fs.write(); // write lock, modificheremo la struttura
-
+async fn rename(fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> impl Responder {
     let old_path = json.old_path();
     let new_path = json.new_path();
 
-    match fs.move_node(&old_path, &new_path) {
+    match fs.rename(&old_path, &new_path) {
         Ok(()) => HttpResponse::Ok().body("Successful renaming!"),
         Err(_) => HttpResponse::BadRequest().body("Something went wrong"),
     }

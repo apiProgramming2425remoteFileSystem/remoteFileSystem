@@ -12,11 +12,11 @@ pub mod logging;
 pub mod models;
 pub mod nodes;
 pub mod routes;
-pub mod storage;
+mod storage;
 
 use error::ServerError;
-use routes::FS;
 use storage::FileSystem;
+
 
 type Result<T> = std::result::Result<T, ServerError>;
 
@@ -55,7 +55,8 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
     }
 
     tracing::info!("Starting server at {}:{}", host, port);
-    let fs = web::Data::new(FS::new(FileSystem::from_file_system(&fs_root)?));
+
+    let fs = web::Data::new(FileSystem::new(fs_root));
 
     HttpServer::new(move || {
         App::new()

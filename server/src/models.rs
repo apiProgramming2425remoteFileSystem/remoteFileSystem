@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
-use crate::nodes::{FSItem, FSNode};
+use crate::nodes::FSItem;
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -20,9 +20,8 @@ pub struct SerializableFSItem {
 }
 
 impl SerializableFSItem {
-    pub fn new(node: &FSNode) -> Self {
-        let item = node.read();
-        let item_type = match item.deref() {
+    pub fn new(item: &FSItem) -> Self {
+        let item_type = match item {
             FSItem::File(_) => ItemType::File,
             FSItem::Directory(_) => ItemType::Directory,
         };

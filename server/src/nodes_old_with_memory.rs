@@ -11,31 +11,39 @@ use crate::models::{FileAttr, FileType, Permission, SetAttr, Stats, Timestamp};
 
 type Result<T> = std::result::Result<T, StorageError>;
 
-#[derive(Clone)]
 pub struct File {
     name: OsString,
     size: usize,
+    parent: FSNodeWeak,
     attributes: FileAttr,
 }
 
-#[derive(Clone)]
 pub struct Directory {
     name: OsString,
-    children: HashMap<PathBuf, FSItem>,
+    parent: FSNodeWeak,
+    children: HashMap<PathBuf, FSNode>,
     attributes: FileAttr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FSItem {
     File(File),
     Directory(Directory),
 }
 
+type FSItemCell = RwLock<FSItem>;
+
+pub type FSNodeWeak = Weak<FSItemCell>;
+
+#[derive(Debug, Clone)]
+pub struct FSNode(Arc<FSItemCell>);
+
 impl File {
-    pub fn new<S: AsRef<OsStr>>(name: S, size: usize) -> Self {
+    pub fn new<S: AsRef<OsStr>>(name: S, size: usize, parent: FSNodeWeak) -> Self {
         Self {
             name: name.as_ref().to_owned(),
             size,
+            parent,
             attributes: FileAttr {
                 size: 0,
                 blocks: 0,
@@ -54,12 +62,17 @@ impl File {
             },
         }
     }
+
+    pub fn parent(&self) -> FSNodeWeak {
+        self.parent.clone()
+    }
 }
 
 impl Directory {
-    pub fn new<S: AsRef<OsStr>>(name: S) -> Self {
+    pub fn new<S: AsRef<OsStr>>(name: S, parent: FSNodeWeak) -> Self {
         Self {
             name: name.as_ref().to_owned(),
+            parent,
             children: HashMap::new(),
             attributes: FileAttr {
                 size: 0,
@@ -80,16 +93,20 @@ impl Directory {
         }
     }
 
-    pub fn get_children(&self) -> Vec<FSItem> {
+    pub fn parent(&self) -> FSNodeWeak {
+        self.parent.clone()
+    }
+
+    pub fn get_children(&self) -> Vec<FSNode> {
         self.children.iter().map(|(_, n)| n.clone()).collect()
     }
 
-    pub fn add(&mut self, item: FSItem) {
+    pub fn add(&mut self, item: FSNode) {
         self.children
-            .insert(PathBuf::from(item.name()), item);
+            .insert(PathBuf::from(item.clone().read().name()), item);
     }
 
-    pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSItem> {
+    pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSNode> {
         self.children.get(&name.as_ref().to_path_buf()).cloned()
     }
 
@@ -109,7 +126,14 @@ impl FSItem {
         name.to_str().unwrap()
     }
 
-    pub fn get_children(&self) -> Option<Vec<FSItem>> {
+    pub fn parent(&self) -> FSNodeWeak {
+        match self {
+            FSItem::File(f) => f.parent(),
+            FSItem::Directory(d) => d.parent(),
+        }
+    }
+
+    pub fn get_children(&self) -> Option<Vec<FSNode>> {
         match self {
             FSItem::Directory(d) => Some(d.get_children()),
             _ => None,
@@ -117,14 +141,14 @@ impl FSItem {
     }
 
     // can be called only if you are sure that self is a directory
-    pub fn add(&mut self, item: FSItem) {
+    pub fn add(&mut self, item: FSNode) {
         match self {
             FSItem::Directory(d) => d.add(item),
             _ => panic!("Cannot add item to non-directory"),
         }
     }
 
-    pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSItem> {
+    pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSNode> {
         match self {
             FSItem::Directory(d) => d.get_child(name.as_ref()),
             _ => None,
@@ -144,8 +168,83 @@ impl FSItem {
             FSItem::Directory(d) => d.name = name.as_ref().to_owned(),
         }
     }
+
+    // return the absolute path of the item (of the parent)
+    pub fn abs_path(&self) -> PathBuf {
+        let mut parts = vec![];
+        let mut current = self.parent().upgrade();
+
+        while let Some(node) = current {
+            let name = node.read().unwrap().name().to_string();
+            parts.insert(0, name);
+            current = node.read().unwrap().parent().upgrade();
+        }
+
+        if parts.len() < 2 {
+            return PathBuf::from("/");
+        }
+
+        parts.iter().collect()
+    }
 }
 
+impl FSNode {
+    pub fn new(item: FSItem) -> Self {
+        Self(Arc::new(RwLock::new(item)))
+    }
+
+    pub fn read(&self) -> RwLockReadGuard<'_, FSItem> {
+        self.0.read().expect("FSNode read lock poisoned")
+    }
+
+    pub fn write(&self) -> RwLockWriteGuard<'_, FSItem> {
+        self.0.write().expect("FSNode write lock poisoned")
+    }
+
+    pub fn next<P: AsRef<Path>>(&self, name: P) -> Option<FSNode> {
+        let path = name.as_ref();
+        let next_node = if path == Component::CurDir.as_os_str() {
+            self.clone()
+        } else if path == Component::ParentDir.as_os_str() {
+            FSNode::try_from(&self.read().parent()).ok()?
+        } else {
+            self.read().get_child(name)?
+        };
+
+        Some(next_node)
+    }
+
+    pub fn is_directory(&self) -> bool {
+        match self.read().deref() {
+            FSItem::Directory(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_file(&self) -> bool {
+        match self.read().deref() {
+            FSItem::File(_) => true,
+            _ => false,
+        }
+    }
+}
+
+impl TryFrom<&FSNodeWeak> for FSNode {
+    type Error = StorageError;
+
+    fn try_from(value: &FSNodeWeak) -> Result<Self> {
+        match value.upgrade() {
+            Some(arc) => Ok(FSNode(arc)),
+            None => Err(StorageError::ConversionFailed),
+        }
+    }
+}
+
+impl From<&FSNode> for FSNodeWeak {
+    fn from(node: &FSNode) -> Self {
+        Arc::downgrade(&node.0)
+    }
+}
 
 impl Debug for File {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
