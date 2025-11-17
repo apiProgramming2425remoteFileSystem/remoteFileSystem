@@ -204,13 +204,15 @@ impl FileSystem {
         Ok(data.len())
     }
 
-    pub async fn mkdir(&self, path: &OsStr) -> Result<()> {
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn mkdir(&self, path: &OsStr) -> Result<FileAttr> {
         self.remote_client
             .mkdir(path)
             .await
             .map_err(|op| FsModelError::Backend(op))
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> Result<()> {
         self.remote_client
             .rename(old_path, new_path)
@@ -218,6 +220,7 @@ impl FileSystem {
             .map_err(|op| FsModelError::Backend(op))
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()> {
         self.remote_client.remove(path).await
     }

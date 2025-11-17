@@ -77,15 +77,24 @@ async fn write_file(
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn make_directory(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
-    if let Some((parent, name)) = path.rsplit_once('/') {
-        let parent_path = if parent.is_empty() { "/" } else { parent };
-        match fs.make_dir(parent_path, name) {
-            Ok(_) => HttpResponse::Ok().body("Directory created"),
-            Err(e) => HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e)),
-        }
-    } else {
-        HttpResponse::BadRequest().body("Invalid path")
+    let (parent, name) = match path.rsplit_once('/') {
+        Some((p, n)) => (if p.is_empty() { "/" } else { p }, n),
+        None => return HttpResponse::BadRequest().body("Invalid path"),
+    };
+    if let Err(e) = fs.make_dir(parent, name) {
+        tracing::error!("mkdir failed: {}", e);
+        return HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e));
     }
+
+    let attributes = match fs.get_attributes(path.as_str()) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("mldir failed: {}", e);
+            return HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e));
+        }
+    };
+
+    HttpResponse::Ok().json(attributes)
 }
 
 #[delete("/files/{path}")]

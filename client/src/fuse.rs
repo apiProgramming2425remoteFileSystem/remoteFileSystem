@@ -787,22 +787,15 @@ impl PathFilesystem for Fs {
     ) -> FuseResult<ReplyEntry> {
         let parent_path = Path::new(parent);
         let complete_path = parent_path.join(name);
-        match self.fs.mkdir(complete_path.as_os_str()).await {
-            Ok(()) => (),
-            Err(err) => {
+        self.fs.mkdir(complete_path.as_os_str()).await
+            .map(|attr| ReplyEntry {
+                ttl: TTL,
+                attr: attr.into(),
+            })
+            .map_err(|err| {
                 tracing::error!("mkdir failed: {err}");
-                return Err(Errno::from(libc::EIO)); //  generic I/O error
-            }
-        };
-        let attr = if Path::new(name).is_dir() {
-            self.fs.mock_dir_attr()
-        } else {
-            self.fs.mock_file_attr()
-        };
-        Ok(ReplyEntry {
-            ttl: TTL,
-            attr: attr.into(),
-        })
+                Errno::from(libc::EIO)
+            })
     }
 
     /// remove a directory.

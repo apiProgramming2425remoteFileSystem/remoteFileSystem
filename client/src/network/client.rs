@@ -92,19 +92,22 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn mkdir(&self, path: &OsStr) -> anyhow::Result<()> {
+    pub async fn mkdir(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
 
         let url = self.set_url("mkdir", path_str);
 
-        self.http_client
+        let resp = self.http_client
             .post(url)
             .send()
             .await?
             .error_for_status()?;
-        Ok(())
+
+        let body: FileAttr = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+        Ok(body)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
