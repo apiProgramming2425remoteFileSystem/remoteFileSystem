@@ -9,7 +9,7 @@ COPY . .
 RUN cargo build --release
 
 # Runtime stage
-FROM ubuntu:latest
+FROM ubuntu:latest as runtime
 
 ARG app_path=/usr/src
 ARG remote_fs_server=remote_fs_server

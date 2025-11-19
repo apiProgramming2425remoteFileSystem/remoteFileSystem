@@ -76,7 +76,8 @@ impl Config {
     /// Parse config from CLI and environment variables
     pub fn from_args() -> Result<Self> {
         // Load .env variables
-        dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()))?;
+        // dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()))?;
+        let _ = dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()));
 
         let mut config = Config::parse();
         config.normalize_targets();
