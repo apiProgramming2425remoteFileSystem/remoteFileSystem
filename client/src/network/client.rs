@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-
+use std::path::Path;
 use anyhow;
 use reqwest::Client;
 use tracing::{Level, instrument};
@@ -37,7 +37,7 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_path(&self, path: &OsStr) -> anyhow::Result<Vec<SerializableFSItem>> {
+    pub async fn list_path(&self, path: &str) -> anyhow::Result<Vec<SerializableFSItem>> {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
@@ -72,7 +72,7 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn write_file(&self, path: &str, offset: usize, data: &[u8]) -> anyhow::Result<()> {
+    pub async fn write_file(&self, path: &str, offset: usize, data: &[u8]) -> anyhow::Result<FileAttr> {
         let url = self.set_url("files", path);
 
         let write_file = WriteFile::new(offset, data);
@@ -85,10 +85,10 @@ impl RemoteClient {
             .await?
             .error_for_status()?; // propagate HTTP errors as errors
 
-        let body = resp.text().await?;
+        let body: FileAttr = resp.json().await?;
         tracing::debug!("response: {:?}", body);
 
-        Ok(())
+        Ok(body)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -165,7 +165,7 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
+    pub async fn get_attributes(&self, path: &Path) -> anyhow::Result<FileAttr> {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;

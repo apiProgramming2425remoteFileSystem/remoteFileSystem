@@ -68,7 +68,10 @@ async fn write_file(
     };
 
     return match fs.write_file(&path, &data, offset) {
-        Ok(_) => HttpResponse::Ok().body("Write successful"),
+        Ok(_) => match fs.get_attributes(path.as_str()) {
+            Ok(attributes) => HttpResponse::Ok().json(attributes),
+            Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
+        }
         Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
     };
 }

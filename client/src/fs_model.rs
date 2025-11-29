@@ -18,8 +18,9 @@ pub mod directory;
 pub mod file;
 
 pub use attributes::*;
-// pub use directory::*;
-// pub use file::*;
+use crate::cache::*;
+pub use directory::*;
+pub use file::*;
 
 type Result<T> = std::result::Result<T, FsModelError>;
 
@@ -28,24 +29,26 @@ static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug)]
 pub struct FileSystem {
     remote_client: RemoteClient,
-    file_handlers: RwLock<HashMap<u64, OsString>>,
+    file_handlers: RwLock<HashMap<u64, PathBuf>>,
+    cache: Option<Cache>,
 }
 
-fn get_parent_path(path: &OsStr) -> OsString {
-    let p = Path::new(path);
-    if p.as_os_str().is_empty() {
-        return OsString::from("/");
+fn get_parent_path(path: &Path) -> PathBuf {
+    if path == Path::new("/") {
+        return PathBuf::from("/");
     }
-    if let Some(par) = p.parent() {
-        if par.as_os_str() == "." {
-            OsString::from("/")
-        } else {
-            par.into()
+    if path.as_os_str().is_empty() {
+        return PathBuf::from("/");
+    }
+    match path.parent() {
+        Some(parent) if parent.as_os_str().is_empty() || parent == Path::new(".") => {
+            PathBuf::from("/")
         }
-    } else {
-        OsString::from("/")
+        Some(parent) => parent.to_path_buf(),
+        None => PathBuf::from("/"),
     }
 }
+
 
 /// pub async fn template_fn(&self, args) -> Result<> {
 ///     1. check args
@@ -57,43 +60,111 @@ fn get_parent_path(path: &OsStr) -> OsString {
 //
 impl FileSystem {
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, cache_config: CacheConfig) -> Self {
         Self {
             remote_client: RemoteClient::new(base_url),
             file_handlers: RwLock::new(HashMap::new()),
+            cache: Cache::from_config(&cache_config),
+        }
+    }
+
+    fn cache_get(&self, path: &Path) -> Option<CacheItem> {
+        self.cache.as_ref()?.get(path)
+    }
+
+    fn cache_put(&self, path: &Path, item: CacheItem) {
+        if let Some(cache) = &self.cache {
+            cache.put(path.to_path_buf(), item)
         }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<OsString>> {
+    pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<PathBuf>> {
         let map = self.file_handlers.read().map_err(|_| { return FsModelError::ConversionFailed;})?;
         Ok(map.get(&fh).cloned())
     }
 
-
-
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn readdir(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
-        let mut items: Vec<SerializableFSItem> = vec![];
-        items.push(SerializableFSItem{
-            name: ".".to_string(),
+    pub async fn readdir(&self, path: &Path) -> Result<Vec<SerializableFSItem>> {
+        if let Some(CacheItem::Directory(dir)) = self.cache_get(path) {
+            let mut all_children = Vec::new();
+            let mut cache_hit = true;
+
+            if !dir.valid_children{
+                cache_hit = false;
+            }
+            else {
+                for child in &dir.children {
+                    let child_path = path.join(child);
+                    if let Some(item) = self.cache_get(&child_path) {
+                        all_children.push(SerializableFSItem::from(&item));
+                    } else {
+                        cache_hit = false;
+                        break;
+                    }
+                }
+            }
+            if cache_hit {
+                let mut result = Vec::new();
+
+                result.push(SerializableFSItem {
+                    name: ".".into(),
+                    item_type: ItemType::Directory,
+                    attributes: self.get_attributes(path).await?,
+                });
+
+                let parent = get_parent_path(path);
+                result.push(SerializableFSItem {
+                    name: "..".into(),
+                    item_type: ItemType::Directory,
+                    attributes: self.get_attributes(&parent).await?,
+                });
+
+                for c in all_children {
+                    result.push(c);
+                }
+
+                return Ok(result);
+            }
+        }
+
+        // cache miss
+        let elements = self.list_path(path).await?;
+        let children_names = elements.iter().map(|e| e.name.clone().into()).collect();
+        let dir_name = path.file_name()
+            .unwrap_or_else(|| OsStr::new(""))
+            .to_os_string();
+        let dir = Directory::new(dir_name, self.get_attributes(path).await?, children_names);
+
+        self.cache_put(path, CacheItem::Directory(dir));
+        for element in &elements {
+            let child_path = path.join(&element.name);
+            self.cache_put(&child_path, CacheItem::from(element.clone()));
+        }
+        let mut result = Vec::new();
+        result.push(SerializableFSItem {
+            name: ".".into(),
             item_type: ItemType::Directory,
             attributes: self.get_attributes(path).await?,
         });
-        let parent_path = get_parent_path(path);
-        items.push(SerializableFSItem{
-            name: "..".to_string(),
+        let parent = get_parent_path(path);
+        result.push(SerializableFSItem {
+            name: "..".into(),
             item_type: ItemType::Directory,
-            attributes: self.get_attributes(&parent_path).await?,
+            attributes: self.get_attributes(&parent).await?,
         });
-        items.extend(self.list_path(path).await?);
-        Ok(items)
+        result.extend(elements);
+        Ok(result)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
+    async fn list_path(&self, path: &Path) -> Result<Vec<SerializableFSItem>> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
         self.remote_client
-            .list_path(path)
+            .list_path(path_str)
             .await
             .map_err(|op| FsModelError::Backend(op))
     }
@@ -114,15 +185,16 @@ impl FileSystem {
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        self.remote_client
+        let attr = self.remote_client
             .write_file(path_str, offset, data)
-            .await?;
+            .await
+            .map_err(|op| FsModelError::Backend(op))?;
 
-        Ok(self.mock_file_attr())
+        Ok(attr)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn open(&self, uid: u32, gid: u32, path: &OsStr, flags: &Flags) -> Result<u64> {
+    pub fn open(&self, uid: u32, gid: u32, path: &Path, flags: &Flags) -> Result<u64> {
         // TODO: check access
 
         let fh = CURRENT_FH.fetch_add(1, Ordering::Relaxed);
@@ -132,7 +204,7 @@ impl FileSystem {
             .write()
             .map_err(|_| anyhow::anyhow!(""))?;
 
-        guad.insert(fh, path.to_os_string());
+        guad.insert(fh, path.to_path_buf());
 
         Ok(fh)
     }
@@ -238,7 +310,7 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
+    pub async fn get_attributes(&self, path: &Path) -> anyhow::Result<FileAttr> {
         let attributes = self.remote_client.get_attributes(path).await?;
         Ok(attributes)
     }

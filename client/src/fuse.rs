@@ -14,6 +14,7 @@ use fuse3::{Errno, Result as FuseResult};
 use futures_util::stream;
 use libc;
 use tracing::{Level, instrument};
+use crate::cache::CacheConfig;
 
 const TTL: Duration = Duration::from_secs(1);
 
@@ -25,9 +26,9 @@ pub struct Fs {
 }
 
 impl Fs {
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, cache_config: CacheConfig) -> Self {
         Self {
-            fs: fs_model::FileSystem::new(base_url),
+            fs: fs_model::FileSystem::new(base_url, cache_config),
         }
     }
 }
@@ -93,7 +94,7 @@ impl PathFilesystem for Fs {
 
         let attributes = self
             .fs
-            .get_attributes(&path.as_os_str())
+            .get_attributes(&path)
             .await
             .map_err(|err| {
                 tracing::error!("{}", err);
@@ -138,8 +139,8 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        let path_osString = if let Some(p) = path {
-            p.to_os_string()
+        let path = if let Some(p) = path {
+            PathBuf::from(p)
         } else {
             let Some(fh) = fh else {
                 return Err(libc::ENOENT.into());
@@ -150,7 +151,7 @@ impl PathFilesystem for Fs {
             p
         };
 
-        let attributes = self.fs.get_attributes(path_osString.as_os_str()).await.map_err(|err| {
+        let attributes = self.fs.get_attributes(&path).await.map_err(|err| {
             tracing::error!("{}", err);
             libc::ENOENT
         })?;
@@ -427,7 +428,7 @@ impl PathFilesystem for Fs {
 
         let fh = self
             .fs
-            .open(req.uid, req.gid, file_path.as_os_str(), &fs_flags)
+            .open(req.uid, req.gid, &file_path, &fs_flags)
             .map_err(|err| {
                 tracing::error!("{err}");
                 libc::ENOSYS
@@ -458,8 +459,8 @@ impl PathFilesystem for Fs {
     /// more details.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn open(&self, req: Request, path: &OsStr, flags: u32) -> FuseResult<ReplyOpen> {
-        // TODO:
         // Err(FuseError::NotImplemented.into())
+        let path = Path::new(path);
 
         let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
             return Err(libc::EINVAL.into());
@@ -822,7 +823,7 @@ impl PathFilesystem for Fs {
     async fn opendir(&self, req: Request, path: &OsStr, flags: u32) -> FuseResult<ReplyOpen> {
         // TODO:
         // Err(FuseError::NotImplemented.into())
-
+        let path = Path::new(path);
         let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
             return Err(libc::EINVAL.into());
         };
@@ -853,8 +854,7 @@ impl PathFilesystem for Fs {
         fh: u64,
         offset: i64,
     ) -> FuseResult<ReplyDirectory<Self::DirEntryStream<'a>>> {
-        // TODO:
-
+        let path = Path::new(path);
         let items = match self.fs.readdir(path).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
@@ -897,9 +897,9 @@ impl PathFilesystem for Fs {
         lock_owner: u64,
     ) -> FuseResult<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
         // TODO:
+        let path = Path::new(parent);
 
-
-        let items = match self.fs.readdir(parent).await {
+        let items = match self.fs.readdir(path).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
                 tracing::error!("readdir failed: {err}");

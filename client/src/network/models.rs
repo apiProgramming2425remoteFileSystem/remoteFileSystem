@@ -1,21 +1,40 @@
 use crate::fs_model::attributes::SetAttr;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
+use crate::cache::CacheItem;
 use crate::fs_model::FileAttr;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemType {
     File,
     Directory,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SerializableFSItem {
     pub name: String,
     pub item_type: ItemType,
     pub attributes: FileAttr
 }
+
+impl From<&CacheItem> for SerializableFSItem {
+    fn from(item: &CacheItem) -> Self {
+        match item {
+            CacheItem::Directory(d) => SerializableFSItem {
+                name: d.name.to_string_lossy().into_owned(),
+                item_type: ItemType::Directory,
+                attributes: d.attributes,
+            },
+            CacheItem::File(f) => SerializableFSItem {
+                name: f.name.to_string_lossy().into_owned(),
+                item_type: ItemType::File,
+                attributes: f.attributes,
+            }
+        }
+    }
+}
+
 
 #[derive(Debug, Deserialize)]
 pub struct ReadFile {

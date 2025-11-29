@@ -91,10 +91,12 @@ async fn main() -> Result<()> {
     let mut mount_options = MountOptions::default();
     mount_options.allow_other(true);
 
+    let cache_config = config.cache_config();
+
     // Mount fs
     let mut mount_handle = Session::new(mount_options)
         // .mount_with_unprivileged(Fs::new(&base_url), &config.mountpoint)
-        .mount(Fs::new(&base_url), &config.mountpoint)
+        .mount(Fs::new(&base_url, cache_config), &config.mountpoint)
         .await
         .map_err(|err| ClientError::Daemon(error::DaemonError::StartFailed(err.to_string())))?;
 
