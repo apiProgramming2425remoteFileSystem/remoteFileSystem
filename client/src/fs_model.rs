@@ -78,6 +78,24 @@ impl FileSystem {
         }
     }
 
+    fn cache_add_child(&self, path: &Path){
+        if let Some(cache) = &self.cache {
+            let parent_path = get_parent_path(path);
+            if let Some(name) = path.file_name() {
+                cache.add_child(parent_path, name.to_os_string());
+            }
+        }
+    }
+
+    fn cache_remove(&self, path: &Path) -> Option<CacheItem>{
+        if let Some(cache) = &self.cache {
+            cache.remove(path)
+        }
+        else {
+            None
+        }
+    }
+
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<PathBuf>> {
         let map = self.file_handlers.read().map_err(|_| { return FsModelError::ConversionFailed;})?;
@@ -90,11 +108,8 @@ impl FileSystem {
             let mut all_children = Vec::new();
             let mut cache_hit = true;
 
-            if !dir.valid_children{
-                cache_hit = false;
-            }
-            else {
-                for child in &dir.children {
+            if let Some(children) = &dir.children {
+                for child in children {
                     let child_path = path.join(child);
                     if let Some(item) = self.cache_get(&child_path) {
                         all_children.push(SerializableFSItem::from(&item));
@@ -104,6 +119,11 @@ impl FileSystem {
                     }
                 }
             }
+            else {
+                cache_hit = false;
+            }
+
+            // cache hit
             if cache_hit {
                 let mut result = Vec::new();
 
@@ -134,7 +154,7 @@ impl FileSystem {
         let dir_name = path.file_name()
             .unwrap_or_else(|| OsStr::new(""))
             .to_os_string();
-        let dir = Directory::new(dir_name, self.get_attributes(path).await?, children_names);
+        let dir = Directory::new(dir_name, Some(self.get_attributes(path).await?), Some(children_names));
 
         self.cache_put(path, CacheItem::Directory(dir));
         for element in &elements {
@@ -190,6 +210,10 @@ impl FileSystem {
             .await
             .map_err(|op| FsModelError::Backend(op))?;
 
+        self.cache_add_child(path);
+        if let Some(name) = path.file_name() {
+            self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attr), Some(vec![]))));
+        }
         Ok(attr)
     }
 
@@ -240,6 +264,7 @@ impl FileSystem {
         size: usize,
     ) -> Result<Vec<u8>> {
         // TODO: check access
+        // TODO: cache
 
         let path_str = path
             .to_str()
@@ -260,6 +285,7 @@ impl FileSystem {
         data: &[u8],
     ) -> Result<usize> {
         // TODO: check access
+        // TODO: cache
 
         if !(flags.writeonly || flags.readwrite) {
             return Err(FsModelError::PermissionDenied);
@@ -277,24 +303,63 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn mkdir(&self, path: &OsStr) -> Result<FileAttr> {
-        self.remote_client
-            .mkdir(path)
+    pub async fn mkdir(&self, path: &Path) -> Result<FileAttr> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let attr = self.remote_client
+            .mkdir(path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))
+            .map_err(|op| FsModelError::Backend(op))?;
+
+        self.cache_add_child(path);
+        if let Some(name) = path.file_name() {
+            self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attr), Some(vec![]))));
+        }
+
+        Ok(attr)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> Result<()> {
+    pub async fn rename(&self, old_path: &Path, new_path: &Path) -> Result<()> {
+        let old_path_str = old_path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let new_path_str = new_path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+
         self.remote_client
-            .rename(old_path, new_path)
+            .rename(old_path_str, new_path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))
+            .map_err(|op| FsModelError::Backend(op))?;
+
+        let old_item = self.cache_remove(old_path);
+        self.cache_add_child(new_path);
+        if let Some(name) = new_path.file_name() {
+            if let Some(mut item) = old_item {
+                item.rename(name.to_os_string());
+                self.cache_put(new_path, item);
+            }
+        }
+
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()> {
-        self.remote_client.remove(path).await
+    pub async fn remove(&self, path: &Path) -> anyhow::Result<()> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        self.remote_client.remove(path_str).await?;
+
+        self.cache_remove(path);
+
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -302,16 +367,53 @@ impl FileSystem {
         &self,
         uid: u32,
         gid: u32,
-        path: &OsStr,
+        path: &Path,
     ) -> anyhow::Result<FileAttr> {
-        let attributes = self.remote_client.resolve_child(uid, gid, path).await?;
+        if let Some(item) = self.cache_get(path) {
+            if let Some(attr) = item.get_attributes(){
+                // cache hit
+                return Ok(attr);
+            }
+        }
 
+        // cache miss
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let attributes = self.remote_client.resolve_child(uid, gid, path_str).await?;
+
+        if let Some(name) = path.file_name() {
+            match attributes.kind{
+                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))),
+                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None))),
+                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None)))
+            }
+        }
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_attributes(&self, path: &Path) -> anyhow::Result<FileAttr> {
-        let attributes = self.remote_client.get_attributes(path).await?;
+        if let Some(item) = self.cache_get(path) {
+            if let Some(attr) = item.get_attributes(){
+                // cache hit
+                return Ok(attr);
+            }
+        }
+
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let attributes = self.remote_client.get_attributes(path_str).await?;
+        if let Some(name) = path.file_name() {
+            match attributes.kind{
+                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))),
+                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None))),
+                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None)))
+            }
+        }
         Ok(attributes)
     }
 
@@ -320,65 +422,37 @@ impl FileSystem {
         &self,
         uid: u32,
         gid: u32,
-        path: &OsStr,
+        path: &Path,
         new_attributes: SetAttr,
     ) -> anyhow::Result<FileAttr> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
         let attributes = self
             .remote_client
-            .set_attributes(uid, gid, path, new_attributes)
+            .set_attributes(uid, gid, path_str, new_attributes)
             .await?;
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions(&self, path: &OsStr) -> anyhow::Result<u32> {
-        let permissions = self.remote_client.get_permissions(path).await?;
+    pub async fn get_permissions(&self, path: &Path) -> anyhow::Result<u32> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let permissions = self.remote_client.get_permissions(path_str).await?;
         Ok(permissions)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_fs_stats(&self, path: &OsStr) -> anyhow::Result<Stats> {
-        let stats = self.remote_client.get_stats(path).await?;
+    pub async fn get_fs_stats(&self, path: &Path) -> anyhow::Result<Stats> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let stats = self.remote_client.get_stats(path_str).await?;
         Ok(stats)
-    }
-
-    // TODO: remove it later
-    pub fn mock_dir_attr(&self) -> FileAttr {
-        FileAttr {
-            size: 0,
-            blocks: 0,
-            blksize: 0,
-            atime: Timestamp::from(SystemTime::now()),
-            mtime: Timestamp::from(SystemTime::now()),
-            ctime: Timestamp::from(SystemTime::now()),
-            crtime: Timestamp::from(SystemTime::now()),
-            kind: FileType::Directory,
-            perm: Permission::try_from(0o755 as u16).unwrap(),
-            nlink: 2,
-            uid: 1,
-            gid: 1,
-            rdev: 0,
-            flags: 0,
-        }
-    }
-
-    // TODO: remove it
-    pub fn mock_file_attr(&self) -> FileAttr {
-        FileAttr {
-            size: 0,
-            blocks: 0,
-            blksize: 0,
-            atime: Timestamp::from(SystemTime::now()),
-            mtime: Timestamp::from(SystemTime::now()),
-            ctime: Timestamp::from(SystemTime::now()),
-            crtime: Timestamp::from(SystemTime::now()),
-            kind: FileType::RegularFile,
-            perm: Permission::try_from(0o755 as u16).unwrap(),
-            nlink: 2,
-            uid: 1,
-            gid: 1,
-            rdev: 0,
-            flags: 0,
-        }
     }
 }

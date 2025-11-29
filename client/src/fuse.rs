@@ -175,15 +175,15 @@ impl PathFilesystem for Fs {
         fh: Option<u64>,
         set_attr: fuse3::SetAttr,
     ) -> FuseResult<ReplyAttr> {
-        let path_osStr = if let Some(p) = path {
-            p
+        let path = if let Some(p) = path {
+            PathBuf::from(p)
         } else {
             return Err(libc::EINVAL.into());
         };
 
         let attributes = self
             .fs
-            .set_attributes(req.uid, req.gid, &path_osStr, set_attr.into())
+            .set_attributes(req.uid, req.gid, &path, set_attr.into())
             .await
             .map_err(|err| {
                 tracing::error!("{}", err);
@@ -247,6 +247,8 @@ impl PathFilesystem for Fs {
         // TODO:
         //Err(FuseError::NotImplemented.into())
 
+        let path = PathBuf::from(path);
+
         let stats = self.fs.get_fs_stats(&path).await.map_err(|err| {
             tracing::error!("{}", err);
             libc::ENOENT
@@ -271,6 +273,8 @@ impl PathFilesystem for Fs {
     async fn access(&self, req: Request, path: &OsStr, mask: u32) -> FuseResult<()> {
         // TODO:
         // Err(FuseError::NotImplemented.into())
+
+        let path = PathBuf::from(path);
 
         let permissions = self.fs.get_permissions(&path).await.map_err(|err| {
             tracing::error!("{}", err);
@@ -355,7 +359,7 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        let file_path = PathBuf::from(parent).join(name);
+        let path = PathBuf::from(parent).join(name);
 
         let Ok(fs_type) = fs_model::FileType::try_from(mode) else {
             return Err(libc::EINVAL.into());
@@ -363,7 +367,7 @@ impl PathFilesystem for Fs {
 
         let file_attr = self
             .fs
-            .create_file(req.uid, req.gid, &file_path, &fs_type, 0, &[])
+            .create_file(req.uid, req.gid, &path, &fs_type, 0, &[])
             .await
             .map_err(|err| {
                 tracing::error!("{err}");
@@ -404,7 +408,7 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        let file_path = PathBuf::from(parent).join(name);
+        let path = PathBuf::from(parent).join(name);
 
         let Ok(fs_type) = fs_model::FileType::try_from(mode) else {
             return Err(libc::EINVAL.into());
@@ -419,7 +423,7 @@ impl PathFilesystem for Fs {
 
         let file_attr = self
             .fs
-            .create_file(req.uid, req.gid, &file_path, &fs_type, 0, &[])
+            .create_file(req.uid, req.gid, &path, &fs_type, 0, &[])
             .await
             .map_err(|err| {
                 tracing::error!("{err}");
@@ -428,7 +432,7 @@ impl PathFilesystem for Fs {
 
         let fh = self
             .fs
-            .open(req.uid, req.gid, &file_path, &fs_flags)
+            .open(req.uid, req.gid, &path, &fs_flags)
             .map_err(|err| {
                 tracing::error!("{err}");
                 libc::ENOSYS
@@ -786,9 +790,8 @@ impl PathFilesystem for Fs {
         _mode: u32,
         _umask: u32,
     ) -> FuseResult<ReplyEntry> {
-        let parent_path = Path::new(parent);
-        let complete_path = parent_path.join(name);
-        self.fs.mkdir(complete_path.as_os_str()).await
+        let path = Path::new(parent).join(name);
+        self.fs.mkdir(&path).await
             .map(|attr| ReplyEntry {
                 ttl: TTL,
                 attr: attr.into(),
@@ -806,7 +809,7 @@ impl PathFilesystem for Fs {
         // tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
         let path = Path::new(parent).join(name);
-        match self.fs.remove(path.as_os_str()).await {
+        match self.fs.remove(&path).await {
             Ok(()) => Ok(()),
             Err(err) => Err(Errno::from(libc::EIO)),
         }
@@ -989,7 +992,7 @@ impl PathFilesystem for Fs {
         let new_path = Path::new(parent).join(name);
         match self
             .fs
-            .rename(old_path.as_os_str(), new_path.as_os_str())
+            .rename(&old_path, &new_path)
             .await
         {
             Ok(_) => Ok(()),
@@ -1015,7 +1018,7 @@ impl PathFilesystem for Fs {
         let new_path = Path::new(parent).join(name);
         match self
             .fs
-            .rename(old_path.as_os_str(), new_path.as_os_str())
+            .rename(&old_path, &new_path)
             .await
         {
             Ok(_) => Ok(()),
@@ -1043,7 +1046,7 @@ impl PathFilesystem for Fs {
         // tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
         let path = Path::new(parent).join(name);
-        match self.fs.remove(path.as_os_str()).await {
+        match self.fs.remove(&path).await {
             Ok(()) => Ok(()),
             Err(err) => Err(Errno::from(libc::EIO)),
         }

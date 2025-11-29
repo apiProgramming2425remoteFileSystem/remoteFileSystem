@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::{Instant, Duration};
 use crate::fs_model::directory::Directory;
 use crate::fs_model::file::File;
+use crate::fs_model::FileAttr;
 use crate::network::models::{ItemType, SerializableFSItem};
 
 #[derive(Clone, Debug)]
@@ -12,21 +14,33 @@ pub enum CacheItem{
     Directory(Directory),
 }
 
+impl CacheItem{
+    pub fn rename(&mut self, name: OsString){
+        match self {
+            CacheItem::File(file) => {file.name = name;},
+            CacheItem::Directory(directory) => {directory.name = name;},
+        }
+    }
+
+    pub fn get_attributes(&self) -> Option<FileAttr>{
+        match self{
+            CacheItem::File(file) => {file.attributes.clone()},
+            CacheItem::Directory(directory) => {directory.attributes.clone()},
+        }
+    }
+}
+
 impl From<SerializableFSItem> for CacheItem {
     fn from(item: SerializableFSItem) -> Self {
         match item.item_type {
-            ItemType::Directory => CacheItem::Directory(Directory {
-                name: item.name.into(),
-                children: vec![],
-                attributes: item.attributes,
-                valid_children: false,
-            }),
-            ItemType::File => CacheItem::File(File {
-                name: item.name.into(),
-                content: vec![],
-                attributes: item.attributes,
-                valid_content: false,
-            })
+            ItemType::Directory => CacheItem::Directory(
+                Directory::new(item.name.into(),
+                               Some(item.attributes),
+                               None)),
+            ItemType::File => CacheItem::File(
+                File::new(item.name.into(),
+                          Some(item.attributes),
+                          None))
         }
     }
 }
@@ -38,12 +52,25 @@ struct CacheEntry{
     pub created_at: Instant,
     pub last_accessed: Instant,
     pub access_count: u64,
-    pub ttl: Duration,
 }
 
 impl CacheEntry{
-    pub fn new(item: CacheItem, ttl: Duration) -> CacheEntry{
-        CacheEntry{item, created_at: Instant::now(), last_accessed: Instant::now(), access_count: 0, ttl}
+    pub fn new(item: CacheItem) -> CacheEntry{
+        CacheEntry{item, created_at: Instant::now(), last_accessed: Instant::now(), access_count: 0}
+    }
+
+    pub fn update(&mut self, new_item: CacheItem) {
+        match (&mut self.item, new_item) {
+            (CacheItem::File(old), CacheItem::File(new)) => {
+                old.merge(new);
+            }
+            (CacheItem::Directory(old), CacheItem::Directory(new)) => {
+                old.merge(new);
+            }
+            (_, replacer) => {
+                self.item = replacer;
+            }
+        }
     }
 }
 
@@ -79,7 +106,7 @@ impl Cache {
 
         let entry = map.get_mut(key)?;
 
-        if self.use_ttl && entry.created_at + entry.ttl < Instant::now() {
+        if self.use_ttl && entry.created_at + self.ttl < Instant::now() {
             map.remove(key);
             return None;
         }
@@ -91,25 +118,55 @@ impl Cache {
     }
 
     pub fn put<P: AsRef<Path>>(&self, path: P, mut item: CacheItem) {
-        if let CacheItem::File(File { ref mut content, ref mut valid_content, .. }) = item {
-            if content.len() > self.max_file_size {
-                content.clear();
-                *valid_content = false;
+        if let CacheItem::File(File { ref mut content, .. }) = item {
+            if let Some(content) = content {
+                if content.len() > self.max_file_size {
+                    content.clear();
+                }
             }
         }
 
         let mut map = self.entries.write().unwrap();
-        let key = path.as_ref().to_path_buf();
+        let key = path.as_ref();
 
+        if let Some(entry) = map.get_mut(key) {
+            let is_valid = !self.use_ttl || entry.created_at + self.ttl >= Instant::now();
+            if is_valid {
+                // just update old entry
+                entry.last_accessed = Instant::now();
+                entry.access_count += 1;
+                entry.update(item);
+                return;
+            }
+            map.remove(key);
+        }
+
+        // insert new entry
         if map.len() >= self.capacity {
             if let Some(victim) = self.select_victim(&map) {
                 map.remove(&victim);
             }
         }
-
-        let entry = CacheEntry::new(item, self.ttl);
-        map.insert(key, entry);
+        map.insert(key.to_path_buf(), CacheEntry::new(item));
     }
+
+    pub fn remove<P: AsRef<Path>>(&self, path: P) -> Option<CacheItem> {
+        let mut map = self.entries.write().unwrap();
+        map.remove(path.as_ref()).map(|CacheEntry { item, .. }| item)
+    }
+
+    pub fn add_child<P: AsRef<Path>>(&self, path: P, name: OsString){
+        let mut map = self.entries.write().unwrap();
+        let key = path.as_ref();
+        let Some(entry) = map.get_mut(key) else {
+            return;
+        };
+        let CacheItem::Directory(dir) = &mut entry.item else {
+            return;
+        };
+        dir.add_child(name);
+    }
+
 
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {
         match self.policy {

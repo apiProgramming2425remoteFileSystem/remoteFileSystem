@@ -38,11 +38,7 @@ impl RemoteClient {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_path(&self, path: &str) -> anyhow::Result<Vec<SerializableFSItem>> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_url("list", path_str);
+        let url = self.set_url("list", path);
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?; // propagate HTTP errors as errors
         let body = resp.json().await?;
@@ -92,12 +88,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn mkdir(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_url("mkdir", path_str);
+    pub async fn mkdir(&self, path: &str) -> anyhow::Result<FileAttr> {
+        let url = self.set_url("mkdir", path);
 
         let resp = self.http_client
             .post(url)
@@ -111,15 +103,9 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> anyhow::Result<()> {
-        let old_path_str = old_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-        let new_path_str = new_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+    pub async fn rename(&self, old_path: &str, new_path: &str) -> anyhow::Result<()> {
         let url = self.set_short_url("rename");
-        let rename_req = RenameRequest::new(String::from(old_path_str), String::from(new_path_str));
+        let rename_req = RenameRequest::new(String::from(old_path), String::from(new_path));
         self.http_client
             .put(url)
             .json(&rename_req)
@@ -130,11 +116,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-        let url = self.set_url("files", path_str);
+    pub async fn remove(&self, path: &str) -> anyhow::Result<()> {
+        let url = self.set_url("files", path);
         self.http_client
             .delete(url)
             .send()
@@ -148,13 +131,9 @@ impl RemoteClient {
         &self,
         uid: u32,
         gid: u32,
-        path: &OsStr,
+        path: &str,
     ) -> anyhow::Result<FileAttr> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_url("attributes/directory", path_str);
+        let url = self.set_url("attributes/directory", path);
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
@@ -165,12 +144,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &Path) -> anyhow::Result<FileAttr> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_url("attributes", path_str);
+    pub async fn get_attributes(&self, path: &str) -> anyhow::Result<FileAttr> {
+        let url = self.set_url("attributes", path);
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
@@ -185,14 +160,10 @@ impl RemoteClient {
         &self,
         uid: u32,
         gid: u32,
-        path: &OsStr,
+        path: &str,
         new_attributes: SetAttr,
     ) -> anyhow::Result<FileAttr> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_url("attributes", path_str);
+        let url = self.set_url("attributes", path);
 
         let resp = self
             .http_client
@@ -209,12 +180,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions(&self, path: &OsStr) -> anyhow::Result<u32> {
-        let path_str: &str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_url("permissions", path_str);
+    pub async fn get_permissions(&self, path: &str) -> anyhow::Result<u32> {
+        let url = self.set_url("permissions", path);
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
@@ -225,12 +192,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_stats(&self, path: &OsStr) -> anyhow::Result<Stats> {
-        let path_str: &str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_url("stats", path_str);
+    pub async fn get_stats(&self, path: &str) -> anyhow::Result<Stats> {
+        let url = self.set_url("stats", path);
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 

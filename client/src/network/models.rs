@@ -24,12 +24,12 @@ impl From<&CacheItem> for SerializableFSItem {
             CacheItem::Directory(d) => SerializableFSItem {
                 name: d.name.to_string_lossy().into_owned(),
                 item_type: ItemType::Directory,
-                attributes: d.attributes,
+                attributes: d.attributes.unwrap(),
             },
             CacheItem::File(f) => SerializableFSItem {
                 name: f.name.to_string_lossy().into_owned(),
                 item_type: ItemType::File,
-                attributes: f.attributes,
+                attributes: f.attributes.unwrap(),
             }
         }
     }
