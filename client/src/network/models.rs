@@ -2,7 +2,9 @@ use crate::fs_model::attributes::SetAttr;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use crate::cache::CacheItem;
+use crate::error::FsModelError;
 use crate::fs_model::FileAttr;
+use crate::fuse::Fs;
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -18,22 +20,34 @@ pub struct SerializableFSItem {
     pub attributes: FileAttr
 }
 
-impl From<&CacheItem> for SerializableFSItem {
-    fn from(item: &CacheItem) -> Self {
+impl TryFrom<&CacheItem> for SerializableFSItem {
+    type Error = FsModelError;
+
+    fn try_from(item: &CacheItem) -> Result<Self, Self::Error> {
         match item {
-            CacheItem::Directory(d) => SerializableFSItem {
-                name: d.name.to_string_lossy().into_owned(),
-                item_type: ItemType::Directory,
-                attributes: d.attributes.unwrap(),
-            },
-            CacheItem::File(f) => SerializableFSItem {
-                name: f.name.to_string_lossy().into_owned(),
-                item_type: ItemType::File,
-                attributes: f.attributes.unwrap(),
+            CacheItem::Directory(d) => {
+                let attrs = d.attributes.ok_or(FsModelError::ConversionFailed)?;
+
+                Ok(SerializableFSItem {
+                    name: d.name.to_string_lossy().into_owned(),
+                    item_type: ItemType::Directory,
+                    attributes: attrs,
+                })
+            }
+
+            CacheItem::File(f) => {
+                let attrs = f.attributes.ok_or(FsModelError::ConversionFailed)?;
+
+                Ok(SerializableFSItem {
+                    name: f.name.to_string_lossy().into_owned(),
+                    item_type: ItemType::File,
+                    attributes: attrs,
+                })
             }
         }
     }
 }
+
 
 
 #[derive(Debug, Deserialize)]

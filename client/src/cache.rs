@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fmt;
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::{Instant, Duration};
+use tracing::instrument;
 use crate::fs_model::directory::Directory;
 use crate::fs_model::file::File;
 use crate::fs_model::FileAttr;
@@ -39,8 +42,7 @@ impl From<SerializableFSItem> for CacheItem {
                                None)),
             ItemType::File => CacheItem::File(
                 File::new(item.name.into(),
-                          Some(item.attributes),
-                          None))
+                          Some(item.attributes)))
         }
     }
 }
@@ -53,6 +55,7 @@ struct CacheEntry{
     pub last_accessed: Instant,
     pub access_count: u64,
 }
+
 
 impl CacheEntry{
     pub fn new(item: CacheItem) -> CacheEntry{
@@ -74,7 +77,6 @@ impl CacheEntry{
     }
 }
 
-#[derive(Debug)]
 pub struct Cache {
     pub entries: RwLock<HashMap<PathBuf, CacheEntry>>,
     pub capacity: usize,
@@ -82,6 +84,18 @@ pub struct Cache {
     pub use_ttl: bool,
     pub policy: CachePolicy,
     pub max_file_size: usize,
+}
+
+fn parent_paths(path: &Path) -> Vec<PathBuf> {
+    let mut parents = Vec::new();
+    let mut current = path.parent();
+
+    while let Some(p) = current {
+        parents.push(p.to_path_buf());
+        current = p.parent();
+    }
+
+    parents
 }
 
 impl Cache {
@@ -100,8 +114,24 @@ impl Cache {
         })
     }
 
+
+
+    fn invalidate_parents<P: AsRef<Path>>(&self, path: P) {
+        let parents = parent_paths(path.as_ref());
+        let Ok(mut map) = self.entries.write() else {
+            return;
+        };
+
+        for p in parents {
+            map.remove(&p);
+        }
+    }
+
+
     pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<CacheItem> {
-        let mut map = self.entries.write().unwrap();
+        let Ok(mut map) = self.entries.write() else {
+            return None;
+        };
         let key = path.as_ref();
 
         let entry = map.get_mut(key)?;
@@ -117,16 +147,10 @@ impl Cache {
         Some(entry.item.clone())
     }
 
-    pub fn put<P: AsRef<Path>>(&self, path: P, mut item: CacheItem) {
-        if let CacheItem::File(File { ref mut content, .. }) = item {
-            if let Some(content) = content {
-                if content.len() > self.max_file_size {
-                    content.clear();
-                }
-            }
-        }
-
-        let mut map = self.entries.write().unwrap();
+    pub fn put<P: AsRef<Path>>(&self, path: P, item: CacheItem) {
+        let Ok(mut map) = self.entries.write() else {
+            return;
+        };
         let key = path.as_ref();
 
         if let Some(entry) = map.get_mut(key) {
@@ -150,23 +174,34 @@ impl Cache {
         map.insert(key.to_path_buf(), CacheEntry::new(item));
     }
 
+    pub fn put_new<P: AsRef<Path>>(&self, path: P, item: CacheItem) {
+        self.invalidate_parents(&path);
+
+        let Ok(mut map) = self.entries.write() else {
+            return;
+        };
+        let key = path.as_ref().to_path_buf();
+
+        if map.len() >= self.capacity {
+            if let Some(victim) = self.select_victim(&map) {
+                map.remove(&victim);
+            }
+        }
+
+        map.insert(key, CacheEntry::new(item));
+    }
+
+
     pub fn remove<P: AsRef<Path>>(&self, path: P) -> Option<CacheItem> {
-        let mut map = self.entries.write().unwrap();
-        map.remove(path.as_ref()).map(|CacheEntry { item, .. }| item)
-    }
-
-    pub fn add_child<P: AsRef<Path>>(&self, path: P, name: OsString){
-        let mut map = self.entries.write().unwrap();
-        let key = path.as_ref();
-        let Some(entry) = map.get_mut(key) else {
-            return;
+        let removed = {
+            let Ok(mut map) = self.entries.write() else {
+                return None;
+            };
+            map.remove(path.as_ref()).map(|e| e.item)
         };
-        let CacheItem::Directory(dir) = &mut entry.item else {
-            return;
-        };
-        dir.add_child(name);
+        self.invalidate_parents(path);
+        removed
     }
-
 
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {
         match self.policy {
@@ -181,6 +216,24 @@ impl Cache {
                     .map(|(k, _)| k.clone())
             }
         }
+    }
+}
+
+impl Debug for Cache{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Ok(mut map) = self.entries.write() else {
+            return write!(f, "--");
+        };
+        let mut result = String::from("");
+        for key in map.keys() {
+            result += &format!("{:?}", key.display());
+            result += " ";
+            if let Some(entry) = map.get(key) {
+                result += &format!("{:?}", entry);
+            }
+            result += "\n";
+        }
+        write!(f, "{}", result)
     }
 }
 

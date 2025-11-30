@@ -1,8 +1,10 @@
 use std::ffi::OsString;
+use std::fmt;
+use std::fmt::Debug;
 use crate::fs_model::{File, FileAttr};
 use std::vec::Vec;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Directory {
     pub name: OsString,
     pub attributes: Option<FileAttr>,
@@ -14,12 +16,6 @@ impl Directory {
         Directory{name, attributes, children }
     }
 
-    pub fn add_child(&mut self, child: OsString) {
-        if let Some(children) = &mut self.children {
-            children.push(child);
-        }
-    }
-
     pub fn merge(&mut self, other: Directory) {
         if other.attributes.is_some() {
             self.attributes = other.attributes;
@@ -27,5 +23,25 @@ impl Directory {
         if other.children.is_some() {
             self.children = other.children;
         }
+    }
+}
+
+impl Debug for Directory{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut result = String::from("attributes: ");
+        if self.attributes.is_some(){
+            result += "present  ";
+        }
+        else {
+            result += "missing  ";
+        }
+        result += "children: [";
+        if let Some(children) = &self.children{
+            for child in children{
+                result += &format!(" {:?} ", child);
+            }
+        }
+        result += "]";
+        write!(f, "{}", result)
     }
 }

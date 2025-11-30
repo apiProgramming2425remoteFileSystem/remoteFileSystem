@@ -78,12 +78,9 @@ impl FileSystem {
         }
     }
 
-    fn cache_add_child(&self, path: &Path){
+    fn cache_put_new(&self, path: &Path, item: CacheItem) {
         if let Some(cache) = &self.cache {
-            let parent_path = get_parent_path(path);
-            if let Some(name) = path.file_name() {
-                cache.add_child(parent_path, name.to_os_string());
-            }
+            cache.put_new(path.to_path_buf(), item)
         }
     }
 
@@ -93,6 +90,14 @@ impl FileSystem {
         }
         else {
             None
+        }
+    }
+
+    fn cache_write_file(&self, path: &Path, offset: usize, data: &[u8]){
+        if let Some(name) = path.file_name() {
+            let mut file = File::new(name.to_os_string(), None);
+            file.write_content(offset, &data);
+            self.cache_put(path, CacheItem::File(file));
         }
     }
 
@@ -112,7 +117,11 @@ impl FileSystem {
                 for child in children {
                     let child_path = path.join(child);
                     if let Some(item) = self.cache_get(&child_path) {
-                        all_children.push(SerializableFSItem::from(&item));
+                        let Ok(serializable) = SerializableFSItem::try_from(&item) else {
+                            cache_hit = false;
+                            break;
+                        };
+                        all_children.push(serializable);
                     } else {
                         cache_hit = false;
                         break;
@@ -144,6 +153,7 @@ impl FileSystem {
                     result.push(c);
                 }
 
+                tracing::warn!("{:?}", self.cache);
                 return Ok(result);
             }
         }
@@ -151,12 +161,17 @@ impl FileSystem {
         // cache miss
         let elements = self.list_path(path).await?;
         let children_names = elements.iter().map(|e| e.name.clone().into()).collect();
-        let dir_name = path.file_name()
-            .unwrap_or_else(|| OsStr::new(""))
-            .to_os_string();
-        let dir = Directory::new(dir_name, Some(self.get_attributes(path).await?), Some(children_names));
 
+        let name = if let Some(n) = path.file_name() {
+            n.to_os_string()
+        }
+        else {
+            OsString::new()
+        };
+
+        let dir = Directory::new(name, Some(self.get_attributes(path).await?), Some(children_names));
         self.cache_put(path, CacheItem::Directory(dir));
+
         for element in &elements {
             let child_path = path.join(&element.name);
             self.cache_put(&child_path, CacheItem::from(element.clone()));
@@ -174,6 +189,7 @@ impl FileSystem {
             attributes: self.get_attributes(&parent).await?,
         });
         result.extend(elements);
+        tracing::warn!("{:?}", self.cache);
         Ok(result)
     }
 
@@ -210,10 +226,10 @@ impl FileSystem {
             .await
             .map_err(|op| FsModelError::Backend(op))?;
 
-        self.cache_add_child(path);
         if let Some(name) = path.file_name() {
-            self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attr), Some(vec![]))));
+            self.cache_put_new(path, CacheItem::File(File::new(name.to_os_string(), Some(attr))));
         }
+        tracing::warn!("{:?}", self.cache);
         Ok(attr)
     }
 
@@ -264,13 +280,29 @@ impl FileSystem {
         size: usize,
     ) -> Result<Vec<u8>> {
         // TODO: check access
-        // TODO: cache
+        let mut data = Vec::new();
+        let mut cached_size = 0;
+
+        if let Some(CacheItem::File(file)) = self.cache_get(path){
+            data = file.read(offset, size);
+            if data.len() == size {
+                tracing::warn!("{:?}", self.cache);
+                return Ok(data)
+            }
+            cached_size = data.len();
+        }
 
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        let data = self.remote_client.read_file(path_str, offset, size).await?;
+        let new_offset = offset + cached_size;
+        let new_size = size - cached_size;
+        let remote_data = self.remote_client.read_file(path_str, new_offset, new_size).await?;
+
+        self.cache_write_file(path, new_offset, &remote_data);
+        data.extend_from_slice(&remote_data);
+        tracing::warn!("{:?}", self.cache);
         Ok(data)
     }
 
@@ -285,7 +317,6 @@ impl FileSystem {
         data: &[u8],
     ) -> Result<usize> {
         // TODO: check access
-        // TODO: cache
 
         if !(flags.writeonly || flags.readwrite) {
             return Err(FsModelError::PermissionDenied);
@@ -299,6 +330,8 @@ impl FileSystem {
             .write_file(path_str, offset, data)
             .await?;
 
+        self.cache_write_file(path, offset, &data);
+        tracing::warn!("{:?}", self.cache);
         Ok(data.len())
     }
 
@@ -313,11 +346,11 @@ impl FileSystem {
             .await
             .map_err(|op| FsModelError::Backend(op))?;
 
-        self.cache_add_child(path);
         if let Some(name) = path.file_name() {
-            self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attr), Some(vec![]))));
+            self.cache_put_new(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attr), Some(vec![]))));
         }
 
+        tracing::warn!("{:?}", self.cache);
         Ok(attr)
     }
 
@@ -338,14 +371,14 @@ impl FileSystem {
             .map_err(|op| FsModelError::Backend(op))?;
 
         let old_item = self.cache_remove(old_path);
-        self.cache_add_child(new_path);
         if let Some(name) = new_path.file_name() {
             if let Some(mut item) = old_item {
                 item.rename(name.to_os_string());
-                self.cache_put(new_path, item);
+                self.cache_put_new(new_path, item);
             }
         }
 
+        tracing::warn!("{:?}", self.cache);
         Ok(())
     }
 
@@ -359,6 +392,7 @@ impl FileSystem {
 
         self.cache_remove(path);
 
+        tracing::warn!("{:?}", self.cache);
         Ok(())
     }
 
@@ -372,6 +406,7 @@ impl FileSystem {
         if let Some(item) = self.cache_get(path) {
             if let Some(attr) = item.get_attributes(){
                 // cache hit
+                tracing::warn!("{:?}", self.cache);
                 return Ok(attr);
             }
         }
@@ -386,10 +421,11 @@ impl FileSystem {
         if let Some(name) = path.file_name() {
             match attributes.kind{
                 FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))),
-                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None))),
-                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None)))
+                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes)))),
+                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))))
             }
         }
+        tracing::warn!("{:?}", self.cache);
         Ok(attributes)
     }
 
@@ -398,6 +434,7 @@ impl FileSystem {
         if let Some(item) = self.cache_get(path) {
             if let Some(attr) = item.get_attributes(){
                 // cache hit
+                tracing::warn!("{:?}", self.cache);
                 return Ok(attr);
             }
         }
@@ -410,10 +447,11 @@ impl FileSystem {
         if let Some(name) = path.file_name() {
             match attributes.kind{
                 FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))),
-                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None))),
-                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes), None)))
+                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes)))),
+                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))))
             }
         }
+        tracing::warn!("{:?}", self.cache);
         Ok(attributes)
     }
 
@@ -425,6 +463,8 @@ impl FileSystem {
         path: &Path,
         new_attributes: SetAttr,
     ) -> anyhow::Result<FileAttr> {
+        // TODO: cache
+
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
@@ -438,6 +478,8 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_permissions(&self, path: &Path) -> anyhow::Result<u32> {
+        // TODO: cache
+
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
@@ -448,6 +490,8 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_fs_stats(&self, path: &Path) -> anyhow::Result<Stats> {
+        // TODO: cache
+
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
