@@ -68,13 +68,14 @@ impl FileSystem {
         }
     }
 
+
     fn cache_get(&self, path: &Path) -> Option<CacheItem> {
         self.cache.as_ref()?.get(path)
     }
 
-    fn cache_put(&self, path: &Path, item: CacheItem) {
+    fn cache_put(&self, path: &Path, item: CacheItem, invalidate_attributes: bool) {
         if let Some(cache) = &self.cache {
-            cache.put(path.to_path_buf(), item)
+            cache.put(path.to_path_buf(), item, invalidate_attributes)
         }
     }
 
@@ -93,11 +94,11 @@ impl FileSystem {
         }
     }
 
-    fn cache_write_file(&self, path: &Path, offset: usize, data: &[u8]){
+    fn cache_write_file(&self, path: &Path, offset: usize, data: &[u8], invalidate_attributes: bool){
         if let Some(name) = path.file_name() {
             let mut file = File::new(name.to_os_string(), None);
             file.write_content(offset, &data);
-            self.cache_put(path, CacheItem::File(file));
+            self.cache_put(path, CacheItem::File(file), invalidate_attributes);
         }
     }
 
@@ -153,7 +154,6 @@ impl FileSystem {
                     result.push(c);
                 }
 
-                tracing::warn!("{:?}", self.cache);
                 return Ok(result);
             }
         }
@@ -170,11 +170,11 @@ impl FileSystem {
         };
 
         let dir = Directory::new(name, Some(self.get_attributes(path).await?), Some(children_names));
-        self.cache_put(path, CacheItem::Directory(dir));
+        self.cache_put(path, CacheItem::Directory(dir), false);
 
         for element in &elements {
             let child_path = path.join(&element.name);
-            self.cache_put(&child_path, CacheItem::from(element.clone()));
+            self.cache_put(&child_path, CacheItem::from(element.clone()), false);
         }
         let mut result = Vec::new();
         result.push(SerializableFSItem {
@@ -189,7 +189,6 @@ impl FileSystem {
             attributes: self.get_attributes(&parent).await?,
         });
         result.extend(elements);
-        tracing::warn!("{:?}", self.cache);
         Ok(result)
     }
 
@@ -229,7 +228,6 @@ impl FileSystem {
         if let Some(name) = path.file_name() {
             self.cache_put_new(path, CacheItem::File(File::new(name.to_os_string(), Some(attr))));
         }
-        tracing::warn!("{:?}", self.cache);
         Ok(attr)
     }
 
@@ -280,29 +278,21 @@ impl FileSystem {
         size: usize,
     ) -> Result<Vec<u8>> {
         // TODO: check access
-        let mut data = Vec::new();
-        let mut cached_size = 0;
-
         if let Some(CacheItem::File(file)) = self.cache_get(path){
-            data = file.read(offset, size);
-            if data.len() == size {
-                tracing::warn!("{:?}", self.cache);
+            let data = file.read(offset, size);
+            if data.len() > 0 {
+                // cache hit
                 return Ok(data)
             }
-            cached_size = data.len();
         }
 
+        // cache miss
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        let new_offset = offset + cached_size;
-        let new_size = size - cached_size;
-        let remote_data = self.remote_client.read_file(path_str, new_offset, new_size).await?;
-
-        self.cache_write_file(path, new_offset, &remote_data);
-        data.extend_from_slice(&remote_data);
-        tracing::warn!("{:?}", self.cache);
+        let data = self.remote_client.read_file(path_str, offset, size).await?;
+        self.cache_write_file(path, offset, &data, false);
         Ok(data)
     }
 
@@ -330,8 +320,7 @@ impl FileSystem {
             .write_file(path_str, offset, data)
             .await?;
 
-        self.cache_write_file(path, offset, &data);
-        tracing::warn!("{:?}", self.cache);
+        self.cache_write_file(path, offset, &data, true);
         Ok(data.len())
     }
 
@@ -350,7 +339,6 @@ impl FileSystem {
             self.cache_put_new(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attr), Some(vec![]))));
         }
 
-        tracing::warn!("{:?}", self.cache);
         Ok(attr)
     }
 
@@ -378,7 +366,6 @@ impl FileSystem {
             }
         }
 
-        tracing::warn!("{:?}", self.cache);
         Ok(())
     }
 
@@ -392,7 +379,6 @@ impl FileSystem {
 
         self.cache_remove(path);
 
-        tracing::warn!("{:?}", self.cache);
         Ok(())
     }
 
@@ -406,7 +392,6 @@ impl FileSystem {
         if let Some(item) = self.cache_get(path) {
             if let Some(attr) = item.get_attributes(){
                 // cache hit
-                tracing::warn!("{:?}", self.cache);
                 return Ok(attr);
             }
         }
@@ -420,12 +405,11 @@ impl FileSystem {
 
         if let Some(name) = path.file_name() {
             match attributes.kind{
-                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))),
-                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes)))),
-                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))))
+                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None)), false),
+                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false),
+                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false)
             }
         }
-        tracing::warn!("{:?}", self.cache);
         Ok(attributes)
     }
 
@@ -434,7 +418,6 @@ impl FileSystem {
         if let Some(item) = self.cache_get(path) {
             if let Some(attr) = item.get_attributes(){
                 // cache hit
-                tracing::warn!("{:?}", self.cache);
                 return Ok(attr);
             }
         }
@@ -446,12 +429,11 @@ impl FileSystem {
         let attributes = self.remote_client.get_attributes(path_str).await?;
         if let Some(name) = path.file_name() {
             match attributes.kind{
-                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))),
-                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes)))),
-                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))))
+                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None)), false),
+                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false),
+                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false)
             }
         }
-        tracing::warn!("{:?}", self.cache);
         Ok(attributes)
     }
 

@@ -20,11 +20,13 @@ impl FilePage {
         FilePage {
             content: vec![0u8; PAGE_SIZE],
             valid_up_to: 0,
-            valid_from: 0,
+            valid_from: PAGE_SIZE,
         }
     }
 
     pub fn write(&mut self, data: &[u8], offset: usize) {
+
+
         let end = offset + data.len();
         let real_end = end.min(PAGE_SIZE);
         if offset > real_end {
@@ -38,13 +40,14 @@ impl FilePage {
 
     pub fn read(&self, offset: usize, size: usize) -> Option<&[u8]> {
         let end = (offset + size).min(PAGE_SIZE);
-        if offset < self.valid_from || end > self.valid_up_to {
+        let real_end = end.min(self.valid_up_to);
+        if offset < self.valid_from {
             return None;
         }
-        if offset > end{
+        if offset > real_end {
             return None
         }
-        Some(&self.content[offset..end])
+        Some(&self.content[offset..real_end])
     }
 
 }
@@ -92,7 +95,6 @@ impl File {
         while remaining > 0 {
             let page_index = (curr_offset / PAGE_SIZE) as u64;
             let page_offset = curr_offset % PAGE_SIZE;
-
             let page = match self.content.get(&page_index) {
                 Some(p) => p,
                 None => break,
@@ -124,9 +126,11 @@ impl File {
         if other.attributes.is_some() {
             self.attributes = other.attributes;
         }
-        for page in other.content.keys(){
-            self.write_content((*page as usize) * PAGE_SIZE,
-                               &other.content.get(page).unwrap().content);
+        for key in other.content.keys(){
+            if let Some(page) = other.content.get(key) {
+                self.write_content((*key as usize) * PAGE_SIZE + page.valid_from,
+                                   &page.content[page.valid_from..page.valid_up_to]);
+            }
         }
     }
 }
@@ -143,7 +147,9 @@ impl Debug for File{
         }
         result += "pages: ";
         for key in self.content.keys(){
-            result += &format!("{} ", key);
+            if let Some(page) = self.content.get(key) {
+                result += &format!("{}:[{}-{}]<{:?}> ", key, page.valid_from, page.valid_up_to, &page.content[page.valid_from..page.valid_up_to]);
+            }
         }
         write!(f, "{}", result)
     }

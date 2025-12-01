@@ -31,6 +31,13 @@ impl CacheItem{
             CacheItem::Directory(directory) => {directory.attributes.clone()},
         }
     }
+
+    pub fn invalidate_attributes(&mut self){
+        match self {
+            CacheItem::File(file) => {file.attributes = None;},
+            CacheItem::Directory(directory) => {directory.attributes = None;},
+        }
+    }
 }
 
 impl From<SerializableFSItem> for CacheItem {
@@ -147,7 +154,7 @@ impl Cache {
         Some(entry.item.clone())
     }
 
-    pub fn put<P: AsRef<Path>>(&self, path: P, item: CacheItem) {
+    pub fn put<P: AsRef<Path>>(&self, path: P, item: CacheItem, invalidate_attributes: bool) {
         let Ok(mut map) = self.entries.write() else {
             return;
         };
@@ -160,6 +167,9 @@ impl Cache {
                 entry.last_accessed = Instant::now();
                 entry.access_count += 1;
                 entry.update(item);
+                if invalidate_attributes{
+                    entry.item.invalidate_attributes();
+                }
                 return;
             }
             map.remove(key);
@@ -224,7 +234,7 @@ impl Debug for Cache{
         let Ok(mut map) = self.entries.write() else {
             return write!(f, "--");
         };
-        let mut result = String::from("");
+        let mut result = String::from("\n");
         for key in map.keys() {
             result += &format!("{:?}", key.display());
             result += " ";
