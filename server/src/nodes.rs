@@ -55,8 +55,7 @@ impl Directory {
     }
 
     pub fn add(&mut self, item: FSItem) {
-        self.children
-            .insert(PathBuf::from(item.name()), item);
+        self.children.insert(PathBuf::from(item.name()), item);
     }
 
     pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSItem> {
@@ -80,7 +79,7 @@ impl FSItem {
     }
 
     pub fn attributes(&self) -> FileAttr {
-        match self{
+        match self {
             FSItem::File(f) => f.attributes.clone(),
             FSItem::Directory(d) => d.attributes.clone(),
         }
@@ -122,7 +121,6 @@ impl FSItem {
         }
     }
 }
-
 
 impl Debug for File {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {

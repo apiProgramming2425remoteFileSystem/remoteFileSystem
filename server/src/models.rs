@@ -1,10 +1,13 @@
-use std::ops::Deref;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, SqlitePool};
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use actix_web::{web, dev::{ServiceRequest, Payload}, Error, HttpResponse, FromRequest};
+use futures::future::{BoxFuture, Ready, err, ok};
 
-use crate::nodes::FSItem;
+use crate::{db::{DB, JWT_KEY}, error::ServerError, nodes::FSItem};
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -353,5 +356,129 @@ impl Conversion<i32> for Permission {
         let other = PermissionType::try_to_target(other_mask)?;
 
         Ok(Permission { user, group, other })
+    }
+}
+
+/* AUTHENTICATION MANAGEMENT */
+#[derive(Debug, FromRow)]
+pub struct User{
+    pub userID: u64,
+    pub username: String, 
+    pub password: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginBody{
+    pub username: String, 
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Claims{
+    pub user_id: u64,
+    pub exp: usize, // expiration time
+}
+
+#[derive(Debug, Serialize)]
+pub struct Token {
+    token: String,
+}
+
+impl Token{
+    pub fn new(token: String) -> Self{
+        Token { token }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthenticatedUser {
+    pub user_id: i64
+}
+
+impl FromRequest for AuthenticatedUser {
+    type Error = actix_web::Error;
+    type Future = BoxFuture<'static, Result<Self, Self::Error>>;
+
+    fn from_request(req: &actix_web::HttpRequest, _payload: &mut Payload) -> Self::Future {
+        // 1. retrieve Authorization header
+        let auth_header = match req.headers().get("Authorization") {
+            Some(header) => header,
+            None => return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Authorization Header is missing."))}),
+        };
+
+        // 2. token extraction
+        let auth_value = match auth_header.to_str() {
+            Ok(s) => s,
+            Err(_) => return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Header is not valid"))}),
+        };
+
+        if !auth_value.starts_with("Bearer ") {
+            return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Token format is not valid."))});
+        }
+        let token_string = &auth_value[7..];
+
+        // 3. Validation and decode key configuration
+        let decoding_key = DecodingKey::from_secret(JWT_KEY);
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = true;
+
+        // 4. Token decoding and verification
+        let token_data = match decode::<Claims>(token_string, &decoding_key, &validation) {
+            Ok(data) => data,
+            Err(_) => {
+                return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Token is invalid."))});
+            }
+        };
+
+        let user_id = token_data.claims.user_id as i64;
+        let token_expiration = token_data.claims.exp as i64;
+
+        // 5. Check if token is expired
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time has gone behind.").as_secs() as i64;
+        let is_expired = now >= token_expiration;
+
+        if is_expired {
+            return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Token is expired."))});
+        }
+
+        // 6. Check if the token has been revoked
+        let pool_opt = req.app_data::<web::Data<DB>>().cloned();
+
+        Box::pin(async move {
+            let pool = match pool_opt {
+                Some(p) => p,
+                None => {
+                    return Err(actix_web::error::ErrorInternalServerError("Error during the retrieval of database connection."));
+                }
+            };
+
+            let is_revoked = match pool.is_token_revoked(user_id as i64, token_expiration).await {
+                Ok(flag) => flag,
+                Err(_) => {
+                    return Err(actix_web::error::ErrorInternalServerError("Error while checking token revocation."));
+                }
+            };
+
+            if is_revoked {
+                return Err(actix_web::error::ErrorUnauthorized("Token has been revoked."));
+            }
+
+            Ok(AuthenticatedUser {
+                user_id
+            })
+        })
+
+    }
+}
+
+/* XATTRIBUTES MANAGEMENT */
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Xattributes{
+    xattributes: Vec<u8>,
+}
+
+impl Xattributes{
+    pub fn get(&self) -> &[u8]{
+        self.xattributes.as_slice()
     }
 }

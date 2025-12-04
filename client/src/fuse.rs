@@ -6,6 +6,7 @@ use std::vec::IntoIter;
 
 use crate::error::FuseError;
 use crate::fs_model;
+use crate::network::client::RemoteClient;
 use crate::network::models::ItemType;
 
 use bytes::Bytes;
@@ -22,12 +23,14 @@ type SetAttr = crate::fs_model::attributes::SetAttr;
 
 pub struct Fs {
     fs: fs_model::FileSystem,
+    auth_token: String,
 }
 
 impl Fs {
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(rc: RemoteClient, token: String) -> Self {
         Self {
-            fs: fs_model::FileSystem::new(base_url),
+            fs: fs_model::FileSystem::new(rc),
+            auth_token: token,
         }
     }
 }
@@ -82,6 +85,9 @@ impl PathFilesystem for Fs {
         tracing::info!("Destroying file system...");
     }
 
+    /****************
+     Presente inserimento del token di autenticazione
+     ****************/
     /// look up a directory entry by name and get its attributes.
     #[instrument(skip(self), err(level = Level::DEBUG), ret(level = Level::DEBUG))]
     async fn lookup(&self, req: Request, parent: &OsStr, name: &OsStr) -> FuseResult<ReplyEntry> {
@@ -93,7 +99,7 @@ impl PathFilesystem for Fs {
 
         let attributes = self
             .fs
-            .get_attributes(&path.as_os_str())
+            .get_attributes(&path.as_os_str(), &self.auth_token)
             .await
             .map_err(|err| {
                 tracing::error!("{}", err);
@@ -150,7 +156,7 @@ impl PathFilesystem for Fs {
             p
         };
 
-        let attributes = self.fs.get_attributes(path_osString.as_os_str()).await.map_err(|err| {
+        let attributes = self.fs.get_attributes(path_osString.as_os_str(), &self.auth_token).await.map_err(|err| {
             tracing::error!("{}", err);
             libc::ENOENT
         })?;
@@ -174,7 +180,7 @@ impl PathFilesystem for Fs {
         fh: Option<u64>,
         set_attr: fuse3::SetAttr,
     ) -> FuseResult<ReplyAttr> {
-        let path_osStr = if let Some(p) = path {
+        let path_os_str = if let Some(p) = path {
             p
         } else {
             return Err(libc::EINVAL.into());
@@ -182,7 +188,7 @@ impl PathFilesystem for Fs {
 
         let attributes = self
             .fs
-            .set_attributes(req.uid, req.gid, &path_osStr, set_attr.into())
+            .set_attributes(req.uid, req.gid, &path_os_str, set_attr.into(), &self.auth_token)
             .await
             .map_err(|err| {
                 tracing::error!("{}", err);
@@ -246,7 +252,7 @@ impl PathFilesystem for Fs {
         // TODO:
         //Err(FuseError::NotImplemented.into())
 
-        let stats = self.fs.get_fs_stats(&path).await.map_err(|err| {
+        let stats = self.fs.get_fs_stats(&path, &self.auth_token).await.map_err(|err| {
             tracing::error!("{}", err);
             libc::ENOENT
         })?;
@@ -271,7 +277,7 @@ impl PathFilesystem for Fs {
         // TODO:
         // Err(FuseError::NotImplemented.into())
 
-        let permissions = self.fs.get_permissions(&path).await.map_err(|err| {
+        let permissions = self.fs.get_permissions(&path, &self.auth_token).await.map_err(|err| {
             tracing::error!("{}", err);
             libc::ENOENT
         })?;
@@ -362,7 +368,7 @@ impl PathFilesystem for Fs {
 
         let file_attr = self
             .fs
-            .create_file(req.uid, req.gid, &file_path, &fs_type, 0, &[])
+            .create_file(req.uid, req.gid, &file_path, &fs_type, 0, &[], &self.auth_token)
             .await
             .map_err(|err| {
                 tracing::error!("{err}");
@@ -418,7 +424,7 @@ impl PathFilesystem for Fs {
 
         let file_attr = self
             .fs
-            .create_file(req.uid, req.gid, &file_path, &fs_type, 0, &[])
+            .create_file(req.uid, req.gid, &file_path, &fs_type, 0, &[], &self.auth_token)
             .await
             .map_err(|err| {
                 tracing::error!("{err}");
@@ -506,7 +512,7 @@ impl PathFilesystem for Fs {
 
         let data = self
             .fs
-            .read_file(req.uid, req.gid, &file_path, offset as usize, size as usize)
+            .read_file(req.uid, req.gid, &file_path, offset as usize, size as usize, &self.auth_token)
             .await
             .map_err(|err| {
                 tracing::error!("{err}");
@@ -557,6 +563,7 @@ impl PathFilesystem for Fs {
                 &fs_flags,
                 offset as usize,
                 data,
+                &self.auth_token
             )
             .await
             .map_err(|err| {
@@ -696,6 +703,7 @@ impl PathFilesystem for Fs {
                 &file_in_path,
                 offset_in as usize,
                 length as usize,
+                &self.auth_token
             )
             .await
             .map_err(|err| {
@@ -716,6 +724,7 @@ impl PathFilesystem for Fs {
                 &fs_flags,
                 length as usize,
                 data.as_slice(),
+                &self.auth_token
             )
             .await
             .map_err(|err| {
@@ -765,6 +774,7 @@ impl PathFilesystem for Fs {
                 &fs_type,
                 offset as usize,
                 &Vec::with_capacity(length as usize),
+                &self.auth_token
             )
             .await
             .map_err(|err| {
@@ -787,7 +797,7 @@ impl PathFilesystem for Fs {
     ) -> FuseResult<ReplyEntry> {
         let parent_path = Path::new(parent);
         let complete_path = parent_path.join(name);
-        self.fs.mkdir(complete_path.as_os_str()).await
+        self.fs.mkdir(complete_path.as_os_str(), &self.auth_token).await
             .map(|attr| ReplyEntry {
                 ttl: TTL,
                 attr: attr.into(),
@@ -805,7 +815,7 @@ impl PathFilesystem for Fs {
         // tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
         let path = Path::new(parent).join(name);
-        match self.fs.remove(path.as_os_str()).await {
+        match self.fs.remove(path.as_os_str(), &self.auth_token).await {
             Ok(()) => Ok(()),
             Err(err) => Err(Errno::from(libc::EIO)),
         }
@@ -855,7 +865,7 @@ impl PathFilesystem for Fs {
     ) -> FuseResult<ReplyDirectory<Self::DirEntryStream<'a>>> {
         // TODO:
 
-        let items = match self.fs.readdir(path).await {
+        let items = match self.fs.readdir(path, &self.auth_token).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
                 tracing::error!("readdir failed: {err}");
@@ -899,7 +909,7 @@ impl PathFilesystem for Fs {
         // TODO:
 
 
-        let items = match self.fs.readdir(parent).await {
+        let items = match self.fs.readdir(parent, &self.auth_token).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
                 tracing::error!("readdir failed: {err}");
@@ -989,7 +999,7 @@ impl PathFilesystem for Fs {
         let new_path = Path::new(parent).join(name);
         match self
             .fs
-            .rename(old_path.as_os_str(), new_path.as_os_str())
+            .rename(old_path.as_os_str(), new_path.as_os_str(), &self.auth_token)
             .await
         {
             Ok(_) => Ok(()),
@@ -1015,7 +1025,7 @@ impl PathFilesystem for Fs {
         let new_path = Path::new(parent).join(name);
         match self
             .fs
-            .rename(old_path.as_os_str(), new_path.as_os_str())
+            .rename(old_path.as_os_str(), new_path.as_os_str(), &self.auth_token)
             .await
         {
             Ok(_) => Ok(()),
@@ -1043,7 +1053,7 @@ impl PathFilesystem for Fs {
         // tracing::warn!("[Not Implemented]");
         // Err(libc::ENOSYS.into())
         let path = Path::new(parent).join(name);
-        match self.fs.remove(path.as_os_str()).await {
+        match self.fs.remove(path.as_os_str(), &self.auth_token).await {
             Ok(()) => Ok(()),
             Err(err) => Err(Errno::from(libc::EIO)),
         }

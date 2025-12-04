@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 actix-web = "4"
+jsonwebtoken = "8"
+argon2 = {version = "0.5", features = ["std"]}
 anyhow = "1.0"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive", "env"] }
@@ -22,6 +24,11 @@ tracing-actix-web = "0.7"
 tracing-appender = "0.2"
 walkdir = "2.3"
 thiserror = "2"
+tokio = "1"
+sqlx = {version = "=0.8.1", features = ["runtime-tokio", "sqlite", "macros", "migrate"]}
+rusqlite = "=0.32.1"
+futures = "0.3.31"
+
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.30.1", features = ["fs"] }

@@ -3,10 +3,11 @@ use std::path::Path;
 
 use actix_web::middleware::Logger;
 use actix_web::{App, HttpServer, web};
-use tracing;
 use tracing_actix_web::TracingLogger;
+use crate::db::DB;
 
 pub mod config;
+pub mod db;
 pub mod error;
 pub mod logging;
 pub mod models;
@@ -16,7 +17,6 @@ mod storage;
 
 use error::ServerError;
 use storage::FileSystem;
-
 
 type Result<T> = std::result::Result<T, ServerError>;
 
@@ -44,6 +44,7 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
 ) -> Result<()> {
     let host = host.as_ref();
     let fs_root = fs_root.as_ref();
+    let pool = DB::open_connection().await.map_err(|err| ServerError::Other(err.into()))?;
 
     // Create root filesystem directory if it doesn't exist
     if !fs_root.exists() {
@@ -57,11 +58,14 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
     tracing::info!("Starting server at {}:{}", host, port);
 
     let fs = web::Data::new(FileSystem::new(fs_root));
+    let db = web::Data::new(pool);
 
     HttpServer::new(move || {
         App::new()
             .app_data(fs.clone())
+            .app_data(db.clone())
             .wrap(TracingLogger::default()) // Middleware for request tracing
+            
             .wrap(Logger::default()) // actix built-in logger
             .configure(routes::configure)
     })

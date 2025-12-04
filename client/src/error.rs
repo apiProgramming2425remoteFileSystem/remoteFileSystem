@@ -38,17 +38,20 @@ pub enum FsModelError {
     #[error("File not found: {0}")]
     NotFound(String),
 
-    #[error("Permission denied")]
-    PermissionDenied,
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
-    #[error("Conversion failed")]
-    ConversionFailed,
+    #[error("Conversion failed: {0}")]
+    ConversionFailed(String),
 
     #[error("Remote backend error: {0}")]
     Backend(#[from] anyhow::Error),
+
+    #[error("Client error: {0}")]
+    ClientError(String),
 }
 
 /// FUSE related errors

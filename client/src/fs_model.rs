@@ -11,7 +11,7 @@ use tracing::{Level, instrument};
 use crate::error::FsModelError;
 use crate::fs_model::attributes::SetAttr;
 use crate::network::client::RemoteClient;
-use crate::network::models::{ItemType, SerializableFSItem};
+use crate::network::models::{ItemType, SerializableFSItem, Xattributes};
 
 pub mod attributes;
 pub mod directory;
@@ -57,45 +57,44 @@ fn get_parent_path(path: &OsStr) -> OsString {
 //
 impl FileSystem {
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(rc: RemoteClient) -> Self {
         Self {
-            remote_client: RemoteClient::new(base_url),
+            remote_client: rc,
             file_handlers: RwLock::new(HashMap::new()),
         }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<OsString>> {
-        let map = self.file_handlers.read().map_err(|_| { return FsModelError::ConversionFailed;})?;
+        let map = self.file_handlers.read().map_err(|_| { return FsModelError::ConversionFailed(String::new());})?;
         Ok(map.get(&fh).cloned())
     }
 
 
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn readdir(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
+    pub async fn readdir(&self, path: &OsStr, token: &str) -> Result<Vec<SerializableFSItem>> {
         let mut items: Vec<SerializableFSItem> = vec![];
         items.push(SerializableFSItem{
             name: ".".to_string(),
             item_type: ItemType::Directory,
-            attributes: self.get_attributes(path).await?,
+            attributes: self.get_attributes(path, token).await?,
         });
         let parent_path = get_parent_path(path);
         items.push(SerializableFSItem{
             name: "..".to_string(),
             item_type: ItemType::Directory,
-            attributes: self.get_attributes(&parent_path).await?,
+            attributes: self.get_attributes(&parent_path, token).await?,
         });
-        items.extend(self.list_path(path).await?);
+        items.extend(self.list_path(path, token).await?);
         Ok(items)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
+    async fn list_path(&self, path: &OsStr, token: &str) -> Result<Vec<SerializableFSItem>> {
         self.remote_client
-            .list_path(path)
+            .list_path(path, token)
             .await
-            .map_err(|op| FsModelError::Backend(op))
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -107,6 +106,7 @@ impl FileSystem {
         file_type: &FileType,
         offset: usize,
         data: &[u8],
+        token: &str,
     ) -> Result<FileAttr> {
         // TODO: check access
 
@@ -115,7 +115,7 @@ impl FileSystem {
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         self.remote_client
-            .write_file(path_str, offset, data)
+            .write_file(path_str, offset, data, token)
             .await?;
 
         Ok(self.mock_file_attr())
@@ -144,7 +144,7 @@ impl FileSystem {
         gid: u32,
         path: &Path,
         flags: &Flags,
-        fh: u64,
+        fh: u64
     ) -> Result<()> {
         // TODO: check access
 
@@ -166,6 +166,7 @@ impl FileSystem {
         path: &Path,
         offset: usize,
         size: usize,
+        token: &str
     ) -> Result<Vec<u8>> {
         // TODO: check access
 
@@ -173,7 +174,7 @@ impl FileSystem {
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        let data = self.remote_client.read_file(path_str, offset, size).await?;
+        let data = self.remote_client.read_file(path_str, offset, size, token).await?;
         Ok(data)
     }
 
@@ -186,11 +187,12 @@ impl FileSystem {
         flags: &Flags,
         offset: usize,
         data: &[u8],
+        token: &str
     ) -> Result<usize> {
         // TODO: check access
 
         if !(flags.writeonly || flags.readwrite) {
-            return Err(FsModelError::PermissionDenied);
+            return Err(FsModelError::PermissionDenied(String::from("You do not have enough permissions.")));
         }
 
         let path_str = path
@@ -198,31 +200,31 @@ impl FileSystem {
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         self.remote_client
-            .write_file(path_str, offset, data)
+            .write_file(path_str, offset, data, token)
             .await?;
 
         Ok(data.len())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn mkdir(&self, path: &OsStr) -> Result<FileAttr> {
+    pub async fn mkdir(&self, path: &OsStr, token: &str) -> Result<FileAttr> {
         self.remote_client
-            .mkdir(path)
+            .mkdir(path, token)
             .await
             .map_err(|op| FsModelError::Backend(op))
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> Result<()> {
+    pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr, token: &str) -> Result<()> {
         self.remote_client
-            .rename(old_path, new_path)
+            .rename(old_path, new_path, token)
             .await
             .map_err(|op| FsModelError::Backend(op))
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()> {
-        self.remote_client.remove(path).await
+    pub async fn remove(&self, path: &OsStr, token:&str) -> anyhow::Result<()> {
+        self.remote_client.remove(path, token).await
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -231,15 +233,16 @@ impl FileSystem {
         uid: u32,
         gid: u32,
         path: &OsStr,
+        token: &str
     ) -> anyhow::Result<FileAttr> {
-        let attributes = self.remote_client.resolve_child(uid, gid, path).await?;
+        let attributes = self.remote_client.resolve_child(uid, gid, path, token).await?;
 
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
-        let attributes = self.remote_client.get_attributes(path).await?;
+    pub async fn get_attributes(&self, path: &OsStr, token: &str) -> Result<FileAttr> {
+        let attributes = self.remote_client.get_attributes(path, token).await?;
         Ok(attributes)
     }
 
@@ -250,24 +253,37 @@ impl FileSystem {
         gid: u32,
         path: &OsStr,
         new_attributes: SetAttr,
+        token: &str
     ) -> anyhow::Result<FileAttr> {
         let attributes = self
             .remote_client
-            .set_attributes(uid, gid, path, new_attributes)
+            .set_attributes(uid, gid, path, new_attributes, token)
             .await?;
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions(&self, path: &OsStr) -> anyhow::Result<u32> {
-        let permissions = self.remote_client.get_permissions(path).await?;
+    pub async fn get_permissions(&self, path: &OsStr, token: &str) -> anyhow::Result<u32> {
+        let permissions = self.remote_client.get_permissions(path, token).await?;
         Ok(permissions)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_fs_stats(&self, path: &OsStr) -> anyhow::Result<Stats> {
-        let stats = self.remote_client.get_stats(path).await?;
+    pub async fn get_fs_stats(&self, path: &OsStr, token: &str) -> anyhow::Result<Stats> {
+        let stats = self.remote_client.get_stats(path, token).await?;
         Ok(stats)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_x_attributes(&self, path: &OsStr, token: &str) -> Result<Xattributes>{
+        let xattributes = self.remote_client.get_x_attributes(path, token).await?;
+        Ok(xattributes)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn set_x_attributes(&self, path: &OsStr, xattributes: &[u8], token: &str) -> Result<()>{
+        self.remote_client.set_x_attributes(path, xattributes, token).await?;
+        Ok(())
     }
 
     // TODO: remove it later

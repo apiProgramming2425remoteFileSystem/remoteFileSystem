@@ -52,6 +52,16 @@ pub enum StorageError {
     Other(#[from] anyhow::Error),
 }
 
+// Authentication related error
+#[derive(Error, Debug)]
+pub enum AuthenticationError{
+    #[error("Unauthorized user: {0}")]
+    Unauthorized(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+}
+
 /// Top-level server error enum wrapping sub-errors
 #[derive(Error, Debug)]
 pub enum ServerError {
@@ -63,6 +73,9 @@ pub enum ServerError {
 
     #[error("Storage error: {0}")]
     Storage(#[from] StorageError),
+
+    #[error("Authentication error: {0}")]
+    AuthenticationError(#[from] AuthenticationError),
 
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),

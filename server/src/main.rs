@@ -1,4 +1,8 @@
-use server::{config, error, logging, run_server};
+use server::{
+    config,
+    error::{self, ServerError},
+    logging, run_server,
+};
 
 type Result<T> = std::result::Result<T, error::ServerError>;
 

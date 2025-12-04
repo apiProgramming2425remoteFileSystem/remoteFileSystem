@@ -52,6 +52,7 @@ fn main() {
 
 use std::fs;
 
+use client::network::client::RemoteClient;
 use fuse3::MountOptions;
 use fuse3::path::prelude::*;
 use tokio::signal;
@@ -59,6 +60,9 @@ use tokio::signal;
 use client::error::ClientError;
 use client::fuse::Fs;
 use client::{config, error, logging, network};
+use std::io::{self, Write};
+use rpassword::read_password;
+use anyhow::anyhow;
 
 type Result<T> = std::result::Result<T, error::ClientError>;
 
@@ -67,6 +71,37 @@ async fn main() -> Result<()> {
     // Load configuration from args/env
     let config = config::Config::from_args()?;
 
+    let base_url = config.server_url.clone() + network::APP_V1_BASE_URL;
+
+    let rc = RemoteClient::new(&base_url);
+
+    // --- 1. User login ---
+    println!("Welcome to Remote File System. First you need to authenticate!");
+    println!("username:");
+    let username = {
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        input.trim().to_string()
+    };
+    println!("Password: ");
+    io::stdout().flush().unwrap();
+    // Hide password
+    let password = read_password().unwrap();
+
+    let token_option: Option<String> = match rc.login(username, password).await {
+        Ok(t) => Some(t),
+        Err(e) => {
+            None
+        },
+    };
+
+    if token_option.is_none(){
+        return Err(ClientError::Other(anyhow!("Impossible to login: Invalid credentials!")));
+    }
+
+    let token = token_option.unwrap();
+    
+    // --- 2. File system mounting ---
     // Initialize logging based on config
     let _log = logging::Logging::from(&config)?;
 
@@ -86,15 +121,13 @@ async fn main() -> Result<()> {
             .map_err(|err| ClientError::Daemon(error::DaemonError::StartFailed(err.to_string())))?;
     }
 
-    let base_url = config.server_url.clone() + network::APP_V1_BASE_URL;
-
     let mut mount_options = MountOptions::default();
     mount_options.allow_other(true);
 
     // Mount fs
     let mut mount_handle = Session::new(mount_options)
         // .mount_with_unprivileged(Fs::new(&base_url), &config.mountpoint)
-        .mount(Fs::new(&base_url), &config.mountpoint)
+        .mount(Fs::new(rc, token), &config.mountpoint)
         .await
         .map_err(|err| ClientError::Daemon(error::DaemonError::StartFailed(err.to_string())))?;
 

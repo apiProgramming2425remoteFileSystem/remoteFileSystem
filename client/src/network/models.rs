@@ -71,3 +71,37 @@ impl SetAttrRequest {
         }
     }
 }
+
+/* AUTHENTICATION MANAGEMENT */
+#[derive(Debug, Serialize)]
+pub struct LoginRequest{
+    username: String, 
+    password: String,
+}
+
+impl LoginRequest{
+    pub fn new(username: String, password: String) -> Self{
+        Self { username, password }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginResponse{
+    pub token: String,
+}
+
+/* XATTRIBUTES MANAGEMENT */
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Xattributes{
+    xattributes: Vec<u8>,
+}
+
+impl Xattributes{
+    pub fn new(xattributes: &[u8]) -> Self{
+        Xattributes{xattributes: xattributes.to_vec()}
+    }
+    
+    pub fn get(&self) -> Vec<u8>{
+        self.xattributes.clone()
+    }
+}

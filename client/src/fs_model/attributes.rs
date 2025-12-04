@@ -272,7 +272,7 @@ mod platform {
                 libc::S_IFREG => Ok(FileType::RegularFile),
                 libc::S_IFLNK => Ok(FileType::Symlink),
                 libc::S_IFSOCK => Ok(FileType::Socket),
-                _ => Err(FsModelError::ConversionFailed),
+                _ => Err(FsModelError::ConversionFailed(String::from("Error during convertion."))),
             }
         }
     }

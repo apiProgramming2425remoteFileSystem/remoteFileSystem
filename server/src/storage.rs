@@ -1,20 +1,17 @@
 use std::ffi::OsStr;
-use std::fmt::{Debug, format};
-use std::fs::{self, FileTimes, OpenOptions};
+use std::fmt::Debug;
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::Deref;
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, RwLock, Weak};
 use std::time::SystemTime;
 
 use tracing::{Level, instrument};
-use walkdir::WalkDir;
 
 use crate::error::StorageError;
-use crate::models::{Permission, SetAttr, Stats, Timestamp};
-use crate::nodes::{FSItem, Directory, File};
+use crate::models::{Permission, SetAttr, Timestamp, Stats};
+use crate::nodes::{Directory, FSItem, File};
 
 use crate::models::{FileAttr, FileType};
 #[cfg(target_family = "unix")]
@@ -63,13 +60,10 @@ fn get_attributes_by_path(path: &Path) -> Result<FileAttr> {
             return Ok(attributes);
         }
         Err(_) => {
-            return Err(StorageError::InvalidPath(
-                "Error while obtaining file metadata.".to_string(),
-            ));
+            return Err(StorageError::NotFound("There is no such node.".to_string()));
         }
     }
 }
-
 
 impl FileSystem {
     #[instrument(ret(level = Level::DEBUG))]
@@ -80,7 +74,8 @@ impl FileSystem {
 
     #[instrument(skip(self), ret(level = Level::TRACE))]
     fn make_real_path<P: AsRef<Path> + Debug>(&self, path: P) -> Result<PathBuf> {
-        let clean: PathBuf = path.as_ref()
+        let clean: PathBuf = path
+            .as_ref()
             .components()
             .filter(|c| *c != Component::RootDir)
             .collect();
@@ -99,7 +94,6 @@ impl FileSystem {
             .collect()
     }
 
-
     //  taking only first grade children as we use only that...
     #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn find<P: AsRef<Path> + Debug>(&self, path: P) -> Option<FSItem> {
@@ -108,11 +102,17 @@ impl FileSystem {
 
         if meta.is_file() {
             let size = meta.len() as usize;
-            let file = FSItem::File(File::new(real.file_name()?, size, get_attributes_by_path(&real).unwrap()));
+            let file = FSItem::File(File::new(
+                real.file_name()?,
+                size,
+                get_attributes_by_path(&real).unwrap(),
+            ));
             Some(file)
-        }
-        else if meta.is_dir() {
-            let mut root = FSItem::Directory(Directory::new(real.file_name()?, get_attributes_by_path(&real).unwrap()));
+        } else if meta.is_dir() {
+            let mut root = FSItem::Directory(Directory::new(
+                real.file_name()?,
+                get_attributes_by_path(&real).unwrap(),
+            ));
             let entries = match fs::read_dir(&real) {
                 Ok(entries) => entries,
                 Err(err) => {
@@ -143,7 +143,11 @@ impl FileSystem {
 
                 let child = if meta.is_file() {
                     let path = real.join(name.clone());
-                    FSItem::File(File::new(name, meta.len() as usize, get_attributes_by_path(&path).unwrap()))
+                    FSItem::File(File::new(
+                        name,
+                        meta.len() as usize,
+                        get_attributes_by_path(&path).unwrap(),
+                    ))
                 } else if meta.is_dir() {
                     let path = real.join(name.clone());
                     FSItem::Directory(Directory::new(name, get_attributes_by_path(&path).unwrap()))
@@ -157,8 +161,7 @@ impl FileSystem {
             }
 
             Some(root)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -300,12 +303,10 @@ impl FileSystem {
         if meta.is_file() {
             fs::remove_file(&real)?;
             Ok(())
-        }
-        else if meta.is_dir() {
+        } else if meta.is_dir() {
             fs::remove_dir_all(&real)?;
             Ok(())
-        }
-        else {
+        } else {
             Err(StorageError::NotFound(format!("{:?}", path)))
         }
     }
@@ -318,7 +319,10 @@ impl FileSystem {
         offset: usize,
     ) -> Result<()> {
         let real = self.make_real_path(path)?;
-        let mut f = fs::OpenOptions::new().write(true).create(true).open(&real)?;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&real)?;
         // Seek to offset
         f.seek(SeekFrom::Start(offset as u64))?;
         // Write data
@@ -351,7 +355,7 @@ impl FileSystem {
         path: &str,
         uid: u32,
         gid: u32,
-        new_attributes: SetAttr
+        new_attributes: SetAttr,
     ) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
         if let Some(size) = new_attributes.size {
@@ -365,7 +369,10 @@ impl FileSystem {
     pub fn get_permissions(&self, path: &str) -> Result<u32> {
         let real = self.make_real_path(path)?;
         if !real.exists() {
-            return Err(StorageError::InvalidPath(format!("Path {:?} does not exist", path)));
+            return Err(StorageError::InvalidPath(format!(
+                "Path {:?} does not exist",
+                path
+            )));
         }
         Ok(0o755)
     }
@@ -374,7 +381,10 @@ impl FileSystem {
     pub fn get_fs_stats(&self, path: &str) -> Result<Stats> {
         let real = self.make_real_path(path)?;
         if !real.exists() {
-            return Err(StorageError::InvalidPath(format!("Path {:?} does not exist", path)));
+            return Err(StorageError::InvalidPath(format!(
+                "Path {:?} does not exist",
+                path
+            )));
         }
         let path_object = Path::new(&real);
 

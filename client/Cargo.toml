@@ -27,6 +27,7 @@ futures-util = "0.3.30"
 # tempfile = "3.10"
 bytes = "1.5"
 thiserror = "2"
+rpassword = "7.4.0"
 
 [target.'cfg(unix)'.dependencies]
 fuse3 = { version = "0.8", features = [
