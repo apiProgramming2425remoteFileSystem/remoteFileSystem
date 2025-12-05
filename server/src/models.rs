@@ -11,6 +11,7 @@ use crate::nodes::FSItem;
 pub enum ItemType {
     File,
     Directory,
+    SymLink,
 }
 
 #[derive(Serialize)]
@@ -24,6 +25,7 @@ impl SerializableFSItem {
     pub fn new(item: &FSItem) -> Self {
         let item_type = match item {
             FSItem::File(_) => ItemType::File,
+            FSItem::SymLink(_) => ItemType::SymLink,
             FSItem::Directory(_) => ItemType::Directory,
         };
         Self {
@@ -235,6 +237,15 @@ pub struct Stats {
     pub namelen: u32,
     pub frsize: u32,
 }
+
+
+
+#[derive(Debug, Deserialize)]
+pub struct SymlinkRequest {
+    pub target: String,
+}
+
+
 trait Conversion<T>: Sized {
     type Error;
 

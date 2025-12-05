@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use tracing::{Level, instrument};
 
@@ -16,11 +16,13 @@ use crate::network::models::{ItemType, SerializableFSItem};
 pub mod attributes;
 pub mod directory;
 pub mod file;
+pub mod sym_link;
 
 pub use attributes::*;
 use crate::cache::*;
 pub use directory::*;
 pub use file::*;
+use crate::fs_model::sym_link::SymLink;
 
 type Result<T> = std::result::Result<T, FsModelError>;
 
@@ -102,9 +104,38 @@ impl FileSystem {
         }
     }
 
+    fn cache_put_attr(&self, path: &Path, attributes: FileAttr){
+        if let Some(name) = path.file_name() {
+            let item = match attributes.kind{
+                FileType::Directory=> CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None)),
+                FileType::RegularFile=> CacheItem::File(File::new(name.to_os_string(), Some(attributes))),
+                FileType::Symlink => CacheItem::SymLink(SymLink::new(name.to_os_string(), Some(attributes), None)),
+                _ => CacheItem::File(File::new(name.to_os_string(), Some(attributes))),
+            };
+            self.cache_put(path, item, false);
+        }
+    }
+
+    fn cache_get_ttl(&self) -> Duration {
+        if let Some(cache) = &self.cache {
+            cache.ttl
+        }
+        else {
+            Duration::from_secs(0)
+        }
+    }
+
+    pub fn get_ttl(&self) -> Duration {
+        self.cache_get_ttl()
+    }
+
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<PathBuf>> {
-        let map = self.file_handlers.read().map_err(|_| { return FsModelError::ConversionFailed;})?;
+        let map = self.file_handlers
+            .read()
+            .map_err(|_| {
+                return FsModelError::ConversionFailed;}
+            )?;
         Ok(map.get(&fh).cloned())
     }
 
@@ -226,7 +257,8 @@ impl FileSystem {
             .map_err(|op| FsModelError::Backend(op))?;
 
         if let Some(name) = path.file_name() {
-            self.cache_put_new(path, CacheItem::File(File::new(name.to_os_string(), Some(attr))));
+            let item = CacheItem::File(File::new(name.to_os_string(), Some(attr)));
+            self.cache_put_new(path, item);
         }
         Ok(attr)
     }
@@ -336,7 +368,8 @@ impl FileSystem {
             .map_err(|op| FsModelError::Backend(op))?;
 
         if let Some(name) = path.file_name() {
-            self.cache_put_new(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attr), Some(vec![]))));
+            let item = CacheItem::Directory(Directory::new(name.to_os_string(), Some(attr), Some(vec![])));
+            self.cache_put_new(path, item);
         }
 
         Ok(attr)
@@ -403,13 +436,7 @@ impl FileSystem {
 
         let attributes = self.remote_client.resolve_child(uid, gid, path_str).await?;
 
-        if let Some(name) = path.file_name() {
-            match attributes.kind{
-                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None)), false),
-                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false),
-                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false)
-            }
-        }
+        self.cache_put_attr(path, attributes);
         Ok(attributes)
     }
 
@@ -427,13 +454,8 @@ impl FileSystem {
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         let attributes = self.remote_client.get_attributes(path_str).await?;
-        if let Some(name) = path.file_name() {
-            match attributes.kind{
-                FileType::Directory=>self.cache_put(path, CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None)), false),
-                FileType::RegularFile=>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false),
-                _ =>self.cache_put(path, CacheItem::File(File::new(name.to_os_string(), Some(attributes))), false)
-            }
-        }
+
+        self.cache_put_attr(path, attributes);
         Ok(attributes)
     }
 
@@ -445,7 +467,6 @@ impl FileSystem {
         path: &Path,
         new_attributes: SetAttr,
     ) -> anyhow::Result<FileAttr> {
-        // TODO: cache
 
         let path_str = path
             .to_str()
@@ -455,6 +476,9 @@ impl FileSystem {
             .remote_client
             .set_attributes(uid, gid, path_str, new_attributes)
             .await?;
+
+
+        self.cache_put_attr(path, attributes);
         Ok(attributes)
     }
 
@@ -481,4 +505,54 @@ impl FileSystem {
         let stats = self.remote_client.get_stats(path_str).await?;
         Ok(stats)
     }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn create_symlink(
+        &self,
+        path: &Path,
+        target: &str,
+    ) -> Result<FileAttr> {
+        // TODO: check access
+
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+
+        let attributes = self.remote_client.create_symlink(path_str, target).await?;
+
+        if let Some(name) = path.file_name() {
+            let item = CacheItem::SymLink(SymLink::new(name.to_os_string(), Some(attributes), Some(target.to_string())));
+            self.cache_put_new(path, item);
+        }
+        Ok(attributes)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn read_symlink(
+        &self,
+        path: &Path,
+    ) -> Result<String> {
+        // TODO: check access
+        if let Some(CacheItem::SymLink(SymLink{target, ..})) = self.cache_get(path){
+            if let Some(target) = target{
+                // cache hit
+                return Ok(target);
+            }
+        }
+
+        // cache miss
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let target = self.remote_client.read_symlink(path_str).await?;
+        if let Some(name) = path.file_name() {
+            let item = CacheItem::SymLink(SymLink::new(name.to_os_string(), None, Some(target.clone())));
+            self.cache_put(path, item, false);
+        }
+
+        Ok(target)
+    }
+
 }

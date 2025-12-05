@@ -5,15 +5,16 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::{Instant, Duration};
-use tracing::instrument;
 use crate::fs_model::directory::Directory;
 use crate::fs_model::file::File;
+use crate::fs_model::sym_link::SymLink;
 use crate::fs_model::FileAttr;
 use crate::network::models::{ItemType, SerializableFSItem};
 
 #[derive(Clone, Debug)]
 pub enum CacheItem{
     File(File),
+    SymLink(SymLink),
     Directory(Directory),
 }
 
@@ -21,6 +22,7 @@ impl CacheItem{
     pub fn rename(&mut self, name: OsString){
         match self {
             CacheItem::File(file) => {file.name = name;},
+            CacheItem::SymLink(link) => {link.name = name;},
             CacheItem::Directory(directory) => {directory.name = name;},
         }
     }
@@ -28,6 +30,7 @@ impl CacheItem{
     pub fn get_attributes(&self) -> Option<FileAttr>{
         match self{
             CacheItem::File(file) => {file.attributes.clone()},
+            CacheItem::SymLink(link) => {link.attributes.clone()},
             CacheItem::Directory(directory) => {directory.attributes.clone()},
         }
     }
@@ -35,6 +38,7 @@ impl CacheItem{
     pub fn invalidate_attributes(&mut self){
         match self {
             CacheItem::File(file) => {file.attributes = None;},
+            CacheItem::SymLink(link) => {link.attributes = None;},
             CacheItem::Directory(directory) => {directory.attributes = None;},
         }
     }
@@ -47,6 +51,10 @@ impl From<SerializableFSItem> for CacheItem {
                 Directory::new(item.name.into(),
                                Some(item.attributes),
                                None)),
+            ItemType::SymLink => CacheItem::SymLink(
+                SymLink::new(item.name.into(),
+                            Some(item.attributes),
+                            None)),
             ItemType::File => CacheItem::File(
                 File::new(item.name.into(),
                           Some(item.attributes)))

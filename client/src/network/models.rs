@@ -10,6 +10,7 @@ use crate::fuse::Fs;
 #[serde(rename_all = "lowercase")]
 pub enum ItemType {
     File,
+    SymLink,
     Directory,
 }
 
@@ -31,6 +32,16 @@ impl TryFrom<&CacheItem> for SerializableFSItem {
                 Ok(SerializableFSItem {
                     name: d.name.to_string_lossy().into_owned(),
                     item_type: ItemType::Directory,
+                    attributes: attrs,
+                })
+            }
+
+            CacheItem::SymLink(l) => {
+                let attrs = l.attributes.ok_or(FsModelError::ConversionFailed)?;
+
+                Ok(SerializableFSItem{
+                    name: l.name.to_string_lossy().into_owned(),
+                    item_type: ItemType::SymLink,
                     attributes: attrs,
                 })
             }
@@ -102,5 +113,16 @@ impl SetAttrRequest {
             gid: gid,
             setattr: setattr,
         }
+    }
+}
+
+#[derive(Serialize)]
+pub struct WriteSymlink {
+    target: String,
+}
+
+impl WriteSymlink{
+    pub fn new(target: &str) -> Self {
+        WriteSymlink { target: target.to_string() }
     }
 }

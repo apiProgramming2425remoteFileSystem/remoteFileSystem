@@ -15,8 +15,7 @@ use futures_util::stream;
 use libc;
 use tracing::{Level, instrument};
 use crate::cache::CacheConfig;
-
-const TTL: Duration = Duration::from_secs(1);
+use fuse3::FileType;
 
 type Result<T> = std::result::Result<T, FuseError>;
 type SetAttr = crate::fs_model::attributes::SetAttr;
@@ -58,19 +57,8 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn init(&self, req: Request) -> FuseResult<ReplyInit> {
         tracing::info!("Filesystem initialized");
-        /*
-        Write buffer size...
-        ogni chiamata write() scriverà al massimo quanto specificato qua
-        (ma forse meno, in base a come gira al sistema operativo), per cui una sola operazione di scrittura
-        potrebbe essere spezzata in tante write (per questo serve l'argomento offset).
-        Quindi tenerne uno grande permette di ottenere un overhead minore perché verrà chiamata meno volte write()
-        ma uno più piccolo potrebbe risultare in comunicazioni più agevoli visto che si tratta di un fs remoto
-        e dobbiamo mandare robe in giro per la rete, in caso di pacchetti persi o simili immagino il recupero sia
-        più veloce con uno spezzettamento più fine.
-        Attualmente lascio un randomicissimo 64 KiB poi decidiamo insieme.
-        */
         Ok(ReplyInit {
-            max_write: NonZeroU32::new(64 * 1024).unwrap(),
+            max_write: NonZeroU32::new(64 * 1024 * 1024).unwrap(),
         })
     }
 
@@ -102,7 +90,7 @@ impl PathFilesystem for Fs {
             })?;
 
         Ok(ReplyEntry {
-            ttl: TTL,
+            ttl: self.fs.get_ttl(),
             attr: attributes.into(),
         })
     }
@@ -157,7 +145,7 @@ impl PathFilesystem for Fs {
         })?;
 
         Ok(ReplyAttr {
-            ttl: TTL,
+            ttl: self.fs.get_ttl(),
             attr: attributes.into(),
         })
     }
@@ -191,7 +179,7 @@ impl PathFilesystem for Fs {
             })?;
 
         Ok(ReplyAttr {
-            ttl: TTL,
+            ttl: self.fs.get_ttl(),
             attr: attributes.into(),
         })
     }
@@ -375,7 +363,7 @@ impl PathFilesystem for Fs {
             })?;
 
         Ok(ReplyEntry {
-            ttl: TTL,
+            ttl: self.fs.get_ttl(),
             attr: file_attr.into(),
         })
     }
@@ -439,7 +427,7 @@ impl PathFilesystem for Fs {
             })?;
 
         Ok(ReplyCreated {
-            ttl: TTL,
+            ttl: self.fs.get_ttl(),
             attr: file_attr.into(),
             generation: 0,
             fh,
@@ -793,7 +781,7 @@ impl PathFilesystem for Fs {
         let path = Path::new(parent).join(name);
         self.fs.mkdir(&path).await
             .map(|attr| ReplyEntry {
-                ttl: TTL,
+                ttl: self.fs.get_ttl(),
                 attr: attr.into(),
             })
             .map_err(|err| {
@@ -873,6 +861,7 @@ impl PathFilesystem for Fs {
             .map(|(idx, item)| {
                 let kind = match item.item_type {
                     ItemType::File => FileType::RegularFile,
+                    ItemType::SymLink => FileType::Symlink,
                     ItemType::Directory => FileType::Directory,
                 };
                 Ok(DirectoryEntry {
@@ -917,6 +906,7 @@ impl PathFilesystem for Fs {
             .map(|(idx, item)| {
                 let (kind, attr) = match item.item_type {
                     ItemType::File => (FileType::RegularFile, item.attributes),
+                    ItemType::SymLink => (FileType::Symlink, item.attributes),
                     ItemType::Directory => (FileType::Directory, item.attributes),
                 };
                 Ok(DirectoryEntryPlus {
@@ -924,8 +914,8 @@ impl PathFilesystem for Fs {
                     name: item.name.into(),
                     offset: (offset + idx as u64 + 1) as i64,
                     attr: attr.into(),
-                    entry_ttl: TTL,
-                    attr_ttl: TTL,
+                    entry_ttl: self.fs.get_ttl(),
+                    attr_ttl: self.fs.get_ttl(),
                 })
             })
             .collect();
@@ -1055,8 +1045,11 @@ impl PathFilesystem for Fs {
     /// read symbolic link.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn readlink(&self, req: Request, path: &OsStr) -> FuseResult<ReplyData> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        let path = Path::new(path);
+        let Ok(target) = self.fs.read_symlink(path).await else {
+            return Err(libc::EINVAL.into());
+        };
+        Ok(ReplyData { data: target.into_bytes().into() })
     }
 
     /// create a symbolic link.
@@ -1068,8 +1061,17 @@ impl PathFilesystem for Fs {
         name: &OsStr,
         link_path: &OsStr,
     ) -> FuseResult<ReplyEntry> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        let path = Path::new(parent).join(name);
+        let Some(target) = link_path.to_str() else {
+            return Err(libc::EINVAL.into());
+        };
+        let Ok(file_attr) = self.fs.create_symlink(&path, target).await else {
+            return Err(libc::EINVAL.into());
+        };
+        Ok(ReplyEntry {
+            ttl: self.fs.get_ttl(),
+            attr: file_attr.into(),
+        })
     }
 
     /// test for a POSIX file lock.

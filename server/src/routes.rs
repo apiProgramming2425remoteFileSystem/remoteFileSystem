@@ -22,7 +22,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(get_attributes)
             .service(set_attributes)
             .service(get_permissions)
-            .service(get_stats),
+            .service(get_stats)
+            .service(create_symlink)
+            .service(read_symlink),
     );
 }
 
@@ -196,3 +198,42 @@ async fn rename(fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> im
         Err(_) => HttpResponse::BadRequest().body("Something went wrong"),
     }
 }
+
+
+
+#[post("/symlink/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn create_symlink(
+    fs: web::Data<FileSystem>,
+    path: web::Path<String>,
+    body: web::Json<SymlinkRequest>,
+) -> impl Responder {
+    let path = path.into_inner();
+    let target = &body.target;
+
+    match fs.create_symlink(&path, target) {
+        Ok(attributes) => HttpResponse::Ok().json(attributes),
+        Err(e) => {
+            tracing::error!("{}", e.to_string());
+            HttpResponse::InternalServerError().body(format!("{}", e))
+        }
+    }
+}
+
+#[get("/symlink/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn read_symlink(
+    fs: web::Data<FileSystem>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let path = path.into_inner();
+
+    match fs.read_symlink(path.as_str()) {
+        Ok(target) => HttpResponse::Ok().json(target),
+        Err(e) => {
+            tracing::error!("{}", e.to_string());
+            HttpResponse::InternalServerError().json(e.to_string())
+        }
+    }
+}
+
