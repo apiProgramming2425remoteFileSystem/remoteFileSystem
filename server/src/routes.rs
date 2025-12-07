@@ -1,3 +1,4 @@
+use std::path::Path;
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{Level, instrument};
@@ -24,7 +25,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(get_permissions)
             .service(get_stats)
             .service(create_symlink)
-            .service(read_symlink),
+            .service(read_symlink)
+            .service(create_hardlink),
     );
 }
 
@@ -237,3 +239,21 @@ async fn read_symlink(
     }
 }
 
+
+#[post("/hardlink/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn create_hardlink(
+    fs: web::Data<FileSystem>,
+    path: web::Path<String>,
+    body: web::Json<SymlinkRequest>,
+) -> impl Responder {
+    let path = path.into_inner();
+    let target = &body.target;
+    match fs.create_hardlink(&path, target) {
+        Ok(attributes) => HttpResponse::Ok().json(attributes),
+        Err(e) => {
+            tracing::error!("{}", e.to_string());
+            HttpResponse::InternalServerError().body(format!("{}", e))
+        }
+    }
+}

@@ -37,7 +37,7 @@ pub struct FileAttr {
 }
 
 /// File types
-#[derive(Debug, Copy, Clone, Deserialize /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
+#[derive(Debug, Copy, Clone, Deserialize, Eq, PartialEq /*, Ord, PartialOrd, Hash */)]
 pub enum FileType {
     /// Named pipe [`libc::S_IFIFO`]
     NamedPipe,

@@ -395,6 +395,25 @@ impl FileSystem {
         Ok(target.to_string_lossy().to_string())
     }
 
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn create_hardlink<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        target: P,
+    ) -> Result<FileAttr> {
+        let real_path = self.make_real_path(path)?;
+        let real_target = self.make_real_path(target)?;
+
+        let meta = fs::symlink_metadata(&real_target)?;
+        if meta.is_dir() {
+            return Err(StorageError::UnsupportedOperation("cannot hardlink directories".into()));
+        }
+
+        fs::hard_link(&real_target, &real_path)?;
+        get_attributes_by_path(&real_path)
+    }
+
     #[cfg(target_family = "unix")]
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn create_symlink<P: AsRef<Path> + Debug>(

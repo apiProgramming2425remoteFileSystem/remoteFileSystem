@@ -207,7 +207,26 @@ impl RemoteClient {
     pub async fn create_symlink(&self, path: &str, target: &str) -> anyhow::Result<FileAttr> {
         let url = self.set_url("symlink", path);
 
-        let req = WriteSymlink::new(target);
+        let req = Writelink::new(target);
+
+        let resp = self.http_client
+            .post(url)
+            .json(&req)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let body: FileAttr = resp.json().await?;
+        tracing::debug!("response: {:?}", body);
+
+        Ok(body)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn create_hardlink(&self, path: &str, target: &str) -> anyhow::Result<FileAttr> {
+        let url = self.set_url("hardlink", path);
+
+        let req = Writelink::new(target);
 
         let resp = self.http_client
             .post(url)

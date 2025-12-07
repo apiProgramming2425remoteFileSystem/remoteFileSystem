@@ -529,6 +529,37 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn create_hardlink(
+        &self,
+        path: &Path,
+        target: &str,
+    ) -> Result<FileAttr> {
+        // TODO: check access
+
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+
+        let attributes: FileAttr = self.remote_client.create_hardlink(path_str, target).await?;
+
+        if let Some(name) = path.file_name() {
+            let mut item;
+            if attributes.kind == FileType::RegularFile {
+                item = CacheItem::File(File::new(name.to_os_string(), Some(attributes)));
+            }
+            else if attributes.kind == FileType::Symlink {
+                item = CacheItem::SymLink(SymLink::new(name.to_os_string(), Some(attributes), None));
+            }
+            else {
+                return Ok(attributes);
+            }
+            self.cache_put_new(path, item);
+        }
+        Ok(attributes)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn read_symlink(
         &self,
         path: &Path,

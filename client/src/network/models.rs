@@ -117,12 +117,12 @@ impl SetAttrRequest {
 }
 
 #[derive(Serialize)]
-pub struct WriteSymlink {
+pub struct Writelink {
     target: String,
 }
 
-impl WriteSymlink{
+impl Writelink{
     pub fn new(target: &str) -> Self {
-        WriteSymlink { target: target.to_string() }
+        Writelink { target: target.to_string() }
     }
 }

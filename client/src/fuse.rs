@@ -1025,8 +1025,17 @@ impl PathFilesystem for Fs {
         new_parent: &OsStr,
         new_name: &OsStr,
     ) -> FuseResult<ReplyEntry> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        let Some(target) = path.to_str() else {
+            return Err(libc::EINVAL.into());
+        };
+        let path = Path::new(new_parent).join(new_name);
+        let Ok(file_attr) = self.fs.create_hardlink(&path, target).await else {
+            return Err(libc::EINVAL.into());
+        };
+        Ok(ReplyEntry {
+            ttl: self.fs.get_ttl(),
+            attr: file_attr.into(),
+        })
     }
 
     /// remove a file.
