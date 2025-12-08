@@ -10,7 +10,10 @@ const APP_V1_BASE_URL: &str = "/api/v1";
 
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
+    cfg.app_data(
+        web::JsonConfig::default()
+            .limit(10 * 1024 * 1024)
+        ).service(
         web::scope(APP_V1_BASE_URL)
             .service(list_path)
             .service(get_file_content)
@@ -47,10 +50,15 @@ async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl R
 
 #[get("/files/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_file_content(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn get_file_content(
+    fs: web::Data<FileSystem>,
+    path: web::Path<String>,
+    json: web::Json<ReadFileRequest>) -> impl Responder {
     let path = path.into_inner();
+    let offset = json.offset();
+    let size = json.size();
 
-    match fs.read_file(&path, 0) {
+    match fs.read_file(&path, offset, size) {
         Ok(content) => HttpResponse::Ok().json(SerializableFileContent::new(&content)),
         Err(e) => HttpResponse::InternalServerError().json(format!("Failed to read file: {}", e)),
     }
@@ -94,7 +102,7 @@ async fn make_directory(fs: web::Data<FileSystem>, path: web::Path<String>) -> i
     let attributes = match fs.get_attributes(path.as_str()) {
         Ok(a) => a,
         Err(e) => {
-            tracing::error!("mldir failed: {}", e);
+            tracing::error!("mkdir failed: {}", e);
             return HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e));
         }
     };

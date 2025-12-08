@@ -57,7 +57,9 @@ impl RemoteClient {
     ) -> anyhow::Result<Vec<u8>> {
         let url = self.set_url("files", path);
 
-        let resp = self.http_client.get(url).send().await?.error_for_status()?; // propagate HTTP errors as errors
+        let read_file = ReadFileRequest::new(offset, size);
+
+        let resp = self.http_client.get(url).json(&read_file).send().await?.error_for_status()?; // propagate HTTP errors as errors
 
         let body: ReadFile = resp.json().await?;
         tracing::debug!("response: {:?}", body);

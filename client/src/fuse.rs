@@ -494,7 +494,10 @@ impl PathFilesystem for Fs {
         let file_path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
-            return Err(libc::EINVAL.into());
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh) else {
+                return Err(libc::ENOENT.into());
+            };
+            p
         };
 
         let data = self
@@ -534,7 +537,10 @@ impl PathFilesystem for Fs {
         let file_path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
-            return Err(libc::EINVAL.into());
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh) else {
+                return Err(libc::ENOENT.into());
+            };
+            p
         };
 
         let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
@@ -584,8 +590,7 @@ impl PathFilesystem for Fs {
         fh: u64,
         lock_owner: u64,
     ) -> FuseResult<()> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        self.fs.flush_write_buffer().await.map_err(|_| libc::EINVAL.into())
     }
 
     /// release an open file. Release is called when there are no more references to an open file:

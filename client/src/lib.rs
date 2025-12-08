@@ -5,4 +5,6 @@ pub mod fs_model;
 pub mod fuse;
 pub mod logging;
 pub mod network;
-mod cache;
+pub mod cache;
+
+pub mod rw_buffer;

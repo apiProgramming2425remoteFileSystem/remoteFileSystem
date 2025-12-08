@@ -50,6 +50,27 @@ impl SerializableFileContent {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ReadFileRequest {
+    offset: usize,
+    size: usize,
+}
+
+impl ReadFileRequest {
+    pub fn new(offset: usize, size: usize) -> Self {
+        ReadFileRequest { offset, size }
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+}
+
+
+#[derive(Debug, Deserialize)]
 pub struct WriteFileRequest {
     offset: usize,
     data: String, // accept base64-encoded data as string

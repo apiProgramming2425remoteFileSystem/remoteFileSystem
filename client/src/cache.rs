@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::{Instant, Duration};
 use crate::fs_model::directory::Directory;
-use crate::fs_model::file::File;
+use crate::fs_model::file::{File, MAX_PAGES, PAGE_SIZE};
 use crate::fs_model::sym_link::SymLink;
 use crate::fs_model::FileAttr;
 use crate::network::models::{ItemType, SerializableFSItem};
@@ -119,6 +119,7 @@ impl Cache {
             return None;
         }
 
+        MAX_PAGES.set(cfg.max_size / PAGE_SIZE).expect("MAX_PAGES already set");
         Some(Self {
             entries: RwLock::new(HashMap::new()),
             capacity: cfg.capacity,
@@ -219,6 +220,11 @@ impl Cache {
         };
         self.invalidate_parents(path);
         removed
+    }
+
+    pub fn invalidate<P: AsRef<Path>>(&self, path: P) {
+        let Ok(mut map) = self.entries.write() else { return; };
+        map.remove(path.as_ref()).map(|e| e.item);
     }
 
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {

@@ -59,6 +59,17 @@ impl TryFrom<&CacheItem> for SerializableFSItem {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct ReadFileRequest {
+    offset: usize,
+    size: usize,
+}
+
+impl ReadFileRequest {
+    pub fn new(offset: usize, size: usize) -> Self {
+        ReadFileRequest { offset, size }
+    }
+}
 
 
 #[derive(Debug, Deserialize)]

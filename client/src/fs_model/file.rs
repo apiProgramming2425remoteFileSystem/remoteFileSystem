@@ -4,9 +4,10 @@ use std::fmt;
 use std::fmt::Debug;
 use crate::fs_model::attributes::FileAttr;
 use std::vec::Vec;
-use crate::cache::Cache;
+use std::sync::OnceLock;
 
-const PAGE_SIZE: usize = 4096;
+pub const PAGE_SIZE: usize = 4096;
+pub static MAX_PAGES: OnceLock<usize> = OnceLock::new();
 
 #[derive(Clone, Debug)]
 pub struct FilePage {
@@ -70,6 +71,11 @@ impl File {
         let mut curr_offset = offset;
 
         while !remaining.is_empty() {
+
+            if self.content.len() >= MAX_PAGES{
+                break;
+            }
+
             let page_index = (curr_offset / PAGE_SIZE) as u64;
             let page_offset = curr_offset % PAGE_SIZE;
 
@@ -128,6 +134,9 @@ impl File {
         }
         for key in other.content.keys(){
             if let Some(page) = other.content.get(key) {
+                if self.content.len() >= MAX_PAGES{
+                    break;
+                }
                 self.write_content((*key as usize) * PAGE_SIZE + page.valid_from,
                                    &page.content[page.valid_from..page.valid_up_to]);
             }

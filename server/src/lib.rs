@@ -61,6 +61,7 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
     HttpServer::new(move || {
         App::new()
             .app_data(fs.clone())
+            .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .wrap(TracingLogger::default()) // Middleware for request tracing
             .wrap(Logger::default()) // actix built-in logger
             .configure(routes::configure)

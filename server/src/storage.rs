@@ -347,15 +347,23 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn read_file<P: AsRef<Path> + Debug>(&self, path: P, offset: usize) -> Result<Vec<u8>> {
+    pub fn read_file<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>> {
         let real_path = self.make_real_path(path)?;
-        let mut f = fs::OpenOptions::new().read(true).open(&real_path)?;
-        // Seek to offset
+        let mut f = fs::OpenOptions::new()
+            .read(true)
+            .open(&real_path)?;
         f.seek(SeekFrom::Start(offset as u64))?;
-        let mut buffer = Vec::<u8>::new();
-        f.read_to_end(&mut buffer)?;
+        let mut buffer = vec![0u8; size];
+        let bytes_read = f.read(&mut buffer)?;
+        buffer.truncate(bytes_read);
         Ok(buffer)
     }
+
 
     pub fn get_attributes(&self, path: &str) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
