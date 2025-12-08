@@ -1,20 +1,13 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
-use std::ops::Deref;
-use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
-use std::time::SystemTime;
+use std::path::{Path, PathBuf};
 
-use crate::error::StorageError;
-use crate::models::{FileAttr, FileType, Permission, SetAttr, Stats, Timestamp};
-
-type Result<T> = std::result::Result<T, StorageError>;
+use crate::models::FileAttr;
 
 #[derive(Clone)]
 pub struct File {
     name: OsString,
-    size: usize,
     attributes: FileAttr,
 }
 
@@ -32,10 +25,9 @@ pub enum FSItem {
 }
 
 impl File {
-    pub fn new<S: AsRef<OsStr>>(name: S, size: usize, attributes: FileAttr) -> Self {
+    pub fn new<S: AsRef<OsStr>>(name: S, attributes: FileAttr) -> Self {
         Self {
             name: name.as_ref().to_owned(),
-            size,
             attributes,
         }
     }
@@ -55,8 +47,7 @@ impl Directory {
     }
 
     pub fn add(&mut self, item: FSItem) {
-        self.children
-            .insert(PathBuf::from(item.name()), item);
+        self.children.insert(PathBuf::from(item.name()), item);
     }
 
     pub fn get_child<P: AsRef<Path>>(&self, name: P) -> Option<FSItem> {
@@ -80,7 +71,7 @@ impl FSItem {
     }
 
     pub fn attributes(&self) -> FileAttr {
-        match self{
+        match self {
             FSItem::File(f) => f.attributes.clone(),
             FSItem::Directory(d) => d.attributes.clone(),
         }
@@ -122,7 +113,6 @@ impl FSItem {
         }
     }
 }
-
 
 impl Debug for File {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {

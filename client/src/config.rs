@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use crate::error::ConfigError;
 use crate::logging::{LogFormat, LogLevel, LogRotation, LogTargets};
@@ -15,7 +15,7 @@ pub const DEFAULT_LOG_FILE_ROT: &'static str = "never";
 type Result<T> = std::result::Result<T, ConfigError>;
 
 /// Application configuration that includes logging settings.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about = "Remote Filesystem Client")]
 pub struct Config {
     /// Mountpoint path (e.g /mnt/remote-fs)
@@ -70,6 +70,11 @@ pub struct Config {
             ("log_targets", "file", Some(DEFAULT_LOG_FILE_ROT))
         ]), env = "LOG_ROTATION")]
     pub log_rotation: Option<LogRotation>,
+
+    /// Run in foreground (do not daemonize).
+    /// When set, the application will run in the foreground and not daemonize.
+    #[arg(short, long, default_value_t = false)]
+    pub foreground: bool,
 }
 
 impl Config {
@@ -80,24 +85,51 @@ impl Config {
         let _ = dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()));
 
         let mut config = Config::parse();
-        config.normalize_targets();
+        config.normalize();
 
         Ok(config)
     }
 
-    /// Normalize log_targets in place by deduplicating and handling special cases
-    fn normalize_targets(&mut self) {
+    /// Normalize log_targets in place by deduplicating, handling special cases, and canonicalizing paths
+    fn normalize(&mut self) {
+        // Canonicalize mountpoint and log_dir if present
+        self.mountpoint = normalize_path(&self.mountpoint);
+        self.log_dir = normalize_optional_path(&self.log_dir);
+        self.log_file = normalize_optional_path(&self.log_file);
+
+        // Deduplicate log_targets and handle special cases
         let mut set: HashSet<LogTargets> = self.log_targets.drain(..).collect();
 
         if set.contains(&LogTargets::None) {
             set.clear();
         }
-
         if set.contains(&LogTargets::All) {
             set.remove(&LogTargets::Console);
             set.remove(&LogTargets::File);
         }
-
         self.log_targets = set.into_iter().collect();
     }
+}
+
+// This is used to ensure consistent path representations.
+pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    let mut ret = PathBuf::new();
+
+    for component in path.as_ref().components() {
+        match component {
+            Component::Prefix(prefix) => ret.push(prefix.as_os_str()),
+            Component::RootDir => ret.push(Component::RootDir.as_os_str()),
+            Component::CurDir => {} // Ignore "."
+            Component::ParentDir => {
+                ret.pop(); // Handle ".." by removing the previous component
+            }
+            Component::Normal(c) => ret.push(c),
+        }
+    }
+    ret
+}
+
+/// Normalize an optional path
+fn normalize_optional_path<P: AsRef<Path>>(path: &Option<P>) -> Option<PathBuf> {
+    path.as_ref().map(|p| normalize_path(p))
 }

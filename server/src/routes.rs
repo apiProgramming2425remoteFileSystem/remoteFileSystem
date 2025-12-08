@@ -1,12 +1,10 @@
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{Level, instrument};
 
 use crate::models::*;
 use crate::storage::*;
 
 const APP_V1_BASE_URL: &str = "/api/v1";
-
 
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -144,9 +142,7 @@ async fn set_attributes(
     let gid = json.gid();
     let new_attributes = json.setattr();
 
-    match fs
-        .set_attributes(path.as_str(), uid, gid, new_attributes)
-    {
+    match fs.set_attributes(path.as_str(), uid, gid, new_attributes) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
         Err(e) => {
             tracing::error!("{}", e.to_string());

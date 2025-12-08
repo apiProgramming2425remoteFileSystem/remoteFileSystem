@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{Engine, engine::general_purpose::STANDARD};

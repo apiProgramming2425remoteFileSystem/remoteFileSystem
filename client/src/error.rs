@@ -10,6 +10,9 @@ pub enum ConfigError {
 
     #[error("Failed parsing CLI arguments")]
     ArgsParse,
+
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
 }
 
 /// Logging related errors
@@ -28,8 +31,36 @@ pub enum DaemonError {
     #[error("Daemon failed to start: {0}")]
     StartFailed(String),
 
+    #[error("Daemon failed to stop: {0}")]
+    StopFailed(String),
+
     #[error("Signal handling error: {0}")]
     SignalError(String),
+
+    #[error("Unsupported platform: {0}")]
+    UnsupportedPlatform(String),
+
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
+}
+
+/// Mount related errors
+#[derive(Error, Debug)]
+pub enum MountError {
+    #[error("Mount failed: {0}")]
+    MountFailed(String),
+
+    #[error("Unmount failed: {0}")]
+    UnmountFailed(String),
+
+    #[error("Mountpoint not found: {0}")]
+    MountpointNotFound(String),
+
+    #[error("Unsupported platform: {0}")]
+    UnsupportedPlatform(String),
+
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
 }
 
 /// Filesystem model related errors
@@ -48,7 +79,10 @@ pub enum FsModelError {
     ConversionFailed,
 
     #[error("Remote backend error: {0}")]
-    Backend(#[from] anyhow::Error),
+    Backend(#[from] NetworkError),
+
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
 }
 
 /// FUSE related errors
@@ -67,11 +101,17 @@ pub enum FuseError {
 /// Network related errors
 #[derive(Error, Debug)]
 pub enum NetworkError {
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
     #[error("Request error: {0}")]
     Request(#[from] ReqwestError),
 
     #[error("Timeout occurred")]
     Timeout,
+
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
 }
 
 /// Cache related errors
@@ -95,6 +135,9 @@ pub enum ClientError {
 
     #[error("Daemon error: {0}")]
     Daemon(#[from] DaemonError),
+
+    #[error("Mount error: {0}")]
+    Mount(#[from] MountError),
 
     #[error("Filesystem error: {0}")]
     FsModel(#[from] FsModelError),

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
@@ -9,17 +9,11 @@ use std::time::SystemTime;
 use tracing::{Level, instrument};
 
 use crate::error::FsModelError;
-use crate::fs_model::attributes::SetAttr;
-use crate::network::client::RemoteClient;
+use crate::network::RemoteClient;
 use crate::network::models::{ItemType, SerializableFSItem};
 
 pub mod attributes;
-pub mod directory;
-pub mod file;
-
 pub use attributes::*;
-// pub use directory::*;
-// pub use file::*;
 
 type Result<T> = std::result::Result<T, FsModelError>;
 
@@ -66,22 +60,23 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<OsString>> {
-        let map = self.file_handlers.read().map_err(|_| { return FsModelError::ConversionFailed;})?;
+        let map = self
+            .file_handlers
+            .read()
+            .map_err(|_| FsModelError::ConversionFailed)?;
         Ok(map.get(&fh).cloned())
     }
-
-
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn readdir(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
         let mut items: Vec<SerializableFSItem> = vec![];
-        items.push(SerializableFSItem{
+        items.push(SerializableFSItem {
             name: ".".to_string(),
             item_type: ItemType::Directory,
             attributes: self.get_attributes(path).await?,
         });
         let parent_path = get_parent_path(path);
-        items.push(SerializableFSItem{
+        items.push(SerializableFSItem {
             name: "..".to_string(),
             item_type: ItemType::Directory,
             attributes: self.get_attributes(&parent_path).await?,
@@ -92,10 +87,8 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn list_path(&self, path: &OsStr) -> Result<Vec<SerializableFSItem>> {
-        self.remote_client
-            .list_path(path)
-            .await
-            .map_err(|op| FsModelError::Backend(op))
+        let file_list = self.remote_client.list_path(path).await?;
+        Ok(file_list)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -138,14 +131,7 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn release(
-        &self,
-        uid: u32,
-        gid: u32,
-        path: &Path,
-        flags: &Flags,
-        fh: u64,
-    ) -> Result<()> {
+    pub fn release(&self, uid: u32, gid: u32, path: &Path, flags: &Flags, fh: u64) -> Result<()> {
         // TODO: check access
 
         let mut guad = self
@@ -206,23 +192,20 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn mkdir(&self, path: &OsStr) -> Result<FileAttr> {
-        self.remote_client
-            .mkdir(path)
-            .await
-            .map_err(|op| FsModelError::Backend(op))
+        let file_attr = self.remote_client.mkdir(path).await?;
+        Ok(file_attr)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn rename(&self, old_path: &OsStr, new_path: &OsStr) -> Result<()> {
-        self.remote_client
-            .rename(old_path, new_path)
-            .await
-            .map_err(|op| FsModelError::Backend(op))
+        self.remote_client.rename(old_path, new_path).await?;
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove(&self, path: &OsStr) -> anyhow::Result<()> {
-        self.remote_client.remove(path).await
+    pub async fn remove(&self, path: &OsStr) -> Result<()> {
+        self.remote_client.remove(path).await?;
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -238,7 +221,7 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &OsStr) -> anyhow::Result<FileAttr> {
+    pub async fn get_attributes(&self, path: &OsStr) -> Result<FileAttr> {
         let attributes = self.remote_client.get_attributes(path).await?;
         Ok(attributes)
     }

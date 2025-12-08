@@ -202,8 +202,12 @@ pub struct Stats {
 trait Conversion<T>: Sized {
     type Error;
 
-    fn from_target(&self) -> T;
-    fn try_to_target(value: T) -> Result<Self, Self::Error>;
+    fn from_target(&self) -> T {
+        todo!()
+    }
+    fn try_to_target(value: T) -> Result<Self, Self::Error> {
+        todo!()
+    }
 }
 
 macro_rules! impl_conversion {
@@ -362,6 +366,59 @@ mod platform {
                 noatime: value & libc::O_NOATIME != 0,
                 path: value & libc::O_PATH != 0,
             })
+        }
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use super::*;
+
+    impl Conversion<u32> for FileType {
+        type Error = FsModelError;
+
+        fn from_target(&self) -> u32 {
+            todo!()
+        }
+
+        fn try_to_target(value: u32) -> Result<Self, Self::Error> {
+            todo!()
+        }
+    }
+
+    impl Conversion<i32> for PermissionType {
+        type Error = FsModelError;
+
+        fn from_target(&self) -> i32 {
+            todo!()
+        }
+
+        fn try_to_target(value: i32) -> Result<Self, Self::Error> {
+            todo!()
+        }
+    }
+
+    impl Conversion<i32> for Permission {
+        type Error = FsModelError;
+
+        fn from_target(&self) -> i32 {
+            todo!()
+        }
+
+        fn try_to_target(value: i32) -> Result<Self, Self::Error> {
+            todo!()
+        }
+    }
+
+    impl Conversion<i32> for Flags {
+        type Error = FsModelError;
+
+        fn from_target(&self) -> i32 {
+            todo!()
+        }
+
+        fn try_to_target(value: i32) -> Result<Self, Self::Error> {
+            todo!()
         }
     }
 }

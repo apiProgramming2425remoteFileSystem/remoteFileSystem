@@ -1,7 +1,7 @@
-use crate::fs_model::attributes::SetAttr;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
-use crate::fs_model::FileAttr;
+
+use crate::fs_model::{FileAttr, SetAttr};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -14,7 +14,7 @@ pub enum ItemType {
 pub struct SerializableFSItem {
     pub name: String,
     pub item_type: ItemType,
-    pub attributes: FileAttr
+    pub attributes: FileAttr,
 }
 
 #[derive(Debug, Deserialize)]
