@@ -9,7 +9,7 @@ use crate::fs_model::{FileAttr, Stats, attributes::SetAttr};
 
 use super::models::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RemoteClient {
     base_url: String,
     http_client: Client,
@@ -61,33 +61,34 @@ impl RemoteClient {
 
         let resp = self.http_client.get(url).json(&read_file).send().await?.error_for_status()?; // propagate HTTP errors as errors
 
-        let body: ReadFile = resp.json().await?;
-        tracing::debug!("response: {:?}", body);
-
-        return body
-            .data()
-            .map_err(|_err| anyhow::anyhow!("Invalid base64 data"));
+        let bytes = resp.bytes().await?;
+        Ok(bytes.to_vec())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn write_file(&self, path: &str, offset: usize, data: &[u8]) -> anyhow::Result<FileAttr> {
+    #[instrument(skip(self, data), err(level = Level::ERROR))]
+    pub async fn write_file(
+        &self,
+        path: &str,
+        offset: usize,
+        data: &[u8],
+    ) -> anyhow::Result<FileAttr> {
+        use reqwest::header::CONTENT_TYPE;
+
         let url = self.set_url("files", path);
 
-        let write_file = WriteFile::new(offset, data);
-
-        let resp = self
-            .http_client
+        let resp = self.http_client
             .put(url)
-            .json(&write_file)
+            .query(&[("offset", &offset.to_string())])
+            .header(CONTENT_TYPE, "application/octet-stream")
+            .body(data.to_vec())
             .send()
             .await?
-            .error_for_status()?; // propagate HTTP errors as errors
+            .error_for_status()?;
 
-        let body: FileAttr = resp.json().await?;
-        tracing::debug!("response: {:?}", body);
-
-        Ok(body)
+        let attr: FileAttr = resp.json().await?;
+        Ok(attr)
     }
+
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn mkdir(&self, path: &str) -> anyhow::Result<FileAttr> {

@@ -32,7 +32,7 @@ pub struct Config {
     pub cache_enabled: bool,
 
     /// Maximum number of entries in cache
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 50)]
     pub cache_capacity: usize,
 
     /// Enable TTL eviction in cache
@@ -48,7 +48,7 @@ pub struct Config {
     pub cache_policy: CachePolicy,
 
     /// Maximum allowed cached file size in bytes
-    #[arg(long, default_value_t = 5_000_000)]
+    #[arg(long, default_value_t = 1_048_576)]
     pub cache_max_size: usize,
 
     /// Log targets as comma separated list

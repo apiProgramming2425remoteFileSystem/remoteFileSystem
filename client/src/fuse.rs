@@ -107,12 +107,10 @@ impl PathFilesystem for Fs {
     /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
     #[instrument(skip(self))]
     async fn forget(&self, req: Request, parent: &OsStr, nlookup: u64) -> () {
-        // TODO:
+        let path = Path::new(parent);
+        self.fs.cache_invalidate(path);
     }
 
-    /****************************
-     * COSA DEVO FARE CON fh?
-     ****************************/
     /// get file fs_model.
     /// If `fh` is None, means `fh` is not set.
     /// If `path` is None, means the path may be deleted.
@@ -150,9 +148,6 @@ impl PathFilesystem for Fs {
         })
     }
 
-    /****************************
-     * COSA DEVO FARE CON fh?
-     ****************************/
     /// set file fs_model. If `fh` is None, means `fh` is not set. If `path` is None, means the
     /// path may be deleted.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -315,7 +310,7 @@ impl PathFilesystem for Fs {
         idx: u64,
     ) -> FuseResult<ReplyBmap> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        Err(FuseError::UnsupportedOperation.into())
     }
 
     /// find next data or hole after the specified offset.
@@ -329,7 +324,7 @@ impl PathFilesystem for Fs {
         whence: u32,
     ) -> FuseResult<ReplyLSeek> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        Err(FuseError::UnsupportedOperation.into())
     }
 
     /// create file node. Create a regular file, character device, block device, fifo or socket
@@ -590,7 +585,8 @@ impl PathFilesystem for Fs {
         fh: u64,
         lock_owner: u64,
     ) -> FuseResult<()> {
-        self.fs.flush_write_buffer().await.map_err(|_| libc::EINVAL.into())
+        self.fs.flush_write_buffer().await.map_err(|_| libc::EINVAL)?;
+        Ok(())
     }
 
     /// release an open file. Release is called when there are no more references to an open file:
@@ -610,18 +606,14 @@ impl PathFilesystem for Fs {
         lock_owner: u64,
         flush: bool,
     ) -> FuseResult<()> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
-        // TODO:
-        // if flush {
-        //     self.fs.flush_file(fh)
-        // }
 
         let file_path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
-            return Err(libc::EINVAL.into());
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh) else {
+                return Err(libc::ENOENT.into());
+            };
+            p
         };
 
         let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
@@ -634,6 +626,10 @@ impl PathFilesystem for Fs {
                 tracing::error!("{err}");
                 libc::ENOSYS
             })?;
+
+        if flush{
+            self.fs.flush_write_buffer().await.map_err(|_| libc::EINVAL)?;
+        }
 
         Ok(())
     }
@@ -648,8 +644,19 @@ impl PathFilesystem for Fs {
         fh: u64,
         datasync: bool,
     ) -> FuseResult<()> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        self.fs.flush_write_buffer().await.map_err(|_| libc::EINVAL)?;
+
+        let file_path = if let Some(p) = path {
+            PathBuf::from(p)
+        } else {
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh) else {
+                return Err(libc::ENOENT.into());
+            };
+            p
+        };
+
+        self.fs.cache_invalidate(&file_path);
+        Ok(())
     }
 
     /// copy a range of data from one file to another. This can improve performance because it
@@ -671,19 +678,22 @@ impl PathFilesystem for Fs {
         length: u64,
         flags: u64,
     ) -> FuseResult<ReplyCopyFileRange> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let file_in_path = if let Some(p) = from_path {
             PathBuf::from(p)
         } else {
-            return Err(libc::EINVAL.into());
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh_in) else {
+                return Err(libc::EINVAL.into());
+            };
+            p
         };
 
         let file_out_path = if let Some(p) = to_path {
             PathBuf::from(p)
         } else {
-            return Err(libc::EINVAL.into());
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh_out) else {
+                return Err(libc::EINVAL.into());
+            };
+            p
         };
 
         let data = self
@@ -712,7 +722,7 @@ impl PathFilesystem for Fs {
                 req.gid,
                 &file_out_path,
                 &fs_flags,
-                length as usize,
+                offset_out as usize,
                 data.as_slice(),
             )
             .await
@@ -748,7 +758,10 @@ impl PathFilesystem for Fs {
         let file_path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
-            return Err(libc::EINVAL.into());
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh) else {
+                return Err(libc::EINVAL.into());
+            };
+            p
         };
 
         let Ok(fs_type) = fs_model::FileType::try_from(mode) else {
@@ -777,11 +790,11 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn mkdir(
         &self,
-        _req: Request,
+        req: Request,
         parent: &OsStr,
         name: &OsStr,
-        _mode: u32,
-        _umask: u32,
+        mode: u32,
+        umask: u32,
     ) -> FuseResult<ReplyEntry> {
         let path = Path::new(parent).join(name);
         self.fs.mkdir(&path).await
@@ -817,8 +830,6 @@ impl PathFilesystem for Fs {
     /// the kernel supports `FUSE_NO_OPENDIR_SUPPORT`.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn opendir(&self, req: Request, path: &OsStr, flags: u32) -> FuseResult<ReplyOpen> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
         let path = Path::new(path);
         let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
             return Err(libc::EINVAL.into());
@@ -935,9 +946,6 @@ impl PathFilesystem for Fs {
     /// [`opendir`][PathFilesystem::opendir] method didn\'t set any value.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn releasedir(&self, req: Request, path: &OsStr, fh: u64, flags: u32) -> FuseResult<()> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let file_path = PathBuf::from(path);
 
         let Ok(fs_flags) = fs_model::Flags::try_from(flags) else {
@@ -966,8 +974,9 @@ impl PathFilesystem for Fs {
         fh: u64,
         datasync: bool,
     ) -> FuseResult<()> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        let path = Path::new(path);
+        self.fs.cache_invalidate(path);
+        Ok(())
     }
 
     /// rename a file or directory.
@@ -1031,19 +1040,16 @@ impl PathFilesystem for Fs {
         new_name: &OsStr,
     ) -> FuseResult<ReplyEntry> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        Err(FuseError::UnsupportedOperation.into())
     }
 
     /// remove a file.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn unlink(&self, req: Request, parent: &OsStr, name: &OsStr) -> FuseResult<()> {
-        // TODO:
-        // tracing::warn!("[Not Implemented]");
-        // Err(libc::ENOSYS.into())
         let path = Path::new(parent).join(name);
         match self.fs.remove(&path).await {
             Ok(()) => Ok(()),
-            Err(err) => Err(Errno::from(libc::EIO)),
+            Err(_) => Err(Errno::from(libc::EIO)),
         }
     }
 
@@ -1129,7 +1135,7 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn interrupt(&self, req: Request, unique: u64) -> FuseResult<()> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        Err(FuseError::UnsupportedOperation.into())
     }
 
     /// poll for IO readiness events.
@@ -1146,7 +1152,7 @@ impl PathFilesystem for Fs {
         notify: &Notify,
     ) -> FuseResult<ReplyPoll> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        Err(FuseError::UnsupportedOperation.into())
     }
 
     /// receive notify reply from kernel.
@@ -1159,13 +1165,16 @@ impl PathFilesystem for Fs {
         data: Bytes,
     ) -> FuseResult<()> {
         // TODO:
-        Err(FuseError::NotImplemented.into())
+        Err(FuseError::UnsupportedOperation.into())
     }
 
     /// forget more than one path. This is a batch version [`forget`][PathFilesystem::forget]
     #[instrument(skip(self))]
     async fn batch_forget(&self, req: Request, paths: &[&OsStr]) -> () {
-        tracing::debug!("")
+        for path in paths{
+            let path = Path::new(path);
+            self.fs.cache_invalidate(path);
+        }
     }
 }
 

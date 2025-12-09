@@ -50,6 +50,9 @@ pub enum FsModelError {
     #[error("FileHandlers error")]
     FileHandlerError,
 
+    #[error("Writers error")]
+    WriterError,
+
     #[error("Remote backend error: {0}")]
     Backend(#[from] anyhow::Error),
 }

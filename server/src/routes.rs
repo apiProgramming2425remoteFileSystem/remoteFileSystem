@@ -1,6 +1,7 @@
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{Level, instrument};
+use bytes::Bytes;
 
 use crate::models::*;
 use crate::storage::*;
@@ -58,10 +59,14 @@ async fn get_file_content(
     let offset = json.offset();
     let size = json.size();
 
-    match fs.read_file(&path, offset, size) {
-        Ok(content) => HttpResponse::Ok().json(SerializableFileContent::new(&content)),
-        Err(e) => HttpResponse::InternalServerError().json(format!("Failed to read file: {}", e)),
-    }
+    let data = match fs.read_file(&path, offset, size) {
+        Ok(content) => content,
+        Err(e) => return HttpResponse::InternalServerError().json(format!("Failed to read file: {}", e)),
+    };
+
+    HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        .body(data)
 }
 
 #[put("/files/{path}")]
@@ -69,21 +74,20 @@ async fn get_file_content(
 async fn write_file(
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
-    json: web::Json<WriteFileRequest>,
+    query: web::Query<OffsetQuery>,
+    body: Bytes,
 ) -> impl Responder {
     let path = path.into_inner();
-    let offset = json.offset();
-    let Ok(data) = json.data() else {
-        return HttpResponse::BadRequest().body("Invalid base64 data");
-    };
+    let offset = query.offset;
 
-    return match fs.write_file(&path, &data, offset) {
-        Ok(_) => match fs.get_attributes(path.as_str()) {
-            Ok(attributes) => HttpResponse::Ok().json(attributes),
-            Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
+    match fs.write_file(&path, &body, offset) {
+        Ok(_) => {
+            let attr = fs.get_attributes(&path)
+                .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
+            Ok(HttpResponse::Ok().json(attr))
         }
-        Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
-    };
+        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+    }
 }
 
 #[post("/mkdir/{path}")]

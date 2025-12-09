@@ -36,19 +36,6 @@ impl SerializableFSItem {
     }
 }
 
-#[derive(Serialize)]
-pub struct SerializableFileContent {
-    data: String,
-}
-
-impl SerializableFileContent {
-    pub fn new(data: &[u8]) -> Self {
-        Self {
-            data: STANDARD.encode(data),
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub struct ReadFileRequest {
     offset: usize,
@@ -71,23 +58,10 @@ impl ReadFileRequest {
 
 
 #[derive(Debug, Deserialize)]
-pub struct WriteFileRequest {
-    offset: usize,
-    data: String, // accept base64-encoded data as string
+pub struct OffsetQuery {
+    pub offset: usize,
 }
 
-impl WriteFileRequest {
-    pub fn new(offset: usize, data: String) -> Self {
-        Self { offset, data }
-    }
-
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-    pub fn data(&self) -> Result<Vec<u8>, base64::DecodeError> {
-        STANDARD.decode(&self.data)
-    }
-}
 #[derive(Debug, Deserialize)]
 pub struct RenameRequest {
     old_path: String,

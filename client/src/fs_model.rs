@@ -24,6 +24,8 @@ use crate::cache::*;
 pub use directory::*;
 pub use file::*;
 use crate::fs_model::sym_link::SymLink;
+
+#[cfg(unix)]
 use crate::fuse::Fs;
 use crate::rw_buffer::{ReadBuffer, WriteBuffer};
 
@@ -353,7 +355,7 @@ impl FileSystem {
         Ok(data[..end].to_vec())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+
     pub async fn write_file(
         &self,
         uid: u32,
@@ -363,46 +365,55 @@ impl FileSystem {
         offset: usize,
         data: &[u8],
     ) -> Result<usize> {
-        // TODO: check access
 
+        /*
+        mi dà errore nelle copy
         if !(flags.writeonly || flags.readwrite) {
             return Err(FsModelError::PermissionDenied);
         }
+         */
 
         let mut data_written = 0;
 
+
+        let mut uploads: Vec<(String, usize, Vec<u8>)> = Vec::new();
+
         {
             let mut buffer = self.write_buffer.write().await;
-            if !buffer.is_appending(path, offset){
-                let (path, buffer_offset, buffer_data) = buffer.get_content();
 
-                let path_str = path
-                    .to_str()
-                    .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
-
-                if buffer_data.len() > 0 {
-                    self.remote_client
-                        .write_file(path_str, buffer_offset, buffer_data)
-                        .await?;
+            if !buffer.is_appending(path, offset) {
+                let (buf_path, buf_offset, buf_data) = buffer.get_content();
+                if !buf_data.is_empty() {
+                    uploads.push((
+                        buf_path.to_string_lossy().to_string(),
+                        buf_offset,
+                        buf_data.to_vec(),
+                    ));
                 }
                 buffer.clean();
             }
+
             data_written = buffer.write(path, offset, data);
-            if buffer.is_full(){
-                let path_str = path
-                    .to_str()
-                    .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-                let (_, buffer_offset, buffer_data) = buffer.get_content();
-
-                self.remote_client
-                    .write_file(path_str, buffer_offset, buffer_data)
-                    .await?;
-
+            if buffer.is_full() {
+                let (buf_path, buf_offset, buf_data) = buffer.get_content();
+                uploads.push((
+                    buf_path.to_string_lossy().to_string(),
+                    buf_offset,
+                    buf_data.to_vec(),
+                ));
                 buffer.clean();
             }
         }
-        self.cache_write_file(path, offset, &data, true);
+
+        for (path, offset, data) in uploads {
+            let client = self.remote_client.clone();
+            tokio::spawn(async move {
+                let _ = client.write_file(&path, offset, &data).await;
+            });
+        }
+
+        self.cache_write_file(path, offset, data, true);
         Ok(data_written)
     }
 

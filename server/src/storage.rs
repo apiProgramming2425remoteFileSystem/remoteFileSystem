@@ -341,8 +341,10 @@ impl FileSystem {
         f.seek(SeekFrom::Start(offset as u64))?;
         // Write data
         f.write_all(data)?;
+
+        // useless??
         // Rewind to start to read the updated file content
-        f.seek(SeekFrom::Start(0))?;
+        // f.seek(SeekFrom::Start(0))?;
         Ok(())
     }
 

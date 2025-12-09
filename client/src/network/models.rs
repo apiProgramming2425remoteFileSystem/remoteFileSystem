@@ -71,18 +71,6 @@ impl ReadFileRequest {
     }
 }
 
-
-#[derive(Debug, Deserialize)]
-pub struct ReadFile {
-    data: String,
-}
-
-impl ReadFile {
-    pub fn data(&self) -> Result<Vec<u8>, base64::DecodeError> {
-        STANDARD.decode(&self.data)
-    }
-}
-
 #[derive(Debug, Serialize)]
 pub struct WriteFile {
     offset: usize,

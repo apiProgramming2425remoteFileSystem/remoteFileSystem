@@ -72,7 +72,11 @@ impl File {
 
         while !remaining.is_empty() {
 
-            if self.content.len() >= MAX_PAGES{
+            let Some(max_pages) = MAX_PAGES.get() else {
+                break;
+            };
+
+            if self.content.len() >= *max_pages{
                 break;
             }
 
@@ -134,7 +138,10 @@ impl File {
         }
         for key in other.content.keys(){
             if let Some(page) = other.content.get(key) {
-                if self.content.len() >= MAX_PAGES{
+                let Some(max_pages) = MAX_PAGES.get() else {
+                    break;
+                };
+                if self.content.len() >= *max_pages {
                     break;
                 }
                 self.write_content((*key as usize) * PAGE_SIZE + page.valid_from,
