@@ -70,7 +70,7 @@ impl RemoteClient {
         &self,
         path: &str,
         offset: usize,
-        data: &[u8],
+        data: Vec<u8>,
     ) -> anyhow::Result<FileAttr> {
         use reqwest::header::CONTENT_TYPE;
 
@@ -80,7 +80,7 @@ impl RemoteClient {
             .put(url)
             .query(&[("offset", &offset.to_string())])
             .header(CONTENT_TYPE, "application/octet-stream")
-            .body(data.to_vec())
+            .body(data)
             .send()
             .await?
             .error_for_status()?;

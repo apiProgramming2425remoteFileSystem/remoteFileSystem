@@ -263,9 +263,10 @@ impl FileSystem {
 
 
         let attr = self.remote_client
-            .write_file(path_str, offset, data)
+            .write_file(path_str, offset, data.to_vec())
             .await
             .map_err(|op| FsModelError::Backend(op))?;
+
 
         if let Some(name) = path.file_name() {
             let item = CacheItem::File(File::new(name.to_os_string(), Some(attr)));
@@ -409,7 +410,7 @@ impl FileSystem {
         for (path, offset, data) in uploads {
             let client = self.remote_client.clone();
             tokio::spawn(async move {
-                let _ = client.write_file(&path, offset, &data).await;
+                let _ = client.write_file(&path, offset, data).await;
             });
         }
 
@@ -624,11 +625,13 @@ impl FileSystem {
         let path_str = path
                 .to_str()
                 .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
-
+        let path_string = path_str.to_string();
+        let buffer_data = buffer_data.to_vec();
         if buffer_data.len() > 0 {
-            self.remote_client
-                .write_file(path_str, buffer_offset, buffer_data)
-                .await?;
+            let client = self.remote_client.clone();
+            tokio::spawn(async move {
+                let _ = client.write_file(&path_string, buffer_offset, buffer_data).await;
+            });
         }
         buffer.clean();
         Ok(())
