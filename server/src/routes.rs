@@ -2,7 +2,7 @@ use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use tracing::{Level, instrument};
 
 use crate::db::DB;
-use crate::db::get_token_expiration;
+use crate::db::get_expiration_time;
 use crate::models::*;
 use crate::storage::*;
 
@@ -25,8 +25,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(get_stats)
             .service(login)
             .service(logout)
+            .service(set_x_attributes)
             .service(get_x_attributes)
-            .service(set_x_attributes),
+            .service(list_x_attributes)
+            .service(delete_x_attributes),
     );
 }
 
@@ -229,22 +231,34 @@ async fn login(pool: web::Data<DB>, form: web::Json<LoginBody>) -> impl Responde
 #[post("/logout")]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 pub async fn logout(pool: web::Data<DB>, user: AuthenticatedUser) -> impl Responder {
-    let user_id = user.user_id;
-
-    match pool.insert_revoked_token(user_id as i64).await {
+    match pool.insert_revoked_token(&user).await {
         Ok(_) => return HttpResponse::Ok().body("Logged out"),
         Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
     };
 }
 
 /* XATTRIBUTES MANEGEMENT */
-#[get("/xattributes/{path}")]
+#[put("/xattributes/{path}/names/{name}")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn get_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
+async fn set_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>, name: web::Path<String>, json: web::Json<Xattributes>) -> impl Responder{
     let path = path.into_inner();
+    let name = name.into_inner();
 
-    let result = pool.get_x_attributes(&path).await;
+    match pool.set_x_attributes(&path, &name, &json.get()).await {
+        Ok(()) => HttpResponse::Ok().finish(),
+        Err(e) => HttpResponse::InternalServerError().json(e.to_string())
+    }
+}
+
+#[get("/xattributes/{path}/names/{name}")]
+#[instrument(ret(level = Level::DEBUG))]
+#[instrument(skip(pool), ret(level = Level::DEBUG))]
+async fn get_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, name: web::Path<String>, path: web::Path<String>) -> impl Responder {
+    let path = path.into_inner();
+    let name = name.into_inner();
+
+    let result = pool.get_x_attributes(&path, &name).await;
     match result {
         Ok(option) => {
             match option{
@@ -259,13 +273,36 @@ async fn get_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: we
     }
 }
 
-#[put("/xattributes/{path}")]
+#[get("/xattributes/{path}/names")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn set_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>, json: web::Json<Xattributes>) -> impl Responder{
+async fn list_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
-    match pool.set_x_attributes(&path, &json.get()).await {
+    let result = pool.list_x_attributes(&path).await;
+    match result {
+        Ok(option) => {
+            match option{
+                Some(names) => HttpResponse::Ok().json(names),
+                None => HttpResponse::NotFound().finish(),
+            }
+        },
+        Err(e) => {
+            tracing::error!("{}", e.to_string());
+            return HttpResponse::InternalServerError().json(e.to_string());
+        }
+    }
+}
+
+
+#[delete("/xattributes/{path}/names/{name}")]
+#[instrument(ret(level = Level::DEBUG))]
+#[instrument(skip(pool), ret(level = Level::DEBUG))]
+async fn delete_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>, name: web::Path<String>) -> impl Responder{
+    let path = path.into_inner();
+    let name = name.into_inner();
+
+    match pool.remove_x_attributes(&path, &name).await {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(e) => HttpResponse::InternalServerError().json(e.to_string())
     }

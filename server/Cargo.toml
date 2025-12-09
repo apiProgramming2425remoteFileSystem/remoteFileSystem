@@ -28,6 +28,7 @@ tokio = "1"
 sqlx = {version = "=0.8.1", features = ["runtime-tokio", "sqlite", "macros", "migrate"]}
 rusqlite = "=0.32.1"
 futures = "0.3.31"
+uuid = "1.19.0"
 
 
 [target.'cfg(unix)'.dependencies]

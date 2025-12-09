@@ -77,25 +77,33 @@ async fn main() -> Result<()> {
 
     // --- 1. User login ---
     println!("Welcome to Remote File System. First you need to authenticate!");
-    println!("username:");
-    let username = {
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        input.trim().to_string()
-    };
-    println!("Password: ");
-    io::stdout().flush().unwrap();
-    // Hide password
-    let password = read_password().unwrap();
 
-    let token_option: Option<String> = match rc.login(username, password).await {
-        Ok(t) => Some(t),
-        Err(e) => {
-            None
-        },
+    let token_option = loop{
+        println!("username:");
+        let username = {
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            input.trim().to_string()
+        };
+        println!("Password: ");
+        io::stdout().flush().unwrap();
+        // Hide password
+        let password = read_password().unwrap();
+
+        match rc.login(username, password).await {
+            Ok(t) => break Some(t),
+            Err(e) => {
+                println!("Invalid credentials. Do you want to try again? [y n]");
+                let mut answer = String::new();
+                io::stdin().read_line(&mut answer).unwrap();
+                if !answer.trim().to_string().starts_with("y"){
+                    break None
+                }
+            },
+        };
     };
 
-    if token_option.is_none(){
+    if token_option.is_none() {
         return Err(ClientError::Other(anyhow!("Impossible to login: Invalid credentials!")));
     }
 

@@ -362,7 +362,7 @@ impl Conversion<i32> for Permission {
 /* AUTHENTICATION MANAGEMENT */
 #[derive(Debug, FromRow)]
 pub struct User{
-    pub userID: u64,
+    pub user_id: u64,
     pub username: String, 
     pub password: String
 }
@@ -376,6 +376,7 @@ pub struct LoginBody{
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Claims{
     pub user_id: u64,
+    pub token_id: String,
     pub exp: usize, // expiration time
 }
 
@@ -392,7 +393,9 @@ impl Token{
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthenticatedUser {
-    pub user_id: i64
+    pub user_id: i64, 
+    pub token_id: String, 
+    pub expiration_time: i64,
 }
 
 impl FromRequest for AuthenticatedUser {
@@ -431,11 +434,12 @@ impl FromRequest for AuthenticatedUser {
         };
 
         let user_id = token_data.claims.user_id as i64;
-        let token_expiration = token_data.claims.exp as i64;
+        let token_id = token_data.claims.token_id;
+        let expiration_time = token_data.claims.exp as i64;
 
         // 5. Check if token is expired
         let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time has gone behind.").as_secs() as i64;
-        let is_expired = now >= token_expiration;
+        let is_expired = now >= expiration_time;
 
         if is_expired {
             return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Token is expired."))});
@@ -452,7 +456,7 @@ impl FromRequest for AuthenticatedUser {
                 }
             };
 
-            let is_revoked = match pool.is_token_revoked(user_id as i64, token_expiration).await {
+            let is_revoked = match pool.is_token_revoked(user_id, &token_id).await {
                 Ok(flag) => flag,
                 Err(_) => {
                     return Err(actix_web::error::ErrorInternalServerError("Error while checking token revocation."));
@@ -464,7 +468,9 @@ impl FromRequest for AuthenticatedUser {
             }
 
             Ok(AuthenticatedUser {
-                user_id
+                user_id,
+                token_id,
+                expiration_time
             })
         })
 
@@ -481,4 +487,9 @@ impl Xattributes{
     pub fn get(&self) -> &[u8]{
         self.xattributes.as_slice()
     }
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct ListXattributes {
+    pub names: Vec<String>
 }

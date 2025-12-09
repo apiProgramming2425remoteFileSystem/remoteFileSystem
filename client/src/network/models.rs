@@ -105,3 +105,8 @@ impl Xattributes{
         self.xattributes.clone()
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ListXattributes {
+    pub names: Vec<String>
+}

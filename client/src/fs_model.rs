@@ -275,17 +275,28 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_x_attributes(&self, path: &OsStr, token: &str) -> Result<Xattributes>{
-        let xattributes = self.remote_client.get_x_attributes(path, token).await?;
+    pub async fn get_x_attributes(&self, path: &OsStr, name: &str, token: &str) -> Result<Xattributes>{
+        let xattributes = self.remote_client.get_x_attributes(path, name, token).await?;
         Ok(xattributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_x_attributes(&self, path: &OsStr, xattributes: &[u8], token: &str) -> Result<()>{
-        self.remote_client.set_x_attributes(path, xattributes, token).await?;
+    pub async fn set_x_attributes(&self, path: &OsStr, name: &str, xattributes: &[u8], token: &str) -> Result<()>{
+        self.remote_client.set_x_attributes(path, name, xattributes, token).await?;
         Ok(())
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn list_x_attribute(&self, path: &OsStr, token: &str) -> Result<Vec<String>>{
+        let names = self.remote_client.list_x_attributes(path, token).await?;
+        Ok(names)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn remove_x_attributes(&self, path: &OsStr, name: &str, token: &str) -> Result<()> {
+        self.remote_client.remove_x_attributes(path, name, token).await?;
+        Ok(())
+    }    
     // TODO: remove it later
     pub fn mock_dir_attr(&self) -> FileAttr {
         FileAttr {

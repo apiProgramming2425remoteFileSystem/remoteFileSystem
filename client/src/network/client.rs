@@ -345,12 +345,15 @@ impl RemoteClient {
 
     /* XATTRIBUTES MANAGEMENT */
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_x_attributes(&self, path: &OsStr, token: &str) -> Result<Xattributes>{
+    pub async fn get_x_attributes(&self, path: &OsStr, name: &str, token: &str) -> Result<Xattributes>{
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
 
-        let url = self.set_url("xattributes", path_str);
+
+        let url_1 = self.set_url("xattributes", path_str);
+        let url_2 = self.set_url(&url_1, "names");
+        let url = self.set_url(&url_2, name);
 
         let resp = self.http_client
                                 .get(url)
@@ -369,6 +372,10 @@ impl RemoteClient {
                 let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
                 Err(FsModelError::PermissionDenied(body))
             },
+            StatusCode::NOT_FOUND => {
+                let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                Err(FsModelError::NotFound(body))
+            },
             _ => {
                 let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
                 Err(FsModelError::Backend(anyhow!(body))
@@ -377,12 +384,14 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_x_attributes(&self, path: &OsStr, xattributes: &[u8], token: &str) -> Result<()>{
+    pub async fn set_x_attributes(&self, path: &OsStr, name: &str, xattributes: &[u8], token: &str) -> Result<()>{
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::ConversionFailed(String::from("Path is not valid UTF-8")))?;
 
-        let url = self.set_url("xattributes", path_str);
+        let url_1 = self.set_url("xattributes", path_str);
+        let url_2 = self.set_url(&url_1, "names");
+        let url = self.set_url(&url_2, name);
 
         let resp = self.http_client
                                 .put(url)
@@ -400,12 +409,75 @@ impl RemoteClient {
             },
             _ => {
                 let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body))
-            )},
+                Err(FsModelError::Backend(anyhow!(body)))
+            },
+        }
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn list_x_attributes(&self, path: &OsStr, token: &str) -> Result<Vec<String>>{
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::ConversionFailed(String::from("Path is not valid UTF-8")))?;
+
+        let url_1 = self.set_url("xattributes", path_str);
+        let url = self.set_url(&url_1, "names");
+
+        let resp = self.http_client
+                                .get(url)
+                                .header("Authorization", format!("Bearer {}", token))
+                                .send()
+                                .await
+                                .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+
+        match resp.status() {
+            StatusCode::OK =>  {
+                let list_names: ListXattributes = resp.json::<ListXattributes>().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                tracing::debug!("response: {:?}", list_names);
+                Ok(list_names.names)
+            },
+            StatusCode::UNAUTHORIZED => {
+                let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                Err(FsModelError::PermissionDenied(body))
+            },
+            StatusCode::NOT_FOUND => {
+                let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                Err(FsModelError::NotFound(body))
+            },
             _ => {
                 let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
                 Err(FsModelError::Backend(anyhow!(body)))
             },
         }
-    }  
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn remove_x_attributes(&self, path: &OsStr, name: &str, token: &str) -> Result<()>{
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| FsModelError::ConversionFailed(String::from("Path is not valid UTF-8")))?;
+
+        let url_1 = self.set_url("xattributes", path_str);
+        let url_2 = self.set_url(&url_1, "names");
+        let url = self.set_url(&url_2, name);
+
+        let resp = self.http_client
+                                .delete(url)
+                                .header("Authorization", format!("Bearer {}", token))
+                                .send()
+                                .await
+                                .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+
+        match resp.status() {
+            StatusCode::OK => Ok(()),
+            StatusCode::UNAUTHORIZED => {
+                let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                Err(FsModelError::PermissionDenied(body))
+            },
+            _ => {
+                let body: String = resp.text().await.map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                Err(FsModelError::Backend(anyhow!(body)))
+            },
+        }
+    }
 }
