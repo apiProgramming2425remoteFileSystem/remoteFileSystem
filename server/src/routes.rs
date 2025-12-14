@@ -11,10 +11,7 @@ const APP_V1_BASE_URL: &str = "/api/v1";
 
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.app_data(
-        web::JsonConfig::default()
-            .limit(10 * 1024 * 1024)
-        ).service(
+    cfg.service(
         web::scope(APP_V1_BASE_URL)
             .service(list_path)
             .service(get_file_content)
