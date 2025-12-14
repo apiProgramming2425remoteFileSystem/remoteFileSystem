@@ -1,13 +1,23 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
-use actix_web::{web, dev::{ServiceRequest, Payload}, Error, HttpResponse, FromRequest};
+
+use actix_web::{
+    Error, FromRequest, HttpResponse,
+    dev::{Payload, ServiceRequest},
+    web,
+};
+
 use futures::future::{BoxFuture, Ready, err, ok};
 
-use crate::{db::{DB, JWT_KEY}, error::ServerError, nodes::FSItem};
+use crate::{
+    db::{DB, JWT_KEY},
+    error::ServerError,
+    nodes::FSItem,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -361,20 +371,20 @@ impl Conversion<i32> for Permission {
 
 /* AUTHENTICATION MANAGEMENT */
 #[derive(Debug, FromRow)]
-pub struct User{
+pub struct User {
     pub user_id: u64,
-    pub username: String, 
-    pub password: String
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct LoginBody{
-    pub username: String, 
+pub struct LoginBody {
+    pub username: String,
     pub password: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Claims{
+pub struct Claims {
     pub user_id: u64,
     pub token_id: String,
     pub exp: usize, // expiration time
@@ -385,19 +395,20 @@ pub struct Token {
     token: String,
 }
 
-impl Token{
-    pub fn new(token: String) -> Self{
-        Token { token }
+impl Token {
+    pub fn new(token: String) -> Self {
+        Self { token }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuthenticatedUser {
-    pub user_id: i64, 
-    pub token_id: String, 
+    pub user_id: i64,
+    pub token_id: String,
     pub expiration_time: i64,
 }
 
+/*
 impl FromRequest for AuthenticatedUser {
     type Error = actix_web::Error;
     type Future = BoxFuture<'static, Result<Self, Self::Error>>;
@@ -406,17 +417,31 @@ impl FromRequest for AuthenticatedUser {
         // 1. retrieve Authorization header
         let auth_header = match req.headers().get("Authorization") {
             Some(header) => header,
-            None => return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Authorization Header is missing."))}),
+            None => {
+                return Box::pin(async {
+                    Err(actix_web::error::ErrorUnauthorized(
+                        "Authorization Header is missing.",
+                    ))
+                });
+            }
         };
 
         // 2. token extraction
         let auth_value = match auth_header.to_str() {
             Ok(s) => s,
-            Err(_) => return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Header is not valid"))}),
+            Err(_) => {
+                return Box::pin(async {
+                    Err(actix_web::error::ErrorUnauthorized("Header is not valid"))
+                });
+            }
         };
 
         if !auth_value.starts_with("Bearer ") {
-            return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Token format is not valid."))});
+            return Box::pin(async {
+                Err(actix_web::error::ErrorUnauthorized(
+                    "Token format is not valid.",
+                ))
+            });
         }
         let token_string = &auth_value[7..];
 
@@ -429,7 +454,9 @@ impl FromRequest for AuthenticatedUser {
         let token_data = match decode::<Claims>(token_string, &decoding_key, &validation) {
             Ok(data) => data,
             Err(_) => {
-                return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Token is invalid."))});
+                return Box::pin(async {
+                    Err(actix_web::error::ErrorUnauthorized("Token is invalid."))
+                });
             }
         };
 
@@ -438,11 +465,16 @@ impl FromRequest for AuthenticatedUser {
         let expiration_time = token_data.claims.exp as i64;
 
         // 5. Check if token is expired
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time has gone behind.").as_secs() as i64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time has gone behind.")
+            .as_secs() as i64;
         let is_expired = now >= expiration_time;
 
         if is_expired {
-            return Box::pin(async { Err(actix_web::error::ErrorUnauthorized("Token is expired."))});
+            return Box::pin(async {
+                Err(actix_web::error::ErrorUnauthorized("Token is expired."))
+            });
         }
 
         // 6. Check if the token has been revoked
@@ -452,44 +484,50 @@ impl FromRequest for AuthenticatedUser {
             let pool = match pool_opt {
                 Some(p) => p,
                 None => {
-                    return Err(actix_web::error::ErrorInternalServerError("Error during the retrieval of database connection."));
+                    return Err(actix_web::error::ErrorInternalServerError(
+                        "Error during the retrieval of database connection.",
+                    ));
                 }
             };
 
             let is_revoked = match pool.is_token_revoked(user_id, &token_id).await {
                 Ok(flag) => flag,
                 Err(_) => {
-                    return Err(actix_web::error::ErrorInternalServerError("Error while checking token revocation."));
+                    return Err(actix_web::error::ErrorInternalServerError(
+                        "Error while checking token revocation.",
+                    ));
                 }
             };
 
             if is_revoked {
-                return Err(actix_web::error::ErrorUnauthorized("Token has been revoked."));
+                return Err(actix_web::error::ErrorUnauthorized(
+                    "Token has been revoked.",
+                ));
             }
 
             Ok(AuthenticatedUser {
                 user_id,
                 token_id,
-                expiration_time
+                expiration_time,
             })
         })
-
     }
 }
+*/
 
 /* XATTRIBUTES MANAGEMENT */
 #[derive(Debug, Serialize, Deserialize, FromRow)]
-pub struct Xattributes{
+pub struct Xattributes {
     xattributes: Vec<u8>,
 }
 
-impl Xattributes{
-    pub fn get(&self) -> &[u8]{
+impl Xattributes {
+    pub fn get(&self) -> &[u8] {
         self.xattributes.as_slice()
     }
 }
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct ListXattributes {
-    pub names: Vec<String>
+    pub names: Vec<String>,
 }

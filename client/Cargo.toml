@@ -28,6 +28,10 @@ futures-util = "0.3.30"
 bytes = "1.5"
 thiserror = "2"
 rpassword = "7.4.0"
+reqwest-middleware = { version = "0.4", features = ["json"] }
+async-trait = "0.1.89"
+http = "1.4.0"
+reqwest-retry = "0.8.0"
 
 [target.'cfg(unix)'.dependencies]
 fuse3 = { version = "0.8", features = [

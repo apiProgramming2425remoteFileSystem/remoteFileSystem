@@ -1,17 +1,35 @@
+use actix_web::middleware::from_fn;
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use tracing::{Level, instrument};
 
 use crate::db::DB;
 use crate::db::get_expiration_time;
+use crate::middleware::auth_middleware;
 use crate::models::*;
 use crate::storage::*;
 
 const APP_V1_BASE_URL: &str = "/api/v1";
 
+// Group of all routes for easy management
+struct Routes;
+
+impl Routes {
+    const AUTH: &'static str = "/auth";
+}
+
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope(APP_V1_BASE_URL)
+            // Authentication routes
+            .service(
+                web::scope(Routes::AUTH)
+                    .service(login)
+                    .wrap(from_fn(auth_middleware))
+                    .service(logout),
+            )
+            // Filesystem operations routes protected by auth middleware
+            .wrap(from_fn(auth_middleware))
             .service(list_path)
             .service(get_file_content)
             .service(write_file)
@@ -23,8 +41,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(set_attributes)
             .service(get_permissions)
             .service(get_stats)
-            .service(login)
-            .service(logout)
             .service(set_x_attributes)
             .service(get_x_attributes)
             .service(list_x_attributes)
@@ -34,7 +50,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 #[get("/list/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn list_path(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
+async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     let Some(item) = fs.find(&path) else {
         return HttpResponse::NotFound().json(String::from("Path not found"));
@@ -51,9 +67,7 @@ async fn list_path(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web
 
 #[get("/files/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn get_file_content(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
-     
-
+async fn get_file_content(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     match fs.read_file(&path, 0) {
@@ -66,12 +80,9 @@ async fn get_file_content(fs: web::Data<FileSystem>, user: AuthenticatedUser, pa
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
 async fn write_file(
     fs: web::Data<FileSystem>,
-    user: AuthenticatedUser, 
     path: web::Path<String>,
     json: web::Json<WriteFileRequest>,
 ) -> impl Responder {
-     
-
     let path = path.into_inner();
     let offset = json.offset();
     let Ok(data) = json.data() else {
@@ -86,9 +97,7 @@ async fn write_file(
 
 #[post("/mkdir/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn make_directory(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
-     
-
+async fn make_directory(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     let (parent, name) = match path.rsplit_once('/') {
         Some((p, n)) => (if p.is_empty() { "/" } else { p }, n),
@@ -112,9 +121,7 @@ async fn make_directory(fs: web::Data<FileSystem>, user: AuthenticatedUser, path
 
 #[delete("/files/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn delete_item(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
-     
-
+async fn delete_item(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     match fs.delete(path.as_str()) {
         Ok(_) => HttpResponse::Ok().body("Successful deletion!"),
@@ -125,9 +132,7 @@ async fn delete_item(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: w
 /* Inutile se lookup = getAttr */
 #[get("/resolve/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn resolve_child(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
-     
-
+async fn resolve_child(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     match fs.get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
@@ -137,7 +142,7 @@ async fn resolve_child(fs: web::Data<FileSystem>, user: AuthenticatedUser, path:
 
 #[get("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_attributes(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
+async fn get_attributes(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     match fs.get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
@@ -150,7 +155,11 @@ async fn get_attributes(fs: web::Data<FileSystem>, user: AuthenticatedUser, path
 
 #[put("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn set_attributes(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>, json: web::Json<SetAttrRequest>) -> impl Responder {
+async fn set_attributes(
+    fs: web::Data<FileSystem>,
+    path: web::Path<String>,
+    json: web::Json<SetAttrRequest>,
+) -> impl Responder {
     let path = path.into_inner();
 
     let uid = json.uid();
@@ -168,9 +177,7 @@ async fn set_attributes(fs: web::Data<FileSystem>, user: AuthenticatedUser, path
 
 #[get("/permissions/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn get_permissions(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
-     
-
+async fn get_permissions(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     match fs.get_permissions(path.as_str()) {
@@ -183,9 +190,7 @@ async fn get_permissions(fs: web::Data<FileSystem>, user: AuthenticatedUser, pat
 }
 
 #[get("/stats/{path}")]
-async fn get_stats(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
-     
-
+async fn get_stats(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     match fs.get_fs_stats(path.as_str()) {
@@ -199,9 +204,7 @@ async fn get_stats(fs: web::Data<FileSystem>, user: AuthenticatedUser, path: web
 
 #[put("/rename")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn rename(fs: web::Data<FileSystem>, user: AuthenticatedUser, json: web::Json<RenameRequest>) -> impl Responder {
-     
-    
+async fn rename(fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> impl Responder {
     let old_path = json.old_path();
     let new_path = json.new_path();
 
@@ -215,17 +218,15 @@ async fn rename(fs: web::Data<FileSystem>, user: AuthenticatedUser, json: web::J
 #[post("/login")]
 #[instrument(skip(pool ), ret(level = Level::DEBUG))]
 async fn login(pool: web::Data<DB>, form: web::Json<LoginBody>) -> impl Responder {
-        let result = pool.authenticate_user(&form.username, &form.password).await; 
-        
-        match result{
-            Ok(token) =>{
-                match token{
-                    Some(t) => return HttpResponse::Ok().json(Token::new(t)),
-                    None => return HttpResponse::Unauthorized().finish(),
-                }
-            },
-            Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
-        };
+    let result = pool.authenticate_user(&form.username, &form.password).await;
+
+    match result {
+        Ok(token) => match token {
+            Some(t) => return HttpResponse::Ok().json(Token::new(t)),
+            None => return HttpResponse::Unauthorized().finish(),
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    };
 }
 
 #[post("/logout")]
@@ -241,30 +242,37 @@ pub async fn logout(pool: web::Data<DB>, user: AuthenticatedUser) -> impl Respon
 #[put("/xattributes/{path}/names/{name}")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn set_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>, name: web::Path<String>, json: web::Json<Xattributes>) -> impl Responder{
+async fn set_x_attributes(
+    pool: web::Data<DB>,
+    path: web::Path<String>,
+    name: web::Path<String>,
+    json: web::Json<Xattributes>,
+) -> impl Responder {
     let path = path.into_inner();
     let name = name.into_inner();
 
     match pool.set_x_attributes(&path, &name, &json.get()).await {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(e) => HttpResponse::InternalServerError().json(e.to_string())
+        Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
     }
 }
 
 #[get("/xattributes/{path}/names/{name}")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn get_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, name: web::Path<String>, path: web::Path<String>) -> impl Responder {
+async fn get_x_attributes(
+    pool: web::Data<DB>,
+    name: web::Path<String>,
+    path: web::Path<String>,
+) -> impl Responder {
     let path = path.into_inner();
     let name = name.into_inner();
 
     let result = pool.get_x_attributes(&path, &name).await;
     match result {
-        Ok(option) => {
-            match option{
-                Some(attr) => HttpResponse::Ok().json(attr),
-                None => HttpResponse::NotFound().finish(),
-            }
+        Ok(option) => match option {
+            Some(attr) => HttpResponse::Ok().json(attr),
+            None => HttpResponse::NotFound().finish(),
         },
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -276,16 +284,14 @@ async fn get_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, name: we
 #[get("/xattributes/{path}/names")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn list_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>) -> impl Responder {
+async fn list_x_attributes(pool: web::Data<DB>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     let result = pool.list_x_attributes(&path).await;
     match result {
-        Ok(option) => {
-            match option{
-                Some(names) => HttpResponse::Ok().json(names),
-                None => HttpResponse::NotFound().finish(),
-            }
+        Ok(option) => match option {
+            Some(names) => HttpResponse::Ok().json(names),
+            None => HttpResponse::NotFound().finish(),
         },
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -294,16 +300,19 @@ async fn list_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: w
     }
 }
 
-
 #[delete("/xattributes/{path}/names/{name}")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn delete_x_attributes(pool: web::Data<DB>, user: AuthenticatedUser, path: web::Path<String>, name: web::Path<String>) -> impl Responder{
+async fn delete_x_attributes(
+    pool: web::Data<DB>,
+    path: web::Path<String>,
+    name: web::Path<String>,
+) -> impl Responder {
     let path = path.into_inner();
     let name = name.into_inner();
 
     match pool.remove_x_attributes(&path, &name).await {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(e) => HttpResponse::InternalServerError().json(e.to_string())
+        Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
     }
 }
