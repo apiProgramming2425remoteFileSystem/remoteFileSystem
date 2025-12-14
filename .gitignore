@@ -3,3 +3,4 @@ mount/
 logs/
 .idea/
 *.lock
+*.db-*

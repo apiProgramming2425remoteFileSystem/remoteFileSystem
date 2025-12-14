@@ -75,6 +75,15 @@ async fn main() -> Result<()> {
 
     let rc = RemoteClient::new(&base_url);
 
+    // Initialize logging based on config
+    let _log = logging::Logging::from(&config)?;
+
+    tracing::trace!("[TRACE]");
+    tracing::debug!("[DEBUG]");
+    tracing::info!("[INFO]");
+    tracing::warn!("[WARN]");
+    tracing::error!("[ERROR]");
+
     // --- 1. User login ---
     println!("Welcome to Remote File System. First you need to authenticate!");
 
@@ -110,14 +119,6 @@ async fn main() -> Result<()> {
     let token = token_option.unwrap();
     
     // --- 2. File system mounting ---
-    // Initialize logging based on config
-    let _log = logging::Logging::from(&config)?;
-
-    tracing::trace!("[TRACE]");
-    tracing::debug!("[DEBUG]");
-    tracing::info!("[INFO]");
-    tracing::warn!("[WARN]");
-    tracing::error!("[ERROR]");
 
     // Create mountpoint directory if it doesn't exist
     if !config.mountpoint.exists() {

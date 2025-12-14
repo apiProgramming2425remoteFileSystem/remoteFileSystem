@@ -14,37 +14,37 @@ const APP_V1_BASE_URL: &str = "/api/v1";
 struct Routes;
 
 impl Routes {
-    const AUTH: &'static str = "/auth";
+    const AUTH: &'static str = "/api/v1/auth";
 }
 
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
+    cfg
+    .service(
+        // Authentication routes
+        web::scope(Routes::AUTH)
+        .service(login),
+    )
+    .service(
         web::scope(APP_V1_BASE_URL)
-            // Authentication routes
-            .service(
-                web::scope(Routes::AUTH)
-                    .service(login)
-                    .wrap(from_fn(auth_middleware))
-                    .service(logout),
-            )
-            // Filesystem operations routes protected by auth middleware
-            .wrap(from_fn(auth_middleware))
-            .service(list_path)
-            .service(get_file_content)
-            .service(write_file)
-            .service(make_directory)
-            .service(delete_item)
-            .service(rename)
-            .service(resolve_child)
-            .service(get_attributes)
-            .service(set_attributes)
-            .service(get_permissions)
-            .service(get_stats)
-            .service(set_x_attributes)
-            .service(get_x_attributes)
-            .service(list_x_attributes)
-            .service(delete_x_attributes),
+        // Filesystem operations routes protected by auth middleware
+        .wrap(from_fn(auth_middleware))
+        .service(logout)
+        .service(list_path)
+        .service(get_file_content)
+        .service(write_file)
+        .service(make_directory)
+        .service(delete_item)
+        .service(rename)
+        .service(resolve_child)
+        .service(get_attributes)
+        .service(set_attributes)
+        .service(get_permissions)
+        .service(get_stats)
+        .service(set_x_attributes)
+        .service(get_x_attributes)
+        .service(list_x_attributes)
+        .service(delete_x_attributes),
     );
 }
 

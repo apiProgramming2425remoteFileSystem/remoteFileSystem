@@ -334,7 +334,7 @@ impl RemoteClient {
     /* AUTHENTICATION MANAGEMENT */
     #[instrument(skip(self, password), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn login(&self, username: String, password: String) -> Result<String> {
-        let url = self.set_short_url("login");
+        let url = self.set_short_url("auth/login");
 
         let resp = self
             .http_client
@@ -343,6 +343,8 @@ impl RemoteClient {
             .send()
             .await
             .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+
+        println!("RESPONSE {:?}", resp);
 
         match resp.status() {
             StatusCode::OK => {

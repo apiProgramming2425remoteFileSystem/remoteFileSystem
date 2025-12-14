@@ -6,7 +6,7 @@ use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use sqlx::{SqlitePool, migrate::Migrator};
+use sqlx::{SqlitePool, migrate::{Migrator, MigrateDatabase}, Sqlite};
 use tracing::{Level, instrument};
 use uuid::Uuid;
 
@@ -109,6 +109,10 @@ impl DB {
             database_url = database_url.replace("\\", "/");
         }
 
+        Sqlite::create_database(&database_url).await.map_err(|e| {
+            anyhow::anyhow!("Database error: impossible to create database beacause of {}", e)
+        })?;
+
         let pool = SqlitePool::connect(&database_url).await.map_err(|e| {
             anyhow::anyhow!("Database error: impossible to connect beacause of {}", e)
         })?;
@@ -118,7 +122,12 @@ impl DB {
             .await
             .map_err(|e| anyhow::anyhow!("Database error: {}", e))?;
 
-        Ok(DB { pool: pool })
+        /* AGGIUNTA UTENTE */
+        let db = DB { pool: pool };
+
+        db.create_user("mirko", "password").await?;
+
+        Ok(db)
     }
 
     /* -- REVOKED TOKEN MANAGEMENT */
@@ -255,6 +264,42 @@ impl DB {
         }
     }
 
+    #[instrument(ret(level = Level::DEBUG))]
+    pub async fn create_user(
+        &self,
+        username: &str,
+        password: &str) -> anyhow::Result<()>{
+            let pass = hash_password(password).await.map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
+
+            let result = sqlx::query_scalar::<_, u8>(
+            "SELECT COUNT(*) FROM users WHERE username = ?",
+        )
+        .bind(username)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| {
+            anyhow!(
+                "Database error: error executing the query because of {}.",
+                e
+            )
+        })?;
+        
+        if result == 0 {
+            sqlx::query("INSERT INTO users(username, password) VALUES(?, ?)")
+                .bind(username)
+                .bind(pass)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    anyhow!(
+                        "Database error: error executing the query because of {}.",
+                        e
+                    )
+                })?;
+        }
+            Ok(())
+        }
+    
     // -- XATTRIBUTES MANAGEMENT --
     #[instrument(ret(level = Level::DEBUG))]
     pub async fn set_x_attributes(
@@ -362,8 +407,6 @@ impl DB {
             None => Ok(None),
         }
     }
-
-    // -- PERMISSIONS MANAGEMENT --
 
     // -- CONCURRENCY MANAGEMENT --
 }
