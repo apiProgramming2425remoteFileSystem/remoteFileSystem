@@ -106,6 +106,8 @@ pub fn start(config: &Config) -> Result<()> {
         Ok(())
     })?;
 
+    drop(runtime);
+
     // Instantiate the daemon
     let daemon = Daemon::new().foreground(config.foreground);
     // Initialize the daemon
