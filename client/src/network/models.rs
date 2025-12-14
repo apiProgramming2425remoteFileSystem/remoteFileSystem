@@ -27,7 +27,9 @@ impl TryFrom<&CacheItem> for SerializableFSItem {
     fn try_from(item: &CacheItem) -> Result<Self, Self::Error> {
         match item {
             CacheItem::Directory(d) => {
-                let attrs = d.attributes.ok_or(FsModelError::ConversionFailed)?;
+                let attrs = d.attributes.ok_or(FsModelError::ConversionFailed(
+                    "Missing attributes for directory".to_string(),
+                ))?;
 
                 Ok(SerializableFSItem {
                     name: d.name.to_string_lossy().into_owned(),
@@ -37,7 +39,9 @@ impl TryFrom<&CacheItem> for SerializableFSItem {
             }
 
             CacheItem::SymLink(l) => {
-                let attrs = l.attributes.ok_or(FsModelError::ConversionFailed)?;
+                let attrs = l.attributes.ok_or(FsModelError::ConversionFailed(
+                    "Missing attributes for symlink".to_string(),
+                ))?;
 
                 Ok(SerializableFSItem {
                     name: l.name.to_string_lossy().into_owned(),
@@ -47,7 +51,9 @@ impl TryFrom<&CacheItem> for SerializableFSItem {
             }
 
             CacheItem::File(f) => {
-                let attrs = f.attributes.ok_or(FsModelError::ConversionFailed)?;
+                let attrs = f.attributes.ok_or(FsModelError::ConversionFailed(
+                    "Missing attributes for file".to_string(),
+                ))?;
 
                 Ok(SerializableFSItem {
                     name: f.name.to_string_lossy().into_owned(),

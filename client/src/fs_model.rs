@@ -152,7 +152,9 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn get_path_from_fh(&self, fh: u64) -> Result<Option<PathBuf>> {
         let map = self.file_handlers.read().map_err(|_| {
-            return FsModelError::ConversionFailed;
+            FsModelError::ConversionFailed(
+                "Failed to acquire read lock on file handlers".to_string(),
+            )
         })?;
         Ok(map.get(&fh).cloned())
     }
@@ -249,10 +251,8 @@ impl FileSystem {
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        self.remote_client
-            .list_path(path_str)
-            .await
-            .map_err(|op| FsModelError::Backend(op))
+        self.remote_client.list_path(path_str).await
+        // .map_err(|op| FsModelError::Backend(op.into()))
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -526,11 +526,8 @@ impl FileSystem {
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        let attributes = self
-            .remote_client
-            .get_attributes(path_str)
-            .await
-            .map_err(|op| FsModelError::Backend(op))?;
+        let attributes = self.remote_client.get_attributes(path_str).await?;
+        // .map_err(|op| FsModelError::Backend(op))?;
 
         self.cache_put_attr(path, attributes);
         Ok(attributes)

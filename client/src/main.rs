@@ -140,7 +140,7 @@ async fn main() -> Result<()> {
     // Mount fs
     let mut mount_handle = Session::new(mount_options)
         // .mount_with_unprivileged(Fs::new(&base_url), &config.mountpoint)
-        .mount(Fs::new(&base_url, cache_config), &config.mountpoint)
+        .mount(Fs::new(rc, cache_config), &config.mountpoint)
         .await
         .map_err(|err| ClientError::Daemon(error::DaemonError::StartFailed(err.to_string())))?;
 

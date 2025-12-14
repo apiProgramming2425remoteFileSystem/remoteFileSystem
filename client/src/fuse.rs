@@ -27,9 +27,9 @@ pub struct Fs {
 }
 
 impl Fs {
-    pub fn new(base_url: &str, cache_config: CacheConfig) -> Self {
+    pub fn new(rc: RemoteClient, cache_config: CacheConfig) -> Self {
         Self {
-            fs: fs_model::FileSystem::new(base_url, cache_config),
+            fs: fs_model::FileSystem::new(rc, cache_config),
         }
     }
 }
@@ -823,7 +823,7 @@ impl PathFilesystem for Fs {
         let parent_path = Path::new(parent);
         let complete_path = parent_path.join(name);
         self.fs
-            .mkdir(complete_path.as_os_str())
+            .mkdir(&complete_path)
             .await
             .map(|attr| ReplyEntry {
                 ttl: self.fs.get_ttl(),
@@ -933,7 +933,7 @@ impl PathFilesystem for Fs {
         // TODO:
         let path = Path::new(parent);
 
-        let items = match self.fs.readdir(parent).await {
+        let items = match self.fs.readdir(&path).await {
             Ok(vec_items) => vec_items,
             Err(err) => {
                 tracing::error!("readdir failed: {err}");
@@ -1020,11 +1020,7 @@ impl PathFilesystem for Fs {
         // Err(libc::ENOSYS.into())
         let old_path = Path::new(origin_parent).join(origin_name);
         let new_path = Path::new(parent).join(name);
-        match self
-            .fs
-            .rename(&old_path, &new_path)
-            .await
-        {
+        match self.fs.rename(&old_path, &new_path).await {
             Ok(_) => Ok(()),
             Err(err) => Err(Errno::from(libc::ENOENT)),
         }
@@ -1046,11 +1042,7 @@ impl PathFilesystem for Fs {
         //Err(libc::ENOSYS.into());
         let old_path = Path::new(origin_parent).join(origin_name);
         let new_path = Path::new(parent).join(name);
-        match self
-            .fs
-            .rename(&old_path, &new_path)
-            .await
-        {
+        match self.fs.rename(&old_path, &new_path).await {
             Ok(_) => Ok(()),
             Err(err) => Err(Errno::from(libc::ENOENT)),
         }

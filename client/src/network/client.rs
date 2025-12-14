@@ -59,7 +59,7 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_path(&self, path: &str) -> anyhow::Result<Vec<SerializableFSItem>> {
+    pub async fn list_path(&self, path: &str) -> Result<Vec<SerializableFSItem>> {
         let url = self.set_url("list", path);
 
         let resp = self
@@ -208,7 +208,7 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &str) -> anyhow::Result<FileAttr> {
+    pub async fn get_attributes(&self, path: &str) -> Result<FileAttr> {
         let url = self.set_url("attributes", path);
 
         let resp = self
@@ -398,7 +398,7 @@ impl RemoteClient {
     pub async fn get_x_attributes(&self, path: &OsStr, name: &str) -> Result<Xattributes> {
         let path_str = path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+            .ok_or_else(|| anyhow!("Path is not valid UTF-8"))?;
 
         let url_1 = self.set_url("xattributes", path_str);
         let url_2 = self.set_url(&url_1, "names");
