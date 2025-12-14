@@ -1,18 +1,18 @@
+use crate::fs_model::attributes::FileAttr;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
-use crate::fs_model::attributes::FileAttr;
-use std::vec::Vec;
 use std::sync::OnceLock;
+use std::vec::Vec;
 
 pub const PAGE_SIZE: usize = 4096;
 pub static MAX_PAGES: OnceLock<usize> = OnceLock::new();
 
 #[derive(Clone, Debug)]
 pub struct FilePage {
-    pub content: Vec<u8>,     // PAGE_SIZE
-    pub valid_up_to: usize,   // 0..=PAGE_SIZE
+    pub content: Vec<u8>,   // PAGE_SIZE
+    pub valid_up_to: usize, // 0..=PAGE_SIZE
     pub valid_from: usize,
 }
 
@@ -26,8 +26,6 @@ impl FilePage {
     }
 
     pub fn write(&mut self, data: &[u8], offset: usize) {
-
-
         let end = offset + data.len();
         let real_end = end.min(PAGE_SIZE);
         if offset > real_end {
@@ -46,11 +44,10 @@ impl FilePage {
             return None;
         }
         if offset > real_end {
-            return None
+            return None;
         }
         Some(&self.content[offset..real_end])
     }
-
 }
 
 #[derive(Clone)]
@@ -60,10 +57,13 @@ pub struct File {
     pub content: HashMap<u64, FilePage>,
 }
 
-
 impl File {
     pub fn new(name: OsString, attributes: Option<FileAttr>) -> Self {
-        File{ name, attributes, content: HashMap::new() }
+        File {
+            name,
+            attributes,
+            content: HashMap::new(),
+        }
     }
 
     pub fn write_content(&mut self, offset: usize, data: &[u8]) {
@@ -71,21 +71,18 @@ impl File {
         let mut curr_offset = offset;
 
         while !remaining.is_empty() {
-
             let Some(max_pages) = MAX_PAGES.get() else {
                 break;
             };
 
-            if self.content.len() >= *max_pages{
+            if self.content.len() >= *max_pages {
                 break;
             }
 
             let page_index = (curr_offset / PAGE_SIZE) as u64;
             let page_offset = curr_offset % PAGE_SIZE;
 
-            let page = self.content
-                .entry(page_index)
-                .or_insert_with(FilePage::new);
+            let page = self.content.entry(page_index).or_insert_with(FilePage::new);
 
             let writable = PAGE_SIZE - page_offset;
             let to_write = remaining.len().min(writable);
@@ -136,7 +133,7 @@ impl File {
         if other.attributes.is_some() {
             self.attributes = other.attributes;
         }
-        for key in other.content.keys(){
+        for key in other.content.keys() {
             if let Some(page) = other.content.get(key) {
                 let Some(max_pages) = MAX_PAGES.get() else {
                     break;
@@ -144,27 +141,33 @@ impl File {
                 if self.content.len() >= *max_pages {
                     break;
                 }
-                self.write_content((*key as usize) * PAGE_SIZE + page.valid_from,
-                                   &page.content[page.valid_from..page.valid_up_to]);
+                self.write_content(
+                    (*key as usize) * PAGE_SIZE + page.valid_from,
+                    &page.content[page.valid_from..page.valid_up_to],
+                );
             }
         }
     }
 }
 
-
-impl Debug for File{
+impl Debug for File {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut result = String::from("attributes: ");
-        if self.attributes.is_some(){
+        if self.attributes.is_some() {
             result += "present  ";
-        }
-        else {
+        } else {
             result += "missing  ";
         }
         result += "pages: ";
-        for key in self.content.keys(){
+        for key in self.content.keys() {
             if let Some(page) = self.content.get(key) {
-                result += &format!("{}:[{}-{}]<{:?}> ", key, page.valid_from, page.valid_up_to, &page.content[page.valid_from..page.valid_up_to]);
+                result += &format!(
+                    "{}:[{}-{}]<{:?}> ",
+                    key,
+                    page.valid_from,
+                    page.valid_up_to,
+                    &page.content[page.valid_from..page.valid_up_to]
+                );
             }
         }
         write!(f, "{}", result)

@@ -79,7 +79,7 @@ services:
       # - ./server:${APP_PATH}/server/
       # - ./client:${APP_PATH}/client/
       - .:${APP_PATH}/
-      - ./mount:${FS_ROOT} # Server FS root for testing purposes
+      - ./mount_dir:${FS_ROOT} # Server FS root for testing purposes
     working_dir: *app_path
     tty: true # Keep the terminal open
     restart: unless-stopped # Automatically restart unless stopped manually

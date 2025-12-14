@@ -10,8 +10,7 @@ use tokio;
 use tracing::{Level, instrument};
 
 use crate::error::FsModelError;
-use crate::fs_model::attributes::SetAttr;
-use crate::network::client::RemoteClient;
+use crate::network::RemoteClient;
 use crate::network::models::{ItemType, SerializableFSItem, Xattributes};
 
 pub mod attributes;
@@ -68,7 +67,7 @@ fn get_parent_path(path: &Path) -> PathBuf {
 /// }
 //
 impl FileSystem {
-    #[instrument(ret(level = Level::DEBUG))]
+    // #[instrument(ret(level = Level::DEBUG))]
     pub fn new(rc: RemoteClient, cache_config: CacheConfig) -> Self {
         Self {
             remote_client: rc,
@@ -251,8 +250,10 @@ impl FileSystem {
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        self.remote_client.list_path(path_str).await
-        // .map_err(|op| FsModelError::Backend(op.into()))
+        self.remote_client
+            .list_path(path_str)
+            .await
+            .map_err(|op| FsModelError::Backend(op.into()))
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -460,7 +461,8 @@ impl FileSystem {
         self.remote_client
             .rename(old_path_str, new_path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
 
         let old_item = self.cache_remove(old_path);
         if let Some(name) = new_path.file_name() {
@@ -482,7 +484,8 @@ impl FileSystem {
         self.remote_client
             .remove(path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
 
         self.cache_remove(path);
 
@@ -507,7 +510,8 @@ impl FileSystem {
             .remote_client
             .resolve_child(uid, gid, path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
 
         self.cache_put_attr(path, attributes);
         Ok(attributes)
@@ -549,7 +553,8 @@ impl FileSystem {
             .remote_client
             .set_attributes(uid, gid, path_str, new_attributes)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
 
         self.cache_put_attr(path, attributes);
         Ok(attributes)
@@ -567,7 +572,8 @@ impl FileSystem {
             .remote_client
             .get_permissions(path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
         Ok(permissions)
     }
 
@@ -583,7 +589,8 @@ impl FileSystem {
             .remote_client
             .get_stats(path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
         Ok(stats)
     }
 
@@ -629,7 +636,8 @@ impl FileSystem {
             .remote_client
             .create_symlink(path_str, target)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
 
         if let Some(name) = path.file_name() {
             let item = CacheItem::SymLink(SymLink::new(
@@ -661,7 +669,8 @@ impl FileSystem {
             .remote_client
             .read_symlink(path_str)
             .await
-            .map_err(|op| FsModelError::Backend(op))?;
+            .map_err(|op| FsModelError::Other(op))?;
+        // .map_err(|op| FsModelError::Backend(op))?;
         if let Some(name) = path.file_name() {
             let item = CacheItem::SymLink(SymLink::new(
                 name.to_os_string(),

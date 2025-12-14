@@ -1,8 +1,8 @@
 use crate::cache::CacheItem;
 use crate::error::FsModelError;
-use crate::fs_model::FileAttr;
-use crate::fs_model::attributes::SetAttr;
+use crate::fs_model::{FileAttr, SetAttr};
 use crate::fuse::Fs;
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 

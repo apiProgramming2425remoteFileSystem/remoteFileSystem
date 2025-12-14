@@ -15,10 +15,8 @@ pub async fn auth_middleware(
     next: middleware::Next<impl MessageBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {
     // 1. Extract Authorization Header
-    println!("SIAMO NEL MIDDLEWARE....");
     let auth_header = req.headers().get(header::AUTHORIZATION);
 
-    println!("HO OTTENUTO L'HEADER");
     let token = match auth_header {
         Some(header) => {
             let header_str = header
@@ -55,18 +53,15 @@ pub async fn auth_middleware(
             // This allows subsequent handlers to retrieve it
             req.extensions_mut().insert(user);
 
-            println!("FINITO ESECUZIONE");
             // Pass control to the next handler
             next.call(req).await
         }
         Err(_) => {
             // 5. FAILURE: Return 401 error
-            println!("FINITO ESECUZIONE");
             Err(actix_web::error::ErrorUnauthorized(
                 "Invalid or expired token",
             ))
         }
-
     }
 }
 

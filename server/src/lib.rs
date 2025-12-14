@@ -3,6 +3,7 @@ use std::path::Path;
 
 use actix_web::middleware::Logger;
 use actix_web::{App, HttpServer, web};
+use anyhow;
 use tracing_actix_web::TracingLogger;
 
 pub mod config;
@@ -56,7 +57,12 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
             "Filesystem root directory {:?} does not exist. Creating it.",
             fs_root
         );
-        fs::create_dir_all(&fs_root).map_err(|err| ServerError::Other(err.into()))?;
+        fs::create_dir_all(&fs_root).map_err(|err| {
+            ServerError::Other(anyhow::format_err!(
+                "Could not create root directory: {}",
+                err
+            ))
+        })?;
     }
 
     tracing::info!("Starting server at {}:{}", host, port);
@@ -74,8 +80,8 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
             .configure(routes::configure)
     })
     .bind((host, port))
-    .map_err(|err| ServerError::Other(err.into()))?
+    .map_err(|err| ServerError::Other(anyhow::format_err!("Could not bind server: {}", err)))?
     .run()
     .await
-    .map_err(|err| ServerError::Other(err.into()))
+    .map_err(|err| ServerError::Other(anyhow::format_err!("Server runtime error: {}", err)))
 }

@@ -1,5 +1,5 @@
 target/
-mount/
+mount_dir/
 logs/
 .idea/
 *.lock

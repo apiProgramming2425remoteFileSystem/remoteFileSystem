@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -11,13 +12,15 @@ use tokio::sync::RwLock;
 use tracing::{Level, instrument};
 use urlencoding;
 
-use crate::error::FsModelError;
-use crate::fs_model::{FileAttr, Stats, attributes::SetAttr};
-
+use super::APP_V1_BASE_URL;
 use super::middleware::*;
 use super::models::*;
+use crate::error::FsModelError;
+use crate::error::NetworkError;
+use crate::fs_model::{FileAttr, Stats, attributes::SetAttr};
 
-type Result<T> = std::result::Result<T, FsModelError>;
+type Result<T> = std::result::Result<T, NetworkError>;
+// type Result<T> = std::result::Result<T, FsModelError>;
 
 #[derive(Debug, Clone)]
 pub struct RemoteClient {
@@ -28,7 +31,7 @@ pub struct RemoteClient {
 
 impl RemoteClient {
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new(base_url: &str) -> Self {
+    pub fn new<S: AsRef<str> + Debug>(base_url: S) -> Self {
         let token_store = Arc::new(RwLock::new(None));
 
         let reqwest_client = Client::new();
@@ -40,41 +43,49 @@ impl RemoteClient {
             .build();
 
         Self {
-            base_url: base_url.to_string(),
+            base_url: format!("{}{}", base_url.as_ref(), APP_V1_BASE_URL),
             http_client: middleware_client,
             token_store,
         }
     }
 
-    fn set_url(&self, api: &str, path: &str) -> String {
-        let url = format!("{}/{}/{}", self.base_url, api, urlencoding::encode(path));
+    fn set_url<S: AsRef<str>>(&self, api: S, path: S) -> String {
+        let url = format!(
+            "{}/{}/{}",
+            self.base_url,
+            api.as_ref(),
+            urlencoding::encode(path.as_ref())
+        );
         tracing::debug!("fetching {}", url);
         return url;
     }
 
-    fn set_short_url(&self, api: &str) -> String {
-        let url = format!("{}/{}", self.base_url, api);
+    fn set_short_url<S: AsRef<str>>(&self, api: S) -> String {
+        let url = format!("{}/{}", self.base_url, api.as_ref());
         tracing::debug!("fetching {}", url);
         return url;
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_path(&self, path: &str) -> Result<Vec<SerializableFSItem>> {
-        let url = self.set_url("list", path);
+    pub async fn list_path<S: AsRef<str> + Debug>(
+        &self,
+        path: S,
+    ) -> Result<Vec<SerializableFSItem>> {
+        let url = self.set_url("list", path.as_ref());
 
         let resp = self
             .http_client
             .get(url)
             .send()
             .await
-            .map_err(|e| FsModelError::ClientError(e.to_string()))?; // propagate HTTP errors as errors
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?; // propagate HTTP errors as errors
 
         match resp.status() {
             StatusCode::OK => {
                 let body = resp
                     .json()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
                 tracing::debug!("response: {:?}", body);
                 return Ok(body);
             }
@@ -82,22 +93,26 @@ impl RemoteClient {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::PermissionDenied(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::PermissionDenied(body).to_string(),
+                ))
             }
             StatusCode::BAD_REQUEST => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::InvalidInput(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::InvalidInput(body).to_string(),
+                ))
             }
             _ => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body)))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::Other(anyhow!(body)))
             }
         }
 
@@ -108,13 +123,13 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn read_file(
+    pub async fn read_file<S: AsRef<str> + Debug>(
         &self,
-        path: &str,
+        path: S,
         offset: usize,
         size: usize,
-    ) -> anyhow::Result<Vec<u8>> {
-        let url = self.set_url("files", path);
+    ) -> Result<Vec<u8>> {
+        let url = self.set_url("files", path.as_ref());
 
         let read_file = ReadFileRequest::new(offset, size);
 
@@ -123,23 +138,29 @@ impl RemoteClient {
             .get(url)
             .json(&read_file)
             .send()
-            .await?
+            .await
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?
             .error_for_status()?; // propagate HTTP errors as errors
 
-        let bytes = resp.bytes().await?;
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+        // .map_err(|_err| anyhow::anyhow!("Invalid base64 data"));
+
         Ok(bytes.to_vec())
     }
 
     #[instrument(skip(self, data), err(level = Level::ERROR))]
-    pub async fn write_file(
+    pub async fn write_file<S: AsRef<str> + Debug>(
         &self,
-        path: &str,
+        path: S,
         offset: usize,
         data: Vec<u8>,
-    ) -> anyhow::Result<FileAttr> {
+    ) -> Result<FileAttr> {
         use reqwest::header::CONTENT_TYPE;
 
-        let url = self.set_url("files", path);
+        let url = self.set_url("files", path.as_ref());
 
         let resp = self
             .http_client
@@ -148,7 +169,8 @@ impl RemoteClient {
             .header(CONTENT_TYPE, "application/octet-stream")
             .body(data)
             .send()
-            .await?
+            .await
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?
             .error_for_status()?;
 
         let attr: FileAttr = resp.json().await?;
@@ -156,14 +178,15 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn mkdir(&self, path: &str) -> anyhow::Result<FileAttr> {
-        let url = self.set_url("mkdir", path);
+    pub async fn mkdir<S: AsRef<str> + Debug>(&self, path: S) -> Result<FileAttr> {
+        let url = self.set_url("mkdir", path.as_ref());
 
         let resp = self
             .http_client
             .post(url)
             .send()
-            .await?
+            .await
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?
             .error_for_status()?;
 
         let body: FileAttr = resp.json().await?;
@@ -172,32 +195,46 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn rename(&self, old_path: &str, new_path: &str) -> anyhow::Result<()> {
+    pub async fn rename<S: AsRef<str> + Debug>(
+        &self,
+        old_path: S,
+        new_path: S,
+    ) -> anyhow::Result<()> {
         let url = self.set_short_url("rename");
-        let rename_req = RenameRequest::new(String::from(old_path), String::from(new_path));
+        let rename_req = RenameRequest::new(
+            String::from(old_path.as_ref()),
+            String::from(new_path.as_ref()),
+        );
         self.http_client
             .put(url)
             .json(&rename_req)
             .send()
-            .await?
+            .await
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?
             .error_for_status()?;
         Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove(&self, path: &str) -> anyhow::Result<()> {
-        let url = self.set_url("files", path);
+    pub async fn remove<S: AsRef<str> + Debug>(&self, path: S) -> anyhow::Result<()> {
+        let url = self.set_url("files", path.as_ref());
         self.http_client
             .delete(url)
             .send()
-            .await?
+            .await
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?
             .error_for_status()?;
         Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn resolve_child(&self, uid: u32, gid: u32, path: &str) -> anyhow::Result<FileAttr> {
-        let url = self.set_url("attributes/directory", path);
+    pub async fn resolve_child<S: AsRef<str> + Debug>(
+        &self,
+        uid: u32,
+        gid: u32,
+        path: S,
+    ) -> anyhow::Result<FileAttr> {
+        let url = self.set_url("attributes/directory", path.as_ref());
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
@@ -208,22 +245,22 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &str) -> Result<FileAttr> {
-        let url = self.set_url("attributes", path);
+    pub async fn get_attributes<S: AsRef<str> + Debug>(&self, path: S) -> Result<FileAttr> {
+        let url = self.set_url("attributes", path.as_ref());
 
         let resp = self
             .http_client
             .get(url)
             .send()
             .await
-            .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
 
         match resp.status() {
             StatusCode::OK => {
                 let body = resp
                     .json()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
                 tracing::debug!("response: {:?}", body);
                 return Ok(body);
             }
@@ -231,35 +268,39 @@ impl RemoteClient {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::NotFound(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::NotFound(body).to_string(),
+                ))
             }
             StatusCode::UNAUTHORIZED => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::PermissionDenied(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::PermissionDenied(body).to_string(),
+                ))
             }
             _ => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body)))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::Other(anyhow::anyhow!(body)))
             }
         }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_attributes(
+    pub async fn set_attributes<S: AsRef<str> + Debug>(
         &self,
         uid: u32,
         gid: u32,
-        path: &str,
+        path: S,
         new_attributes: SetAttr,
     ) -> anyhow::Result<FileAttr> {
-        let url = self.set_url("attributes", path);
+        let url = self.set_url("attributes", path.as_ref());
 
         let resp = self
             .http_client
@@ -276,8 +317,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions(&self, path: &str) -> anyhow::Result<u32> {
-        let url = self.set_url("permissions", path);
+    pub async fn get_permissions<S: AsRef<str> + Debug>(&self, path: S) -> anyhow::Result<u32> {
+        let url = self.set_url("permissions", path.as_ref());
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
@@ -288,8 +329,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_stats(&self, path: &str) -> anyhow::Result<Stats> {
-        let url = self.set_url("stats", path);
+    pub async fn get_stats<S: AsRef<str> + Debug>(&self, path: S) -> anyhow::Result<Stats> {
+        let url = self.set_url("stats", path.as_ref());
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
@@ -341,16 +382,14 @@ impl RemoteClient {
             .json(&LoginRequest::new(username, password))
             .send()
             .await
-            .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-
-        println!("RESPONSE {:?}", resp);
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
 
         match resp.status() {
             StatusCode::OK => {
                 let body: LoginResponse = resp
                     .json()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
                 tracing::debug!("response: {:?}", body);
 
                 // Store the token
@@ -361,15 +400,15 @@ impl RemoteClient {
                 tracing::info!("Login successful");
                 return Ok(body.token);
             }
-            StatusCode::UNAUTHORIZED => Err(FsModelError::PermissionDenied(String::from(
-                "Invalid credentials.",
-            ))),
+            StatusCode::UNAUTHORIZED => Err(NetworkError::ServerError(
+                "Invalid credentials.".to_string(),
+            )),
             _ => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body)))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::Other(anyhow::anyhow!(body)))
             }
         }
     }
@@ -401,22 +440,21 @@ impl RemoteClient {
             .ok_or_else(|| anyhow!("Path is not valid UTF-8"))?;
 
         let url_1 = self.set_url("xattributes", path_str);
-        let url_2 = self.set_url(&url_1, "names");
-        let url = self.set_url(&url_2, name);
+        let url = format!("{}/names/{}", url_1, name);
 
         let resp = self
             .http_client
             .get(url)
             .send()
             .await
-            .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
 
         match resp.status() {
             StatusCode::OK => {
                 let body: Xattributes = resp
                     .json()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
                 tracing::debug!("response: {:?}", body);
                 Ok(body)
             }
@@ -424,22 +462,26 @@ impl RemoteClient {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::PermissionDenied(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::PermissionDenied(body).to_string(),
+                ))
             }
             StatusCode::NOT_FOUND => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::NotFound(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::NotFound(body).to_string(),
+                ))
             }
             _ => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body)))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::Other(anyhow::anyhow!(body)))
             }
         }
     }
@@ -451,13 +493,12 @@ impl RemoteClient {
         name: &str,
         xattributes: &[u8],
     ) -> Result<()> {
-        let path_str = path.to_str().ok_or_else(|| {
-            FsModelError::ConversionFailed(String::from("Path is not valid UTF-8"))
-        })?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
 
         let url_1 = self.set_url("xattributes", path_str);
-        let url_2 = self.set_url(&url_1, "names");
-        let url = self.set_url(&url_2, name);
+        let url = format!("{}/names/{}", url_1, name);
 
         let resp = self
             .http_client
@@ -465,7 +506,7 @@ impl RemoteClient {
             .json(&Xattributes::new(xattributes))
             .send()
             .await
-            .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
 
         match resp.status() {
             StatusCode::OK => Ok(()),
@@ -473,41 +514,43 @@ impl RemoteClient {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::PermissionDenied(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::PermissionDenied(body).to_string(),
+                ))
             }
             _ => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body)))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::Other(anyhow::anyhow!(body)))
             }
         }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_x_attributes(&self, path: &OsStr) -> Result<Vec<String>> {
-        let path_str = path.to_str().ok_or_else(|| {
-            FsModelError::ConversionFailed(String::from("Path is not valid UTF-8"))
-        })?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
 
         let url_1 = self.set_url("xattributes", path_str);
-        let url = self.set_url(&url_1, "names");
+        let url = format!("{}/names", url_1);
 
         let resp = self
             .http_client
             .get(url)
             .send()
             .await
-            .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
 
         match resp.status() {
             StatusCode::OK => {
                 let list_names: ListXattributes = resp
                     .json::<ListXattributes>()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
                 tracing::debug!("response: {:?}", list_names);
                 Ok(list_names.names)
             }
@@ -515,42 +558,45 @@ impl RemoteClient {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::PermissionDenied(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::PermissionDenied(body).to_string(),
+                ))
             }
             StatusCode::NOT_FOUND => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::NotFound(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::NotFound(body).to_string(),
+                ))
             }
             _ => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body)))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::Other(anyhow::anyhow!(body)))
             }
         }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn remove_x_attributes(&self, path: &OsStr, name: &str) -> Result<()> {
-        let path_str = path.to_str().ok_or_else(|| {
-            FsModelError::ConversionFailed(String::from("Path is not valid UTF-8"))
-        })?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
 
         let url_1 = self.set_url("xattributes", path_str);
-        let url_2 = self.set_url(&url_1, "names");
-        let url = self.set_url(&url_2, name);
+        let url = format!("{}/names/{}", url_1, name);
 
         let resp = self
             .http_client
             .delete(url)
             .send()
             .await
-            .map_err(|e| FsModelError::ClientError(e.to_string()))?;
+            .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
 
         match resp.status() {
             StatusCode::OK => Ok(()),
@@ -558,15 +604,17 @@ impl RemoteClient {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::PermissionDenied(body))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::ServerError(
+                    FsModelError::PermissionDenied(body).to_string(),
+                ))
             }
             _ => {
                 let body: String = resp
                     .text()
                     .await
-                    .map_err(|e| FsModelError::ClientError(e.to_string()))?;
-                Err(FsModelError::Backend(anyhow!(body)))
+                    .map_err(|e| NetworkError::Other(anyhow::anyhow!(e)))?;
+                Err(NetworkError::Other(anyhow::anyhow!(body)))
             }
         }
     }

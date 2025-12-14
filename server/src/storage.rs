@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::PermissionsExt;
@@ -16,8 +16,8 @@ use crate::models::{Permission, SetAttr, Stats, Timestamp};
 use crate::nodes::{Directory, FSItem, File, SymLink};
 
 use crate::models::{FileAttr, FileType};
-#[cfg(target_family = "unix")]
-use nix::sys::statvfs::{Statvfs, statvfs};
+#[cfg(unix)]
+use nix::sys::statvfs::statvfs;
 
 type Result<T> = std::result::Result<T, StorageError>;
 
@@ -108,7 +108,6 @@ impl FileSystem {
             let size = meta.len() as usize;
             let file = FSItem::File(File::new(
                 real.file_name()?,
-                size,
                 get_attributes_by_path(&real).unwrap(),
             ));
             Some(file)
@@ -147,11 +146,7 @@ impl FileSystem {
 
                 let child = if meta.is_file() {
                     let path = real.join(name.clone());
-                    FSItem::File(File::new(
-                        name,
-                        meta.len() as usize,
-                        get_attributes_by_path(&path).unwrap(),
-                    ))
+                    FSItem::File(File::new(name, get_attributes_by_path(&path).unwrap()))
                 } else if meta.is_dir() {
                     let path = real.join(name.clone());
                     FSItem::Directory(Directory::new(name, get_attributes_by_path(&path).unwrap()))
@@ -385,7 +380,7 @@ impl FileSystem {
         let real_path = self.make_real_path(path)?;
         if let Some(size) = new_attributes.size {
             // just doing touch
-            let file = OpenOptions::new().write(true).open(&real_path)?;
+            let file = fs::OpenOptions::new().write(true).open(&real_path)?;
             file.set_len(size)?;
         }
         get_attributes_by_path(&real_path)
@@ -426,7 +421,7 @@ impl FileSystem {
         get_attributes_by_path(&real)
     }
 
-    #[cfg(target_family = "unix")]
+    #[cfg(unix)]
     pub fn get_fs_stats(&self, path: &str) -> Result<Stats> {
         let real = self.make_real_path(path)?;
         if !real.exists() {
