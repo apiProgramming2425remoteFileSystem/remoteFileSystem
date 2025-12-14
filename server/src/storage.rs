@@ -4,14 +4,16 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(target_family = "unix")]
+use std::os::unix::fs::symlink;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 use tracing::{Level, instrument};
 
 use crate::error::StorageError;
-use crate::models::{Permission, SetAttr, Timestamp, Stats};
-use crate::nodes::{Directory, FSItem, File};
+use crate::models::{Permission, SetAttr, Stats, Timestamp};
+use crate::nodes::{Directory, FSItem, File, SymLink};
 
 use crate::models::{FileAttr, FileType};
 #[cfg(target_family = "unix")]
@@ -29,7 +31,7 @@ fn check_permission(owner_uid: u32, owner_gid: u32, uid: u32, gid: u32) -> bool 
 }
 
 fn get_attributes_by_path(path: &Path) -> Result<FileAttr> {
-    match fs::metadata(path) {
+    match fs::symlink_metadata(path) {
         Ok(object) => {
             let nlink = 1;
 
@@ -37,8 +39,10 @@ fn get_attributes_by_path(path: &Path) -> Result<FileAttr> {
                 FileType::Directory
             } else if object.is_file() {
                 FileType::RegularFile
-            } else {
+            } else if object.is_symlink() {
                 FileType::Symlink
+            } else {
+                FileType::RegularFile
             };
 
             let attributes = FileAttr {
@@ -98,7 +102,7 @@ impl FileSystem {
     #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn find<P: AsRef<Path> + Debug>(&self, path: P) -> Option<FSItem> {
         let real = self.make_real_path(path.as_ref()).ok()?;
-        let meta = real.metadata().ok()?;
+        let meta = real.symlink_metadata().ok()?;
 
         if meta.is_file() {
             let size = meta.len() as usize;
@@ -131,7 +135,7 @@ impl FileSystem {
                 };
 
                 let path = entry.path();
-                let meta = match entry.metadata() {
+                let meta = match std::fs::symlink_metadata(&path) {
                     Ok(m) => m,
                     Err(err) => {
                         tracing::warn!("Cannot read metadata for {:?}: {}", path, err);
@@ -151,6 +155,9 @@ impl FileSystem {
                 } else if meta.is_dir() {
                     let path = real.join(name.clone());
                     FSItem::Directory(Directory::new(name, get_attributes_by_path(&path).unwrap()))
+                } else if meta.is_symlink() {
+                    let path = real.join(name.clone());
+                    FSItem::SymLink(SymLink::new(name, get_attributes_by_path(&path).unwrap()))
                 } else {
                     continue;
                 };
@@ -161,6 +168,12 @@ impl FileSystem {
             }
 
             Some(root)
+        } else if meta.is_symlink() {
+            let link = FSItem::SymLink(SymLink::new(
+                real.file_name()?,
+                get_attributes_by_path(&real).unwrap(),
+            ));
+            Some(link)
         } else {
             None
         }
@@ -238,9 +251,11 @@ impl FileSystem {
                 FSItem::File(File::new(name, meta.len() as usize))
             } else if meta.is_dir() {
                 FSItem::Directory(Directory::new(name))
+            } else if meta.is_symlink() {
+                FSItem::SymLink(SymLink::new(name))
             } else {
                 continue;
-            };
+            }
 
             if let FSItem::Directory(dir) = &mut root {
                 insert_path(dir, rel_path, item);
@@ -298,9 +313,12 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn delete<P: AsRef<Path> + Debug>(&self, path: P) -> Result<()> {
         let real = self.make_real_path(path.as_ref())?;
-        let meta = real.metadata()?;
+        let meta = real.symlink_metadata()?;
 
-        if meta.is_file() {
+        if meta.file_type().is_symlink() {
+            fs::remove_file(&real)?;
+            Ok(())
+        } else if meta.is_file() {
             fs::remove_file(&real)?;
             Ok(())
         } else if meta.is_dir() {
@@ -327,19 +345,26 @@ impl FileSystem {
         f.seek(SeekFrom::Start(offset as u64))?;
         // Write data
         f.write_all(data)?;
+
+        // useless??
         // Rewind to start to read the updated file content
-        f.seek(SeekFrom::Start(0))?;
+        // f.seek(SeekFrom::Start(0))?;
         Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub fn read_file<P: AsRef<Path> + Debug>(&self, path: P, offset: usize) -> Result<Vec<u8>> {
+    pub fn read_file<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>> {
         let real_path = self.make_real_path(path)?;
         let mut f = fs::OpenOptions::new().read(true).open(&real_path)?;
-        // Seek to offset
         f.seek(SeekFrom::Start(offset as u64))?;
-        let mut buffer = Vec::<u8>::new();
-        f.read_to_end(&mut buffer)?;
+        let mut buffer = vec![0u8; size];
+        let bytes_read = f.read(&mut buffer)?;
+        buffer.truncate(bytes_read);
         Ok(buffer)
     }
 
@@ -375,6 +400,30 @@ impl FileSystem {
             )));
         }
         Ok(0o755)
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn read_symlink<P: AsRef<Path> + Debug>(&self, path: P) -> Result<String> {
+        let real = self.make_real_path(path)?;
+        let target = fs::read_link(&real)?;
+        Ok(target.to_string_lossy().to_string())
+    }
+
+    #[cfg(target_family = "unix")]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn create_symlink<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        target: &str,
+    ) -> Result<FileAttr> {
+        let real = self.make_real_path(path)?;
+
+        if real.exists() {
+            return Err(StorageError::AlreadyExists(format!("{:?}", real)));
+        }
+
+        symlink(target, &real)?;
+        get_attributes_by_path(&real)
     }
 
     #[cfg(target_family = "unix")]

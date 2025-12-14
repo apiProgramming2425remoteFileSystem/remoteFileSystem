@@ -1,5 +1,6 @@
 use actix_web::middleware::from_fn;
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
+use bytes::Bytes;
 use tracing::{Level, instrument};
 
 use crate::db::DB;
@@ -19,32 +20,32 @@ impl Routes {
 
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg
-    .service(
+    cfg.service(
         // Authentication routes
-        web::scope(Routes::AUTH)
-        .service(login),
+        web::scope(Routes::AUTH).service(login),
     )
     .service(
         web::scope(APP_V1_BASE_URL)
-        // Filesystem operations routes protected by auth middleware
-        .wrap(from_fn(auth_middleware))
-        .service(logout)
-        .service(list_path)
-        .service(get_file_content)
-        .service(write_file)
-        .service(make_directory)
-        .service(delete_item)
-        .service(rename)
-        .service(resolve_child)
-        .service(get_attributes)
-        .service(set_attributes)
-        .service(get_permissions)
-        .service(get_stats)
-        .service(set_x_attributes)
-        .service(get_x_attributes)
-        .service(list_x_attributes)
-        .service(delete_x_attributes),
+            // Filesystem operations routes protected by auth middleware
+            .wrap(from_fn(auth_middleware))
+            .service(logout)
+            .service(list_path)
+            .service(get_file_content)
+            .service(write_file)
+            .service(make_directory)
+            .service(delete_item)
+            .service(rename)
+            .service(resolve_child)
+            .service(get_attributes)
+            .service(set_attributes)
+            .service(get_permissions)
+            .service(get_stats)
+            .service(create_symlink)
+            .service(read_symlink)
+            .service(set_x_attributes)
+            .service(get_x_attributes)
+            .service(list_x_attributes)
+            .service(delete_x_attributes),
     );
 }
 
@@ -66,14 +67,26 @@ async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl R
 }
 
 #[get("/files/{path}")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn get_file_content(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn get_file_content(
+    fs: web::Data<FileSystem>,
+    path: web::Path<String>,
+    json: web::Json<ReadFileRequest>,
+) -> impl Responder {
     let path = path.into_inner();
+    let offset = json.offset();
+    let size = json.size();
 
-    match fs.read_file(&path, 0) {
-        Ok(content) => HttpResponse::Ok().json(SerializableFileContent::new(&content)),
-        Err(e) => HttpResponse::InternalServerError().json(format!("Failed to read file: {}", e)),
-    }
+    let data = match fs.read_file(&path, offset, size) {
+        Ok(content) => content,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(format!("Failed to read file: {}", e));
+        }
+    };
+
+    HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        .body(data)
 }
 
 #[put("/files/{path}")]
@@ -81,18 +94,21 @@ async fn get_file_content(fs: web::Data<FileSystem>, path: web::Path<String>) ->
 async fn write_file(
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
-    json: web::Json<WriteFileRequest>,
+    query: web::Query<OffsetQuery>,
+    body: Bytes,
 ) -> impl Responder {
     let path = path.into_inner();
-    let offset = json.offset();
-    let Ok(data) = json.data() else {
-        return HttpResponse::BadRequest().body("Invalid base64 data");
-    };
+    let offset = query.offset;
 
-    return match fs.write_file(&path, &data, offset) {
-        Ok(_) => HttpResponse::Ok().body("Write successful"),
-        Err(e) => HttpResponse::InternalServerError().body(format!("Write failed: {}", e)),
-    };
+    match fs.write_file(&path, &body, offset) {
+        Ok(_) => {
+            let attr = fs
+                .get_attributes(&path)
+                .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
+            Ok(HttpResponse::Ok().json(attr))
+        }
+        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+    }
 }
 
 #[post("/mkdir/{path}")]
@@ -111,7 +127,7 @@ async fn make_directory(fs: web::Data<FileSystem>, path: web::Path<String>) -> i
     let attributes = match fs.get_attributes(path.as_str()) {
         Ok(a) => a,
         Err(e) => {
-            tracing::error!("mldir failed: {}", e);
+            tracing::error!("mkdir failed: {}", e);
             return HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e));
         }
     };
@@ -211,6 +227,39 @@ async fn rename(fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> im
     match fs.rename(&old_path, &new_path) {
         Ok(()) => HttpResponse::Ok().body("Successful renaming!"),
         Err(_) => HttpResponse::BadRequest().body("Something went wrong"),
+    }
+}
+
+#[post("/symlink/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn create_symlink(
+    fs: web::Data<FileSystem>,
+    path: web::Path<String>,
+    body: web::Json<SymlinkRequest>,
+) -> impl Responder {
+    let path = path.into_inner();
+    let target = &body.target;
+
+    match fs.create_symlink(&path, target) {
+        Ok(attributes) => HttpResponse::Ok().json(attributes),
+        Err(e) => {
+            tracing::error!("{}", e.to_string());
+            HttpResponse::InternalServerError().body(format!("{}", e))
+        }
+    }
+}
+
+#[get("/symlink/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
+async fn read_symlink(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+    let path = path.into_inner();
+
+    match fs.read_symlink(path.as_str()) {
+        Ok(target) => HttpResponse::Ok().json(target),
+        Err(e) => {
+            tracing::error!("{}", e.to_string());
+            HttpResponse::InternalServerError().json(e.to_string())
+        }
     }
 }
 

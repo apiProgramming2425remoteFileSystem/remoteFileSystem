@@ -24,6 +24,7 @@ use crate::{
 pub enum ItemType {
     File,
     Directory,
+    SymLink,
 }
 
 #[derive(Serialize)]
@@ -37,6 +38,7 @@ impl SerializableFSItem {
     pub fn new(item: &FSItem) -> Self {
         let item_type = match item {
             FSItem::File(_) => ItemType::File,
+            FSItem::SymLink(_) => ItemType::SymLink,
             FSItem::Directory(_) => ItemType::Directory,
         };
         Self {
@@ -47,37 +49,32 @@ impl SerializableFSItem {
     }
 }
 
-#[derive(Serialize)]
-pub struct SerializableFileContent {
-    data: String,
-}
-
-impl SerializableFileContent {
-    pub fn new(data: &[u8]) -> Self {
-        Self {
-            data: STANDARD.encode(data),
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
-pub struct WriteFileRequest {
+pub struct ReadFileRequest {
     offset: usize,
-    data: String, // accept base64-encoded data as string
+    size: usize,
 }
 
-impl WriteFileRequest {
-    pub fn new(offset: usize, data: String) -> Self {
-        Self { offset, data }
+impl ReadFileRequest {
+    pub fn new(offset: usize, size: usize) -> Self {
+        ReadFileRequest { offset, size }
     }
 
     pub fn offset(&self) -> usize {
         self.offset
     }
-    pub fn data(&self) -> Result<Vec<u8>, base64::DecodeError> {
-        STANDARD.decode(&self.data)
+
+    pub fn size(&self) -> usize {
+        self.size
     }
 }
+
+
+#[derive(Debug, Deserialize)]
+pub struct OffsetQuery {
+    pub offset: usize,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RenameRequest {
     old_path: String,
@@ -248,6 +245,15 @@ pub struct Stats {
     pub namelen: u32,
     pub frsize: u32,
 }
+
+
+
+#[derive(Debug, Deserialize)]
+pub struct SymlinkRequest {
+    pub target: String,
+}
+
+
 trait Conversion<T>: Sized {
     type Error;
 

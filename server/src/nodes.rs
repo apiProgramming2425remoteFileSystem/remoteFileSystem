@@ -19,15 +19,23 @@ pub struct File {
 }
 
 #[derive(Clone)]
+pub struct SymLink{
+    name: OsString,
+    attributes: FileAttr,
+}
+
+#[derive(Clone)]
 pub struct Directory {
     name: OsString,
     children: HashMap<PathBuf, FSItem>,
     attributes: FileAttr,
 }
 
+
 #[derive(Debug, Clone)]
 pub enum FSItem {
     File(File),
+    SymLink(SymLink),
     Directory(Directory),
 }
 
@@ -67,12 +75,22 @@ impl Directory {
     }
 }
 
+impl SymLink {
+    pub fn new<S: AsRef<OsStr>>(name: S, attributes: FileAttr) -> Self {
+        Self {
+            name: name.as_ref().to_owned(),
+            attributes,
+        }
+    }
+}
+
 impl FSItem {
     // These methods allow us to use an FSItem in a uniform way
     // regardless of its actual type.
     pub fn name(&self) -> &str {
         let name = match self {
             FSItem::File(f) => &f.name,
+            FSItem::SymLink(l) => &l.name,
             FSItem::Directory(d) => &d.name,
         };
         name.to_str().unwrap()
@@ -81,6 +99,7 @@ impl FSItem {
     pub fn attributes(&self) -> FileAttr {
         match self {
             FSItem::File(f) => f.attributes.clone(),
+            FSItem::SymLink(l) => l.attributes.clone(),
             FSItem::Directory(d) => d.attributes.clone(),
         }
     }
@@ -117,6 +136,7 @@ impl FSItem {
     pub fn set_name<S: AsRef<OsStr>>(&mut self, name: S) {
         match self {
             FSItem::File(f) => f.name = name.as_ref().to_owned(),
+            FSItem::SymLink(l) => l.name = name.as_ref().to_owned(),
             FSItem::Directory(d) => d.name = name.as_ref().to_owned(),
         }
     }
@@ -134,5 +154,11 @@ impl Debug for Directory {
             .field("name", &self.name)
             .field("children_count", &self.children.len())
             .finish()
+    }
+}
+
+impl Debug for SymLink {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("File").field("name", &self.name).finish()
     }
 }

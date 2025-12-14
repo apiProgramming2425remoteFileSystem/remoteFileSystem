@@ -47,6 +47,12 @@ pub enum FsModelError {
     #[error("Conversion failed: {0}")]
     ConversionFailed(String),
 
+    #[error("FileHandlers error")]
+    FileHandlerError,
+
+    #[error("Writers error")]
+    WriterError,
+
     #[error("Remote backend error: {0}")]
     Backend(#[from] anyhow::Error),
 
@@ -77,6 +83,7 @@ pub enum NetworkError {
     Timeout,
 }
 
+/* cache uses Option for now, can't generate errors
 /// Cache related errors
 #[derive(Error, Debug)]
 pub enum CacheError {
@@ -86,6 +93,7 @@ pub enum CacheError {
     #[error("Cache corruption detected")]
     Corruption,
 }
+*/
 
 /// Top-level client error enum wrapping sub-errors
 #[derive(Error, Debug)]
@@ -108,8 +116,8 @@ pub enum ClientError {
     #[error("Network error: {0}")]
     Network(#[from] NetworkError),
 
-    #[error("Cache error: {0}")]
-    Cache(#[from] CacheError),
+    //#[error("Cache error: {0}")]
+    //Cache(#[from] CacheError),
 
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
