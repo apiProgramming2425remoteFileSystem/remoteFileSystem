@@ -4,7 +4,6 @@ use bytes::Bytes;
 use tracing::{Level, instrument};
 
 use crate::db::DB;
-use crate::db::get_expiration_time;
 use crate::middleware::auth_middleware;
 use crate::models::*;
 use crate::storage::*;
@@ -21,7 +20,7 @@ impl Routes {
 // This function configures all routes for your module
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
-        // Authentication routes
+        // Authentication route
         web::scope(Routes::AUTH).service(login),
     )
     .service(
@@ -51,8 +50,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 #[get("/list/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn list_path(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
+
     let Some(item) = fs.find(&path) else {
         return HttpResponse::NotFound().json(String::from("Path not found"));
     };
@@ -69,6 +69,7 @@ async fn list_path(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl R
 #[get("/files/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn get_file_content(
+    user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
     json: web::Json<ReadFileRequest>,
@@ -92,6 +93,7 @@ async fn get_file_content(
 #[put("/files/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
 async fn write_file(
+    user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
     query: web::Query<OffsetQuery>,
@@ -113,7 +115,7 @@ async fn write_file(
 
 #[post("/mkdir/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn make_directory(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn make_directory(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     let (parent, name) = match path.rsplit_once('/') {
         Some((p, n)) => (if p.is_empty() { "/" } else { p }, n),
@@ -137,7 +139,7 @@ async fn make_directory(fs: web::Data<FileSystem>, path: web::Path<String>) -> i
 
 #[delete("/files/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn delete_item(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn delete_item(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     match fs.delete(path.as_str()) {
         Ok(_) => HttpResponse::Ok().body("Successful deletion!"),
@@ -148,7 +150,7 @@ async fn delete_item(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl
 /* Inutile se lookup = getAttr */
 #[get("/resolve/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn resolve_child(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn resolve_child(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     match fs.get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
@@ -158,7 +160,7 @@ async fn resolve_child(fs: web::Data<FileSystem>, path: web::Path<String>) -> im
 
 #[get("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn get_attributes(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn get_attributes(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
     match fs.get_attributes(path.as_str()) {
         Ok(attributes) => HttpResponse::Ok().json(attributes),
@@ -172,6 +174,7 @@ async fn get_attributes(fs: web::Data<FileSystem>, path: web::Path<String>) -> i
 #[put("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn set_attributes(
+    user: AuthenticatedUser, 
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
     json: web::Json<SetAttrRequest>,
@@ -193,7 +196,7 @@ async fn set_attributes(
 
 #[get("/permissions/{path}")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn get_permissions(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn get_permissions(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     match fs.get_permissions(path.as_str()) {
@@ -206,7 +209,7 @@ async fn get_permissions(fs: web::Data<FileSystem>, path: web::Path<String>) -> 
 }
 
 #[get("/stats/{path}")]
-async fn get_stats(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn get_stats(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     match fs.get_fs_stats(path.as_str()) {
@@ -220,7 +223,7 @@ async fn get_stats(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl R
 
 #[put("/rename")]
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
-async fn rename(fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> impl Responder {
+async fn rename(user: AuthenticatedUser, fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> impl Responder {
     let old_path = json.old_path();
     let new_path = json.new_path();
 
@@ -233,6 +236,7 @@ async fn rename(fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> im
 #[post("/symlink/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn create_symlink(
+    user: AuthenticatedUser, 
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
     body: web::Json<SymlinkRequest>,
@@ -251,7 +255,7 @@ async fn create_symlink(
 
 #[get("/symlink/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn read_symlink(fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
+async fn read_symlink(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     match fs.read_symlink(path.as_str()) {
@@ -280,7 +284,7 @@ async fn login(pool: web::Data<DB>, form: web::Json<LoginBody>) -> impl Responde
 
 #[post("/logout")]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-pub async fn logout(pool: web::Data<DB>, user: AuthenticatedUser) -> impl Responder {
+pub async fn logout(user: AuthenticatedUser, pool: web::Data<DB>) -> impl Responder {
     match pool.insert_revoked_token(&user).await {
         Ok(_) => return HttpResponse::Ok().body("Logged out"),
         Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
@@ -292,6 +296,7 @@ pub async fn logout(pool: web::Data<DB>, user: AuthenticatedUser) -> impl Respon
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn set_x_attributes(
+    user: AuthenticatedUser, 
     pool: web::Data<DB>,
     path: web::Path<String>,
     name: web::Path<String>,
@@ -310,6 +315,7 @@ async fn set_x_attributes(
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn get_x_attributes(
+    user: AuthenticatedUser, 
     pool: web::Data<DB>,
     name: web::Path<String>,
     path: web::Path<String>,
@@ -333,7 +339,7 @@ async fn get_x_attributes(
 #[get("/xattributes/{path}/names")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn list_x_attributes(pool: web::Data<DB>, path: web::Path<String>) -> impl Responder {
+async fn list_x_attributes(user: AuthenticatedUser, pool: web::Data<DB>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
     let result = pool.list_x_attributes(&path).await;
@@ -353,6 +359,7 @@ async fn list_x_attributes(pool: web::Data<DB>, path: web::Path<String>) -> impl
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn delete_x_attributes(
+    user: AuthenticatedUser, 
     pool: web::Data<DB>,
     path: web::Path<String>,
     name: web::Path<String>,

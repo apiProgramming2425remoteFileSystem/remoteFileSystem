@@ -1,23 +1,9 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use base64::{Engine, engine::general_purpose::STANDARD};
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow};
 
-use actix_web::{
-    Error, FromRequest, HttpResponse,
-    dev::{Payload, ServiceRequest},
-    web,
-};
-
-use futures::future::{BoxFuture, Ready, err, ok};
-
-use crate::{
-    db::{DB, JWT_KEY},
-    error::ServerError,
-    nodes::FSItem,
-};
+use crate::nodes::FSItem;
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -68,7 +54,6 @@ impl ReadFileRequest {
         self.size
     }
 }
-
 
 #[derive(Debug, Deserialize)]
 pub struct OffsetQuery {
@@ -246,13 +231,10 @@ pub struct Stats {
     pub frsize: u32,
 }
 
-
-
 #[derive(Debug, Deserialize)]
 pub struct SymlinkRequest {
     pub target: String,
 }
-
 
 trait Conversion<T>: Sized {
     type Error;
@@ -378,7 +360,8 @@ impl Conversion<i32> for Permission {
 /* AUTHENTICATION MANAGEMENT */
 #[derive(Debug, FromRow)]
 pub struct User {
-    pub user_id: u64,
+    pub user_id: i64,
+    pub group_id: i64,
     pub username: String,
     pub password: String,
 }
@@ -391,9 +374,10 @@ pub struct LoginBody {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Claims {
-    pub user_id: u64,
+    pub user_id: i64,
+    pub group_id: i64,
     pub token_id: String,
-    pub exp: usize, // expiration time
+    pub exp: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -410,6 +394,7 @@ impl Token {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuthenticatedUser {
     pub user_id: i64,
+    pub group_id: i64,
     pub token_id: String,
     pub expiration_time: i64,
 }

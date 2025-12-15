@@ -6,7 +6,10 @@ use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use sqlx::{SqlitePool, migrate::{Migrator, MigrateDatabase}, Sqlite};
+use sqlx::{
+    Sqlite, SqlitePool,
+    migrate::{MigrateDatabase, Migrator},
+};
 use tracing::{Level, instrument};
 use uuid::Uuid;
 
@@ -49,7 +52,7 @@ async fn verify_password(password: &str, hash: &str) -> bool {
 }
 
 #[instrument(ret(level = Level::DEBUG))]
-async fn generate_token(user_id: u64) -> anyhow::Result<String> {
+async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
     // 1. Compute expiration time
     let expiration_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -64,6 +67,7 @@ async fn generate_token(user_id: u64) -> anyhow::Result<String> {
     // 3. create payload
     let claims = Claims {
         user_id: user_id,
+        group_id: group_id,
         token_id: Uuid::new_v4().to_string(),
         exp: expiration_time as usize,
     };
@@ -110,7 +114,10 @@ impl DB {
         }
 
         Sqlite::create_database(&database_url).await.map_err(|e| {
-            anyhow::anyhow!("Database error: impossible to create database beacause of {}", e)
+            anyhow::anyhow!(
+                "Database error: impossible to create database beacause of {}",
+                e
+            )
         })?;
 
         let pool = SqlitePool::connect(&database_url).await.map_err(|e| {
@@ -125,7 +132,11 @@ impl DB {
         /* AGGIUNTA UTENTE */
         let db = DB { pool: pool };
 
+        /*
         db.create_user("mirko", "password").await?;
+        db.create_user("fabrizio", "password").await?;
+        db.create_user("iulian", "password").await?;
+        */
 
         Ok(db)
     }
@@ -202,6 +213,7 @@ impl DB {
         };
 
         let user_id = token_data.claims.user_id as i64;
+        let group_id = token_data.claims.group_id as i64;
         let token_id = token_data.claims.token_id;
         let expiration_time = token_data.claims.exp as i64;
 
@@ -230,6 +242,7 @@ impl DB {
 
         Ok(AuthenticatedUser {
             user_id,
+            group_id,
             token_id,
             expiration_time,
         })
@@ -243,7 +256,7 @@ impl DB {
         password: &str,
     ) -> anyhow::Result<Option<String>> {
         let result = sqlx::query_as::<_, User>(
-            "SELECT user_id, username, password FROM users WHERE username = ?",
+            "SELECT user_id, group_id, username, password FROM users WHERE username = ?",
         )
         .bind(username.to_string())
         .fetch_optional(&self.pool)
@@ -253,7 +266,7 @@ impl DB {
         match result {
             Some(user) => {
                 if verify_password(password, &user.password).await {
-                    let token = generate_token(user.user_id).await.map_err(|e| anyhow!(e))?;
+                    let token = generate_token(user.user_id, user.group_id).await.map_err(|e| anyhow!(e))?;
                     self.clean_revoked_token().await?;
                     Ok(Some(token))
                 } else {
@@ -265,27 +278,25 @@ impl DB {
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn create_user(
-        &self,
-        username: &str,
-        password: &str) -> anyhow::Result<()>{
-            let pass = hash_password(password).await.map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
+    pub async fn create_user(&self, username: &str, password: &str) -> anyhow::Result<()> {
+        let pass = hash_password(password)
+            .await
+            .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
 
-            let result = sqlx::query_scalar::<_, u8>(
-            "SELECT COUNT(*) FROM users WHERE username = ?",
-        )
-        .bind(username)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| {
-            anyhow!(
-                "Database error: error executing the query because of {}.",
-                e
-            )
-        })?;
-        
+        let result = sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE username = ?")
+            .bind(username)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "Database error: error executing the query because of {}.",
+                    e
+                )
+            })?;
+
         if result == 0 {
-            sqlx::query("INSERT INTO users(username, password) VALUES(?, ?)")
+            sqlx::query("INSERT INTO users(group_id, username, password) VALUES(?, ?, ?)")
+                .bind(0)
                 .bind(username)
                 .bind(pass)
                 .execute(&self.pool)
@@ -297,9 +308,9 @@ impl DB {
                     )
                 })?;
         }
-            Ok(())
-        }
-    
+        Ok(())
+    }
+
     // -- XATTRIBUTES MANAGEMENT --
     #[instrument(ret(level = Level::DEBUG))]
     pub async fn set_x_attributes(

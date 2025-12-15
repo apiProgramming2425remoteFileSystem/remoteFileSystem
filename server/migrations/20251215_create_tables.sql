@@ -1,6 +1,7 @@
 -- 1. users
 CREATE TABLE IF NOT EXISTS users (
     user_id     INTEGER PRIMARY KEY,
+    group_id    INTEGER NOT NULL,
     username    TEXT NOT NULL UNIQUE,
     password    TEXT NOT NULL
 );

@@ -1,20 +1,26 @@
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
-pub struct ReadBuffer{
+pub struct ReadBuffer {
     path: PathBuf,
     offset: usize,
-    valid_up_to : usize,
+    valid_up_to: usize,
     buffer: Vec<u8>,
     capacity: usize,
 }
 
-impl ReadBuffer{
+impl ReadBuffer {
     pub fn new(capacity: usize) -> Self {
-        ReadBuffer{ path: PathBuf::new(), offset: 0, buffer: vec![0; capacity], valid_up_to:0, capacity }
+        ReadBuffer {
+            path: PathBuf::new(),
+            offset: 0,
+            buffer: vec![0; capacity],
+            valid_up_to: 0,
+            capacity,
+        }
     }
 
-    pub fn fill(&mut self, path: &Path, offset: usize, data: &[u8]){
+    pub fn fill(&mut self, path: &Path, offset: usize, data: &[u8]) {
         self.path = path.to_path_buf();
         self.offset = offset;
         let to_copy = data.len().min(self.capacity);
@@ -23,13 +29,11 @@ impl ReadBuffer{
     }
 
     pub fn read(&self, path: &Path, offset: usize, len: usize) -> Vec<u8> {
-        if path != self.path{
+        if path != self.path {
             Vec::new()
-        }
-        else if offset < self.offset || offset >= self.offset + self.valid_up_to {
+        } else if offset < self.offset || offset >= self.offset + self.valid_up_to {
             Vec::new()
-        }
-        else {
+        } else {
             let real_offset = offset - self.offset;
             let real_end = (real_offset + len).min(self.valid_up_to);
             self.buffer[real_offset..real_end].to_vec()
@@ -38,7 +42,7 @@ impl ReadBuffer{
 }
 
 #[derive(Debug)]
-pub struct WriteBuffer{
+pub struct WriteBuffer {
     path: PathBuf,
     offset: usize,
     valid_up_to: usize,
@@ -46,12 +50,18 @@ pub struct WriteBuffer{
     capacity: usize,
 }
 
-impl WriteBuffer{
+impl WriteBuffer {
     pub fn new(capacity: usize) -> Self {
-        WriteBuffer{ path: PathBuf::new(), offset: 0, buffer: vec![0; capacity], valid_up_to:0, capacity }
+        WriteBuffer {
+            path: PathBuf::new(),
+            offset: 0,
+            buffer: vec![0; capacity],
+            valid_up_to: 0,
+            capacity,
+        }
     }
 
-    pub fn is_appending(&self, path: &Path, offset: usize) -> bool{
+    pub fn is_appending(&self, path: &Path, offset: usize) -> bool {
         self.path == path && self.offset + self.valid_up_to == offset
     }
 
@@ -60,11 +70,11 @@ impl WriteBuffer{
             // append
             let available = self.capacity - self.valid_up_to;
             let to_copy = data.len().min(available);
-            self.buffer[self.valid_up_to..self.valid_up_to+to_copy].copy_from_slice(&data[..to_copy]);
+            self.buffer[self.valid_up_to..self.valid_up_to + to_copy]
+                .copy_from_slice(&data[..to_copy]);
             self.valid_up_to += to_copy;
             to_copy
-        }
-        else {
+        } else {
             self.path = path.to_path_buf();
             self.offset = offset;
             let to_copy = data.len().min(self.capacity);
@@ -74,7 +84,7 @@ impl WriteBuffer{
         }
     }
 
-    pub fn is_full(&self) -> bool{
+    pub fn is_full(&self) -> bool {
         self.valid_up_to >= self.capacity
     }
 

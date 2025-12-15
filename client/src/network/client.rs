@@ -66,6 +66,31 @@ impl RemoteClient {
         return url;
     }
 
+    fn set_long_url<S: AsRef<str>>(&self, api: S, obj_1: S, group: S, obj_2: Option<S>) -> String {
+        let mut url = String::new();
+        if let Some(ob_2) = obj_2 {
+            url = format!(
+                "{}/{}/{}/{}/{}",
+                self.base_url,
+                api.as_ref(),
+                obj_1.as_ref(),
+                group.as_ref(),
+                ob_2.as_ref()
+            );
+        } else {
+            url = format!(
+                "{}/{}/{}/{}",
+                self.base_url,
+                api.as_ref(),
+                obj_1.as_ref(),
+                group.as_ref()
+            );
+        }
+
+        tracing::debug!("fetching {}", url);
+        return url;
+    }
+
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_path<S: AsRef<str> + Debug>(
         &self,
@@ -439,8 +464,7 @@ impl RemoteClient {
             .to_str()
             .ok_or_else(|| anyhow!("Path is not valid UTF-8"))?;
 
-        let url_1 = self.set_url("xattributes", path_str);
-        let url = format!("{}/names/{}", url_1, name);
+        let url = self.set_long_url("xattributes", path_str, "names", Some(name));
 
         let resp = self
             .http_client
@@ -497,8 +521,7 @@ impl RemoteClient {
             .to_str()
             .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
 
-        let url_1 = self.set_url("xattributes", path_str);
-        let url = format!("{}/names/{}", url_1, name);
+        let url = self.set_long_url("xattributes", path_str, "names", Some(name));
 
         let resp = self
             .http_client
@@ -535,8 +558,7 @@ impl RemoteClient {
             .to_str()
             .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
 
-        let url_1 = self.set_url("xattributes", path_str);
-        let url = format!("{}/names", url_1);
+        let url = self.set_long_url("xattributes", path_str, "names", None);
 
         let resp = self
             .http_client
@@ -588,8 +610,7 @@ impl RemoteClient {
             .to_str()
             .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
 
-        let url_1 = self.set_url("xattributes", path_str);
-        let url = format!("{}/names/{}", url_1, name);
+        let url = self.set_long_url("xattributes", path_str, "names", Some(name));
 
         let resp = self
             .http_client

@@ -12,7 +12,7 @@ pub struct File {
 }
 
 #[derive(Clone)]
-pub struct SymLink{
+pub struct SymLink {
     name: OsString,
     attributes: FileAttr,
 }
@@ -23,7 +23,6 @@ pub struct Directory {
     children: HashMap<PathBuf, FSItem>,
     attributes: FileAttr,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum FSItem {

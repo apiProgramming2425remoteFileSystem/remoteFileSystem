@@ -1,45 +1,57 @@
+use crate::fs_model::FileAttr;
+use crate::fs_model::directory::Directory;
+use crate::fs_model::file::{File, MAX_PAGES, PAGE_SIZE};
+use crate::fs_model::sym_link::SymLink;
+use crate::network::models::{ItemType, SerializableFSItem};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
-use std::time::{Instant, Duration};
-use crate::fs_model::directory::Directory;
-use crate::fs_model::file::{File, MAX_PAGES, PAGE_SIZE};
-use crate::fs_model::sym_link::SymLink;
-use crate::fs_model::FileAttr;
-use crate::network::models::{ItemType, SerializableFSItem};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
-pub enum CacheItem{
+pub enum CacheItem {
     File(File),
     SymLink(SymLink),
     Directory(Directory),
 }
 
-impl CacheItem{
-    pub fn rename(&mut self, name: OsString){
+impl CacheItem {
+    pub fn rename(&mut self, name: OsString) {
         match self {
-            CacheItem::File(file) => {file.name = name;},
-            CacheItem::SymLink(link) => {link.name = name;},
-            CacheItem::Directory(directory) => {directory.name = name;},
+            CacheItem::File(file) => {
+                file.name = name;
+            }
+            CacheItem::SymLink(link) => {
+                link.name = name;
+            }
+            CacheItem::Directory(directory) => {
+                directory.name = name;
+            }
         }
     }
 
-    pub fn get_attributes(&self) -> Option<FileAttr>{
-        match self{
-            CacheItem::File(file) => {file.attributes.clone()},
-            CacheItem::SymLink(link) => {link.attributes.clone()},
-            CacheItem::Directory(directory) => {directory.attributes.clone()},
+    pub fn get_attributes(&self) -> Option<FileAttr> {
+        match self {
+            CacheItem::File(file) => file.attributes.clone(),
+            CacheItem::SymLink(link) => link.attributes.clone(),
+            CacheItem::Directory(directory) => directory.attributes.clone(),
         }
     }
 
-    pub fn invalidate_attributes(&mut self){
+    pub fn invalidate_attributes(&mut self) {
         match self {
-            CacheItem::File(file) => {file.attributes = None;},
-            CacheItem::SymLink(link) => {link.attributes = None;},
-            CacheItem::Directory(directory) => {directory.attributes = None;},
+            CacheItem::File(file) => {
+                file.attributes = None;
+            }
+            CacheItem::SymLink(link) => {
+                link.attributes = None;
+            }
+            CacheItem::Directory(directory) => {
+                directory.attributes = None;
+            }
         }
     }
 }
@@ -47,34 +59,35 @@ impl CacheItem{
 impl From<SerializableFSItem> for CacheItem {
     fn from(item: SerializableFSItem) -> Self {
         match item.item_type {
-            ItemType::Directory => CacheItem::Directory(
-                Directory::new(item.name.into(),
-                               Some(item.attributes),
-                               None)),
-            ItemType::SymLink => CacheItem::SymLink(
-                SymLink::new(item.name.into(),
-                            Some(item.attributes),
-                            None)),
-            ItemType::File => CacheItem::File(
-                File::new(item.name.into(),
-                          Some(item.attributes)))
+            ItemType::Directory => CacheItem::Directory(Directory::new(
+                item.name.into(),
+                Some(item.attributes),
+                None,
+            )),
+            ItemType::SymLink => {
+                CacheItem::SymLink(SymLink::new(item.name.into(), Some(item.attributes), None))
+            }
+            ItemType::File => CacheItem::File(File::new(item.name.into(), Some(item.attributes))),
         }
     }
 }
 
-
 #[derive(Debug)]
-struct CacheEntry{
+struct CacheEntry {
     pub item: CacheItem,
     pub created_at: Instant,
     pub last_accessed: Instant,
     pub access_count: u64,
 }
 
-
-impl CacheEntry{
-    pub fn new(item: CacheItem) -> CacheEntry{
-        CacheEntry{item, created_at: Instant::now(), last_accessed: Instant::now(), access_count: 0}
+impl CacheEntry {
+    pub fn new(item: CacheItem) -> CacheEntry {
+        CacheEntry {
+            item,
+            created_at: Instant::now(),
+            last_accessed: Instant::now(),
+            access_count: 0,
+        }
     }
 
     pub fn update(&mut self, new_item: CacheItem) {
@@ -119,7 +132,9 @@ impl Cache {
             return None;
         }
 
-        MAX_PAGES.set(cfg.max_size / PAGE_SIZE).expect("MAX_PAGES already set");
+        MAX_PAGES
+            .set(cfg.max_size / PAGE_SIZE)
+            .expect("MAX_PAGES already set");
         Some(Self {
             entries: RwLock::new(HashMap::new()),
             capacity: cfg.capacity,
@@ -129,8 +144,6 @@ impl Cache {
             max_file_size: cfg.max_size,
         })
     }
-
-
 
     fn invalidate_parents<P: AsRef<Path>>(&self, path: P) {
         let parents = parent_paths(path.as_ref());
@@ -142,7 +155,6 @@ impl Cache {
             map.remove(&p);
         }
     }
-
 
     pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<CacheItem> {
         let Ok(mut map) = self.entries.write() else {
@@ -176,7 +188,7 @@ impl Cache {
                 entry.last_accessed = Instant::now();
                 entry.access_count += 1;
                 entry.update(item);
-                if invalidate_attributes{
+                if invalidate_attributes {
                     entry.item.invalidate_attributes();
                 }
                 return;
@@ -210,7 +222,6 @@ impl Cache {
         map.insert(key, CacheEntry::new(item));
     }
 
-
     pub fn remove<P: AsRef<Path>>(&self, path: P) -> Option<CacheItem> {
         let removed = {
             let Ok(mut map) = self.entries.write() else {
@@ -223,27 +234,27 @@ impl Cache {
     }
 
     pub fn invalidate<P: AsRef<Path>>(&self, path: P) {
-        let Ok(mut map) = self.entries.write() else { return; };
+        let Ok(mut map) = self.entries.write() else {
+            return;
+        };
         map.remove(path.as_ref()).map(|e| e.item);
     }
 
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {
         match self.policy {
-            CachePolicy::Lru => {
-                map.iter()
-                    .min_by_key(|(_, entry)| entry.last_accessed)
-                    .map(|(k, _)| k.clone())
-            }
-            CachePolicy::Lfu => {
-                map.iter()
-                    .min_by_key(|(_, entry)| entry.access_count)
-                    .map(|(k, _)| k.clone())
-            }
+            CachePolicy::Lru => map
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_accessed)
+                .map(|(k, _)| k.clone()),
+            CachePolicy::Lfu => map
+                .iter()
+                .min_by_key(|(_, entry)| entry.access_count)
+                .map(|(k, _)| k.clone()),
         }
     }
 }
 
-impl Debug for Cache{
+impl Debug for Cache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Ok(mut map) = self.entries.write() else {
             return write!(f, "--");

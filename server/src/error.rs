@@ -54,7 +54,7 @@ pub enum StorageError {
 
 // Authentication related error
 #[derive(Error, Debug)]
-pub enum AuthenticationError{
+pub enum AuthenticationError {
     #[error("Unauthorized user: {0}")]
     Unauthorized(String),
 

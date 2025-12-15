@@ -1,23 +1,19 @@
+#[cfg(target_family = "unix")]
+use nix::sys::statvfs::statvfs;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(target_family = "unix")]
-use std::os::unix::fs::PermissionsExt;
-#[cfg(target_family = "unix")]
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt, symlink};
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 use tracing::{Level, instrument};
 
 use crate::error::StorageError;
-use crate::models::{Permission, SetAttr, Stats, Timestamp};
+use crate::models::{FileAttr, FileType, Permission, SetAttr, Stats, Timestamp};
 use crate::nodes::{Directory, FSItem, File, SymLink};
-
-use crate::models::{FileAttr, FileType};
-#[cfg(unix)]
-use nix::sys::statvfs::statvfs;
 
 type Result<T> = std::result::Result<T, StorageError>;
 

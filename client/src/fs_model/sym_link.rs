@@ -1,8 +1,8 @@
+use crate::fs_model::{File, FileAttr};
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
 use std::path::PathBuf;
-use crate::fs_model::{File, FileAttr};
 use std::vec::Vec;
 
 #[derive(Clone)]
@@ -14,7 +14,11 @@ pub struct SymLink {
 
 impl SymLink {
     pub fn new(name: OsString, attributes: Option<FileAttr>, target: Option<String>) -> Self {
-        SymLink{name, attributes, target,  }
+        SymLink {
+            name,
+            attributes,
+            target,
+        }
     }
 
     pub fn merge(&mut self, other: SymLink) {
@@ -30,17 +34,15 @@ impl SymLink {
 impl Debug for SymLink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut result = String::from("attributes: ");
-        if self.attributes.is_some(){
+        if self.attributes.is_some() {
             result += "present  ";
-        }
-        else {
+        } else {
             result += "missing  ";
         }
         result += "target: ";
-        if let Some(target) = &self.target{
+        if let Some(target) = &self.target {
             result += &format!("{:?}", target);
-        }
-        else {
+        } else {
             result += "missing";
         }
         write!(f, "{}", result)
