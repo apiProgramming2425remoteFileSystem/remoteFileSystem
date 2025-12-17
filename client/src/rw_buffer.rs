@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -20,16 +21,16 @@ impl ReadBuffer {
         }
     }
 
-    pub fn fill(&mut self, path: &Path, offset: usize, data: &[u8]) {
-        self.path = path.to_path_buf();
+    pub fn fill<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) {
+        self.path = path.as_ref().to_path_buf();
         self.offset = offset;
         let to_copy = data.len().min(self.capacity);
         self.buffer[..to_copy].copy_from_slice(&data[..to_copy]);
         self.valid_up_to = to_copy;
     }
 
-    pub fn read(&self, path: &Path, offset: usize, len: usize) -> Vec<u8> {
-        if path != self.path {
+    pub fn read<P: AsRef<Path> + Debug>(&self, path: P, offset: usize, len: usize) -> Vec<u8> {
+        if path.as_ref() != self.path {
             Vec::new()
         } else if offset < self.offset || offset >= self.offset + self.valid_up_to {
             Vec::new()
@@ -61,12 +62,12 @@ impl WriteBuffer {
         }
     }
 
-    pub fn is_appending(&self, path: &Path, offset: usize) -> bool {
-        self.path == path && self.offset + self.valid_up_to == offset
+    pub fn is_appending<P: AsRef<Path> + Debug>(&self, path: P, offset: usize) -> bool {
+        self.path == path.as_ref() && self.offset + self.valid_up_to == offset
     }
 
-    pub fn write(&mut self, path: &Path, offset: usize, data: &[u8]) -> usize {
-        if self.is_appending(path, offset) {
+    pub fn write<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) -> usize {
+        if self.is_appending(path.as_ref(), offset) {
             // append
             let available = self.capacity - self.valid_up_to;
             let to_copy = data.len().min(available);
@@ -75,7 +76,7 @@ impl WriteBuffer {
             self.valid_up_to += to_copy;
             to_copy
         } else {
-            self.path = path.to_path_buf();
+            self.path = path.as_ref().to_path_buf();
             self.offset = offset;
             let to_copy = data.len().min(self.capacity);
             self.buffer[..to_copy].copy_from_slice(&data[..to_copy]);

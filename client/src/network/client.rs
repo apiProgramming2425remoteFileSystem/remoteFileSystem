@@ -255,8 +255,6 @@ impl RemoteClient {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn resolve_child<S: AsRef<str> + Debug>(
         &self,
-        uid: u32,
-        gid: u32,
         path: S,
     ) -> anyhow::Result<FileAttr> {
         let url = self.set_url("attributes/directory", path.as_ref());
@@ -366,8 +364,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn create_symlink(&self, path: &str, target: &str) -> anyhow::Result<FileAttr> {
-        let url = self.set_url("symlink", path);
+    pub async fn create_symlink<S: AsRef<str> + Debug>(&self, path: S, target: &str) -> anyhow::Result<FileAttr> {
+        let url = self.set_url("symlink", path.as_ref());
 
         let req = WriteSymlink::new(target);
 
@@ -386,8 +384,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn read_symlink(&self, path: &str) -> anyhow::Result<String> {
-        let url = self.set_url("symlink", path);
+    pub async fn read_symlink<S: AsRef<str> + Debug>(&self, path: S) -> anyhow::Result<String> {
+        let url = self.set_url("symlink", path.as_ref());
 
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
@@ -457,14 +455,9 @@ impl RemoteClient {
         }
     }
 
-    /* XATTRIBUTES MANAGEMENT */
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_x_attributes(&self, path: &OsStr, name: &str) -> Result<Xattributes> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow!("Path is not valid UTF-8"))?;
-
-        let url = self.set_long_url("xattributes", path_str, "names", Some(name));
+    pub async fn get_x_attributes<S: AsRef<str> + Debug>(&self, path: S, name: &str) -> Result<Xattributes> {
+        let url = self.set_long_url("xattributes", path.as_ref(), "names", Some(name));
 
         let resp = self
             .http_client
@@ -511,17 +504,13 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_x_attributes(
+    pub async fn set_x_attributes<S: AsRef<str> + Debug>(
         &self,
-        path: &OsStr,
+        path: S,
         name: &str,
         xattributes: &[u8],
     ) -> Result<()> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
-
-        let url = self.set_long_url("xattributes", path_str, "names", Some(name));
+        let url = self.set_long_url("xattributes", path.as_ref(), "names", Some(name));
 
         let resp = self
             .http_client
@@ -553,12 +542,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_x_attributes(&self, path: &OsStr) -> Result<Vec<String>> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
-
-        let url = self.set_long_url("xattributes", path_str, "names", None);
+    pub async fn list_x_attributes<S: AsRef<str> + Debug>(&self, path: S) -> Result<Vec<String>> {
+        let url = self.set_long_url("xattributes", path.as_ref(), "names", None);
 
         let resp = self
             .http_client
@@ -605,12 +590,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove_x_attributes(&self, path: &OsStr, name: &str) -> Result<()> {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| NetworkError::ServerError(String::from("Path is not valid UTF-8")))?;
-
-        let url = self.set_long_url("xattributes", path_str, "names", Some(name));
+    pub async fn remove_x_attributes<S: AsRef<str> + Debug>(&self, path: S, name: &str) -> Result<()> {
+        let url = self.set_long_url("xattributes", path.as_ref(), "names", Some(name));
 
         let resp = self
             .http_client
