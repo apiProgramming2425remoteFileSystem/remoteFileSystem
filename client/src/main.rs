@@ -1,12 +1,4 @@
-use std::fs;
-
-use fuse3::MountOptions;
-use fuse3::path::prelude::*;
-use tokio::signal;
-
-use client::error::ClientError;
-use client::fuse::Fs;
-use client::{config, error, logging, network};
+use client::{config, error};
 
 type Result<T> = std::result::Result<T, error::ClientError>;
 

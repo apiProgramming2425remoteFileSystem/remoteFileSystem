@@ -14,6 +14,7 @@ pub struct FileLog {
 }
 
 impl FileLog {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         FileLogBuilder::default().build()
     }
@@ -27,6 +28,7 @@ impl FileLog {
             .directory(config.log_dir.clone())
             .file_name(config.log_file.clone())
             .rotation(config.log_rotation.clone())
+            .file_ext(None) // Use default file extension
             .build()
     }
 }

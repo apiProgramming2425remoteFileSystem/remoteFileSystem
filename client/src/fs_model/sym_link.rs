@@ -1,19 +1,18 @@
-use crate::fs_model::{File, FileAttr};
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
-use std::path::PathBuf;
-use std::vec::Vec;
+
+use super::Attributes;
 
 #[derive(Clone)]
 pub struct SymLink {
     pub name: OsString,
-    pub attributes: Option<FileAttr>,
+    pub attributes: Option<Attributes>,
     pub target: Option<String>,
 }
 
 impl SymLink {
-    pub fn new(name: OsString, attributes: Option<FileAttr>, target: Option<String>) -> Self {
+    pub fn new(name: OsString, attributes: Option<Attributes>, target: Option<String>) -> Self {
         SymLink {
             name,
             attributes,

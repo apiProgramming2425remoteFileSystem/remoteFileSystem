@@ -5,7 +5,7 @@ use crate::error::FsModelError;
 
 /// File attributes
 #[derive(Debug, Copy, Clone, Deserialize /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
-pub struct FileAttr {
+pub struct Attributes {
     /// Size in bytes
     pub size: u64,
     /// Size in blocks
@@ -55,8 +55,8 @@ pub enum FileType {
     Socket,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Permission type
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PermissionType {
     /// Read permission
     pub read: bool,
@@ -66,8 +66,8 @@ pub struct PermissionType {
     pub execute: bool,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// Permission
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Permission {
     /// Permissions for the file owner.
     pub user: PermissionType,
@@ -77,8 +77,8 @@ pub struct Permission {
     pub other: PermissionType,
 }
 
-#[derive(Debug)]
 /// Flags
+#[derive(Debug)]
 pub struct Flags {
     /// Read-only access. [`libc::O_RDONLY`]
     pub readonly: bool,
@@ -210,42 +210,47 @@ trait Conversion<T>: Sized {
     }
 }
 
-macro_rules! impl_conversion {
-    ($source:ty, $target:ty, $cv:ty) => {
-        impl From<$source> for $target
-        where
-            $source: Conversion<$cv>,
-        {
-            fn from(value: $source) -> Self {
-                value.from_target() as $target
-            }
-        }
+#[cfg(any(unix /* , windows */))]
+mod mod_conversions {
+    use super::*;
 
-        impl TryFrom<$target> for $source
-        where
-            $source: Conversion<$cv>,
-        {
-            type Error = FsModelError;
-
-            fn try_from(value: $target) -> Result<Self, Self::Error> {
-                Self::try_to_target(value as $cv)
+    macro_rules! impl_conversion {
+        ($source:ty, $target:ty, $cv:ty) => {
+            impl From<$source> for $target
+            where
+                $source: Conversion<$cv>,
+            {
+                fn from(value: $source) -> Self {
+                    value.from_target() as $target
+                }
             }
-        }
-    };
+
+            impl TryFrom<$target> for $source
+            where
+                $source: Conversion<$cv>,
+            {
+                type Error = FsModelError;
+
+                fn try_from(value: $target) -> Result<Self, Self::Error> {
+                    Self::try_to_target(value as $cv)
+                }
+            }
+        };
+    }
+
+    impl_conversion!(FileType, u32, u32);
+    impl_conversion!(FileType, i32, u32);
+    impl_conversion!(FileType, u16, u32);
+
+    impl_conversion!(PermissionType, i32, i32);
+    impl_conversion!(PermissionType, u8, i32);
+
+    impl_conversion!(Permission, u16, i32);
+    impl_conversion!(Permission, u32, i32);
+
+    impl_conversion!(Flags, u32, i32);
+    impl_conversion!(Flags, u64, i32);
 }
-
-impl_conversion!(FileType, u32, u32);
-impl_conversion!(FileType, i32, u32);
-impl_conversion!(FileType, u16, u32);
-
-impl_conversion!(PermissionType, i32, i32);
-impl_conversion!(PermissionType, u8, i32);
-
-impl_conversion!(Permission, u16, i32);
-impl_conversion!(Permission, u32, i32);
-
-impl_conversion!(Flags, u32, i32);
-impl_conversion!(Flags, u64, i32);
 
 #[cfg(unix)]
 mod platform {
@@ -368,59 +373,6 @@ mod platform {
                 noatime: value & libc::O_NOATIME != 0,
                 path: value & libc::O_PATH != 0,
             })
-        }
-    }
-}
-
-#[cfg(windows)]
-mod platform {
-    use super::*;
-
-    impl Conversion<u32> for FileType {
-        type Error = FsModelError;
-
-        fn from_target(&self) -> u32 {
-            todo!()
-        }
-
-        fn try_to_target(value: u32) -> Result<Self, Self::Error> {
-            todo!()
-        }
-    }
-
-    impl Conversion<i32> for PermissionType {
-        type Error = FsModelError;
-
-        fn from_target(&self) -> i32 {
-            todo!()
-        }
-
-        fn try_to_target(value: i32) -> Result<Self, Self::Error> {
-            todo!()
-        }
-    }
-
-    impl Conversion<i32> for Permission {
-        type Error = FsModelError;
-
-        fn from_target(&self) -> i32 {
-            todo!()
-        }
-
-        fn try_to_target(value: i32) -> Result<Self, Self::Error> {
-            todo!()
-        }
-    }
-
-    impl Conversion<i32> for Flags {
-        type Error = FsModelError;
-
-        fn from_target(&self) -> i32 {
-            todo!()
-        }
-
-        fn try_to_target(value: i32) -> Result<Self, Self::Error> {
-            todo!()
         }
     }
 }

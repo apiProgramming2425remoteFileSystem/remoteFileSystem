@@ -13,7 +13,10 @@ use sqlx::{
 use tracing::{Level, instrument};
 use uuid::Uuid;
 
+use crate::error::DatabaseError;
 use crate::models::{AuthenticatedUser, Claims, ListXattributes, User, Xattributes};
+
+type Result<T> = std::result::Result<T, DatabaseError>;
 
 static MIGRATOR: Migrator = sqlx::migrate!();
 pub const JWT_KEY: &[u8] = b"911b7253947ddeec29e42071cdbbffd33cf316ef5a06f9ca690572a9d997711bfea1b7605d34192121bb8a9a73df5a8628c185138af09d37bd3d68b0f112e0bf";
@@ -91,7 +94,7 @@ pub fn get_expiration_time(token: &str) -> anyhow::Result<u64> {
 
 impl DB {
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn open_connection() -> anyhow::Result<DB> {
+    pub async fn open_connection() -> Result<DB> {
         // costruisce un path assoluto relativo alla root del crate
         let manifest = env!("CARGO_MANIFEST_DIR");
         let mut db_path = std::path::Path::new(manifest).join("db.db");
@@ -99,7 +102,7 @@ impl DB {
         // assicura che la cartella esista (utile alla prima esecuzione)
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                anyhow::anyhow!("Database error: cannot create db directory: {}", e)
+                DatabaseError::CreationError(format!("Cannot create db directory: {}", e))
             })?;
         }
 
@@ -113,21 +116,18 @@ impl DB {
             database_url = database_url.replace("\\", "/");
         }
 
-        Sqlite::create_database(&database_url).await.map_err(|e| {
-            anyhow::anyhow!(
-                "Database error: impossible to create database beacause of {}",
-                e
-            )
-        })?;
+        Sqlite::create_database(&database_url)
+            .await
+            .map_err(|e| DatabaseError::CreationError(e.to_string()))?;
 
-        let pool = SqlitePool::connect(&database_url).await.map_err(|e| {
-            anyhow::anyhow!("Database error: impossible to connect beacause of {}", e)
-        })?;
+        let pool = SqlitePool::connect(&database_url)
+            .await
+            .map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
 
         MIGRATOR
             .run(&pool)
             .await
-            .map_err(|e| anyhow::anyhow!("Database error: {}", e))?;
+            .map_err(|e| DatabaseError::MigrationError(e.to_string()))?;
 
         /* AGGIUNTA UTENTE */
         let db = DB { pool: pool };
@@ -137,13 +137,12 @@ impl DB {
         db.create_user("fabrizio", "password").await?;
         db.create_user("iulian", "password").await?;
         */
-
         Ok(db)
     }
 
     /* -- REVOKED TOKEN MANAGEMENT */
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn insert_revoked_token(&self, user: &AuthenticatedUser) -> anyhow::Result<()> {
+    pub async fn insert_revoked_token(&self, user: &AuthenticatedUser) -> Result<()> {
         sqlx::query("INSERT INTO revoked_tokens VALUES(?, ?, ?)")
             .bind(user.user_id)
             .bind(user.token_id.clone())
@@ -151,16 +150,16 @@ impl DB {
             .execute(&self.pool)
             .await
             .map_err(|e| {
-                anyhow!(
-                    "Database error: error inserting revoked token because of {}.",
+                DatabaseError::QueryError(format!(
+                    "Error inserting revoked token because of {}.",
                     e
-                )
+                ))
             })?;
         Ok(())
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn clean_revoked_token(&self) -> anyhow::Result<()> {
+    pub async fn clean_revoked_token(&self) -> Result<()> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time has gone behind.")
@@ -171,16 +170,13 @@ impl DB {
             .execute(&self.pool)
             .await
             .map_err(|e| {
-                anyhow!(
-                    "Database error: error removing revoked token because of {}.",
-                    e
-                )
+                DatabaseError::QueryError(format!("Error removing revoked token because of {}.", e))
             })?;
         Ok(())
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn is_token_revoked(&self, user_id: i64, token_id: &str) -> anyhow::Result<bool> {
+    pub async fn is_token_revoked(&self, user_id: i64, token_id: &str) -> Result<bool> {
         let result = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM revoked_tokens WHERE user_id = ? AND token_id = ?",
         )
@@ -189,16 +185,16 @@ impl DB {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {
-            anyhow!(
-                "Database error: error retrieving token information because of {}.",
+            DatabaseError::QueryError(format!(
+                "Error retrieving token information because of {}.",
                 e
-            )
+            ))
         })?;
 
         if result == 1 { Ok(true) } else { Ok(false) }
     }
 
-    pub async fn verify_token(&self, token: &str) -> anyhow::Result<AuthenticatedUser> {
+    pub async fn verify_token(&self, token: &str) -> Result<AuthenticatedUser> {
         // 3. Validation and decode key configuration
         let decoding_key = DecodingKey::from_secret(JWT_KEY);
         let mut validation = Validation::new(Algorithm::HS256);
@@ -207,9 +203,7 @@ impl DB {
         // 4. Token decoding and verification
         let token_data = match decode::<Claims>(token, &decoding_key, &validation) {
             Ok(data) => data,
-            Err(_) => {
-                return Err(anyhow!("Token is invalid."));
-            }
+            Err(_) => return Err(DatabaseError::Other(anyhow!("Token is invalid."))),
         };
 
         let user_id = token_data.claims.user_id as i64;
@@ -225,19 +219,21 @@ impl DB {
         let is_expired = now >= expiration_time;
 
         if is_expired {
-            return Err(anyhow!("Token is expired."));
+            return Err(DatabaseError::Other(anyhow!("Token is expired.")));
         }
 
         // 6. Check if the token has been revoked
         let is_revoked = match self.is_token_revoked(user_id, &token_id).await {
             Ok(flag) => flag,
             Err(_) => {
-                return Err(anyhow!("Error while checking token revocation."));
+                return Err(DatabaseError::Other(anyhow!(
+                    "Error while checking token revocation."
+                )));
             }
         };
 
         if is_revoked {
-            return Err(anyhow!("Token has been revoked."));
+            return Err(DatabaseError::Other(anyhow!("Token has been revoked.")));
         }
 
         Ok(AuthenticatedUser {
@@ -254,19 +250,21 @@ impl DB {
         &self,
         username: &str,
         password: &str,
-    ) -> anyhow::Result<Option<String>> {
+    ) -> Result<Option<String>> {
         let result = sqlx::query_as::<_, User>(
             "SELECT user_id, group_id, username, password FROM users WHERE username = ?",
         )
         .bind(username.to_string())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| anyhow!("Database error: error retrieving user because of {}.", e))?;
+        .map_err(|e| {
+            DatabaseError::QueryError(format!("Error retrieving user because of {}.", e))
+        })?;
 
         match result {
             Some(user) => {
                 if verify_password(password, &user.password).await {
-                    let token = generate_token(user.user_id, user.group_id).await.map_err(|e| anyhow!(e))?;
+                    let token = generate_token(user.user_id, user.group_id).await?;
                     self.clean_revoked_token().await?;
                     Ok(Some(token))
                 } else {
@@ -278,7 +276,7 @@ impl DB {
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn create_user(&self, username: &str, password: &str) -> anyhow::Result<()> {
+    pub async fn create_user(&self, username: &str, password: &str) -> Result<()> {
         let pass = hash_password(password)
             .await
             .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
@@ -287,12 +285,7 @@ impl DB {
             .bind(username)
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| {
-                anyhow!(
-                    "Database error: error executing the query because of {}.",
-                    e
-                )
-            })?;
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
         if result == 0 {
             sqlx::query("INSERT INTO users(group_id, username, password) VALUES(?, ?, ?)")
@@ -301,24 +294,14 @@ impl DB {
                 .bind(pass)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| {
-                    anyhow!(
-                        "Database error: error executing the query because of {}.",
-                        e
-                    )
-                })?;
+                .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
         }
         Ok(())
     }
 
     // -- XATTRIBUTES MANAGEMENT --
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn set_x_attributes(
-        &self,
-        path: &str,
-        name: &str,
-        xattributes: &[u8],
-    ) -> anyhow::Result<()> {
+    pub async fn set_x_attributes(&self, path: &str, name: &str, xattributes: &[u8]) -> Result<()> {
         let result = sqlx::query_scalar::<_, u8>(
             "SELECT COUNT(*) FROM xattributes WHERE path = ? AND name = ?",
         )
@@ -326,12 +309,8 @@ impl DB {
         .bind(name)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| {
-            anyhow!(
-                "Database error: error executing the query because of {}.",
-                e
-            )
-        })?;
+        .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
         if result == 0 {
             sqlx::query("INSERT INTO xattributes(path, name, xattributes) VALUES(?, ?, ?)")
                 .bind(path)
@@ -339,12 +318,7 @@ impl DB {
                 .bind(xattributes.to_vec())
                 .execute(&self.pool)
                 .await
-                .map_err(|e| {
-                    anyhow!(
-                        "Database error: error executing the query because of {}.",
-                        e
-                    )
-                })?;
+                .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
         } else {
             sqlx::query("UPDATE xattributes SET xattributes = ? WHERE path = ? AND name = ?")
                 .bind(xattributes.to_vec())
@@ -352,45 +326,36 @@ impl DB {
                 .bind(path)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| {
-                    anyhow!(
-                        "Database error: error executing the query because of {}.",
-                        e
-                    )
-                })?;
+                .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
         }
 
         Ok(())
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn remove_x_attributes(&self, path: &str, name: &str) -> anyhow::Result<()> {
+    pub async fn remove_x_attributes(&self, path: &str, name: &str) -> Result<()> {
         sqlx::query("DELETE FROM xattributes WHERE path = ? AND name = ?")
             .bind(path)
             .bind(name)
             .execute(&self.pool)
             .await
             .map_err(|e| {
-                anyhow!(
-                    "Database error: error updating xattrbutes table because of {}.",
+                DatabaseError::QueryError(format!(
+                    "Error updating xattrbutes table because of {}.",
                     e
-                )
+                ))
             })?;
         Ok(())
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn list_x_attributes(&self, path: &str) -> anyhow::Result<Option<ListXattributes>> {
+    pub async fn list_x_attributes(&self, path: &str) -> Result<Option<ListXattributes>> {
         let result = sqlx::query_scalar::<_, String>("SELECT name FROM xattributes WHERE path = ?")
             .bind(path)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| {
-                anyhow!(
-                    "Database error: error executing the query because of {}.",
-                    e
-                )
-            })?;
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
         if result.is_empty() {
             Ok(None)
         } else {
@@ -399,11 +364,7 @@ impl DB {
     }
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub async fn get_x_attributes(
-        &self,
-        path: &str,
-        name: &str,
-    ) -> anyhow::Result<Option<Xattributes>> {
+    pub async fn get_x_attributes(&self, path: &str, name: &str) -> Result<Option<Xattributes>> {
         let result = sqlx::query_as::<_, Xattributes>(
             "SELECT xattributes FROM xattributes WHERE path = ? AND name = ?",
         )
@@ -411,7 +372,7 @@ impl DB {
         .bind(name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| anyhow!("Database error: error retrieving user because of {}.", e))?;
+        .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
         match result {
             Some(attr) => Ok(Some(attr)),

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::error::{ClientError, DaemonError};
 
+use anyhow;
 use async_trait::async_trait;
 use tokio::sync::Notify;
 use tracing::{Level, instrument};
@@ -107,12 +108,9 @@ impl Daemon {
 #[cfg(unix)]
 mod platform {
     use super::*;
-
     use daemonize::{Daemonize, Outcome, Parent};
     use std::fs;
     use std::process;
-
-    use tokio::signal;
 
     #[async_trait]
     impl DaemonService for Daemon {
@@ -124,16 +122,15 @@ mod platform {
                 return Ok(());
             }
 
-            let stdout = fs::File::create("/tmp/daemon.out").unwrap();
-            let stderr = fs::File::create("/tmp/daemon.err").unwrap();
+            let stdout = fs::File::create("/tmp/remote-fs.out").unwrap();
+            let stderr = fs::File::create("/tmp/remote-fs.err").unwrap();
 
             let daemon = Daemonize::new()
-                .pid_file("/tmp/daemon.pid")
+                .pid_file("/tmp/remote-fs.pid")
                 .chown_pid_file(true)
                 .working_directory("/")
-                .stdout(stdout) // Redirect stdout to `/tmp/daemon.out`.
-                .stderr(stderr); // Redirect stderr to `/tmp/daemon.err`.
-
+                .stdout(stdout) // Redirect stdout to `/tmp/remote-fs.out`.
+                .stderr(stderr); // Redirect stderr to `/tmp/remote-fs.err`.
             // Start the daemon process
             match daemon.execute() {
                 Outcome::Parent(Ok(Parent {
@@ -144,7 +141,7 @@ mod platform {
                     println!("Service started in background (Logs in /tmp/remote-fs.*)");
                     process::exit(first_child_exit_code)
                 }
-                Outcome::Child(Ok(child)) => {
+                Outcome::Child(Ok(_child)) => {
                     // Child continues here
                     println!("Daemon started successfully.");
                     // Install a panic hook to capture unexpected crashes in the .err file
@@ -185,4 +182,12 @@ mod platform {
             }
         }
     }
+}
+
+#[cfg(not(unix))]
+mod platform {
+    use super::*;
+
+    #[async_trait]
+    impl DaemonService for Daemon {}
 }

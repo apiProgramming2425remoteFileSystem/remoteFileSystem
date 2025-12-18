@@ -33,6 +33,7 @@ pub struct MountOptions {
 #[async_trait]
 pub trait MountFs: Send + Sync {
     /// Mounts the filesystem at the specified mountpoint.
+    #[allow(unused_variables)]
     #[instrument(skip(self, fs), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn mount(&mut self, fs: Fs, mountpoint: &Path, options: &MountOptions) -> Result<()> {
         Err(MountError::UnsupportedPlatform(
@@ -119,6 +120,7 @@ impl MountOptions {
         MountOptionsBuilder::new()
     }
 
+    // TODO: add config-driven options
     /// Create MountOptions from Config using builder
     pub fn from(config: &Config) -> Self {
         MountOptionsBuilder::new()

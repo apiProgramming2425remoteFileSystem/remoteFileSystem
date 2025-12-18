@@ -1,4 +1,5 @@
-use crate::fs_model::{File, FileAttr};
+use super::Attributes;
+
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
@@ -7,14 +8,14 @@ use std::vec::Vec;
 #[derive(Clone)]
 pub struct Directory {
     pub name: OsString,
-    pub attributes: Option<FileAttr>,
+    pub attributes: Option<Attributes>,
     pub children: Option<Vec<OsString>>,
 }
 
 impl Directory {
     pub fn new(
         name: OsString,
-        attributes: Option<FileAttr>,
+        attributes: Option<Attributes>,
         children: Option<Vec<OsString>>,
     ) -> Self {
         Directory {

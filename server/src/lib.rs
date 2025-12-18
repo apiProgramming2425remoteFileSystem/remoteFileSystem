@@ -14,6 +14,7 @@ pub mod models;
 pub mod nodes;
 pub mod routes;
 
+mod attributes;
 mod middleware;
 mod storage;
 

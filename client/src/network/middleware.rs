@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use http::Extensions;
 use reqwest::{Request, Response, header};
-use reqwest_middleware::{Middleware, Next, Result};
+use reqwest_middleware::{Error, Middleware, Next, Result};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub type TokenStore = Arc<RwLock<Option<String>>>;
+#[derive(Debug, Clone)]
+pub struct TokenStore(Arc<RwLock<Option<String>>>);
 
 pub struct TokenRefresher {
     // implement your refresh logic here (e.g. username/password or refresh token).
@@ -16,6 +17,32 @@ pub struct AuthMiddleware {
     token_store: TokenStore,
     // optionally: a refresh callback to run on 401
     // refresh: Arc<dyn Fn() -> BoxFuture<'static, Result<String, anyhow::Error>> + Send + Sync>,
+}
+
+impl TokenStore {
+    pub fn new() -> Self {
+        Self(Arc::new(RwLock::new(None)))
+    }
+
+    pub async fn set_token(&self, token: String) {
+        let mut guard = self.0.write().await;
+        *guard = Some(token);
+    }
+
+    pub async fn clear_token(&self) {
+        let mut guard = self.0.write().await;
+        *guard = None;
+    }
+
+    pub async fn read(&self) -> Option<String> {
+        let guard = self.0.read().await;
+
+        let Some(token) = &*guard else {
+            return None;
+        };
+
+        Some(token.clone())
+    }
 }
 
 impl AuthMiddleware {
@@ -37,14 +64,12 @@ impl Middleware for AuthMiddleware {
         extensions: &mut Extensions,
         next: Next<'_>,
     ) -> Result<Response> {
-        // Read the current token
-        let token_guard = self.token_store.read().await;
-
-        // attach auth header from store if present
-        if let Some(token) = &*token_guard {
+        // Read the current token and attach auth header from store if present
+        if let Some(token) = self.token_store.read().await {
             // If have token, attach to request
             let mut auth_value = header::HeaderValue::from_str(&format!("Bearer {}", token))
-                .map_err(|e| reqwest_middleware::Error::Middleware(anyhow::anyhow!(e)))?;
+                .map_err(|e| Error::Middleware(e.into()))?;
+
             auth_value.set_sensitive(true);
 
             let mut req = req;

@@ -1,5 +1,6 @@
 use anyhow;
-use reqwest::Error as ReqwestError;
+use reqwest_middleware::Error as ReqwestError;
+use serde::Deserialize;
 use thiserror::Error;
 
 /// Configuration related errors
@@ -84,24 +85,77 @@ pub enum FsModelError {
     #[error("Writers error")]
     WriterError,
 
-    #[error("Remote backend error: {0}")]
-    Backend(#[from] NetworkError),
+    #[error("Remote Server error: {0}")]
+    ServerError(#[from] NetworkError),
 
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
 
+#[derive(Error, Debug, Deserialize)]
+#[serde(tag = "type", content = "message")]
 /// FUSE related errors
-#[derive(Error, Debug)]
+/// NOTE: Keep this enum in sync with the `ApiError` enum in `server/src/error.rs`
 pub enum FuseError {
+    // --- Authentication ---
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    // --- File and Path ---
+    #[error("Not Found: {0}")]
+    NotFound(String),
+    #[error("Already Exists: {0}")]
+    AlreadyExists(String),
+    #[error("Not a Directory: {0}")]
+    NotADirectory(String),
+    #[error("Is a Directory: {0}")]
+    IsADirectory(String),
+
+    // --- Permission and Security ---
+    #[error("Permission Denied: {0}")]
+    PermissionDenied(String),
+    #[error("Operation Not Permitted: {0}")]
+    OperationNotPermitted(String),
+
+    // --- Space and Resources ---
+    #[error("Storage Full: {0}")]
+    StorageFull(String),
+    #[error("Out of Memory: {0}")]
+    OutOfMemory(String),
+
+    // --- Arguments and State ---
+    #[error("Invalid Input: {0}")]
+    InvalidInput(String),
+    #[error("File Too Large: {0}")]
+    FileTooLarge(String),
+
+    // --- Unsupported Operations ---
+    #[error("Unsupported: {0}")]
+    Unsupported(String),
+    #[error("Cross Device Link: {0}")]
+    CrossDeviceLink(String),
+
+    // --- I/O and Consistency ---
+    #[error("I/O Error: {0}")]
+    IoError(String),
+    #[error("Text File Busy: {0}")]
+    TextFileBusy(String),
+
+    // --- Lock and Concurrency ---
+    #[error("Resource Busy: {0}")]
+    ResourceBusy(String),
+    #[error("Try Again: {0}")]
+    TryAgain(String),
+
+    // --- Other ---
+    #[error("Internal Error: {0}")]
+    InternalError(String),
+
+    // --- Additional FUSE specific errors ---
     #[error("Not Implemented")]
     NotImplemented,
-
     #[error("Invalid file handle: {0}")]
     InvalidFileHandle(u64),
-
-    #[error("FUSE operation not supported")]
-    UnsupportedOperation,
 }
 
 /// Network related errors
@@ -110,16 +164,19 @@ pub enum NetworkError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
 
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
     #[error("Request error: {0}")]
     Request(#[from] ReqwestError),
 
-    #[error("Timeout occurred")]
-    Timeout,
+    #[error("API error: {0:?}")]
+    ServerError(FuseError),
 
-    #[error("Server error occurred: {0}")]
-    ServerError(String),
+    #[error("Unexpected Server Response: {0}")]
+    UnexpectedResponse(String), // When the server does not send valid JSON
 
-    #[error("{0}")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 

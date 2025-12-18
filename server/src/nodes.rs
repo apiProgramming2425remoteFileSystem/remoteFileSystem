@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
 
-use crate::models::FileAttr;
+use crate::attributes::FileAttr;
 
 #[derive(Clone)]
 pub struct File {

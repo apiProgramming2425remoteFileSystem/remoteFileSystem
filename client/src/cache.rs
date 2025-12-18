@@ -1,8 +1,9 @@
-use crate::fs_model::FileAttr;
+use crate::fs_model::Attributes;
 use crate::fs_model::directory::Directory;
 use crate::fs_model::file::{File, MAX_PAGES, PAGE_SIZE};
 use crate::fs_model::sym_link::SymLink;
 use crate::network::models::{ItemType, SerializableFSItem};
+
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt;
@@ -33,7 +34,7 @@ impl CacheItem {
         }
     }
 
-    pub fn get_attributes(&self) -> Option<FileAttr> {
+    pub fn get_attributes(&self) -> Option<Attributes> {
         match self {
             CacheItem::File(file) => file.attributes.clone(),
             CacheItem::SymLink(link) => link.attributes.clone(),
@@ -73,7 +74,7 @@ impl From<SerializableFSItem> for CacheItem {
 }
 
 #[derive(Debug)]
-struct CacheEntry {
+pub struct CacheEntry {
     pub item: CacheItem,
     pub created_at: Instant,
     pub last_accessed: Instant,
@@ -256,7 +257,7 @@ impl Cache {
 
 impl Debug for Cache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Ok(mut map) = self.entries.write() else {
+        let Ok(map) = self.entries.write() else {
             return write!(f, "--");
         };
         let mut result = String::from("\n");

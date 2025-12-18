@@ -1,18 +1,18 @@
-#[cfg(target_family = "unix")]
-use nix::sys::statvfs::statvfs;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt, symlink};
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
+#[cfg(unix)]
+use nix::sys::statvfs::statvfs;
 use tracing::{Level, instrument};
 
+use crate::attributes::{FileAttr, FileType, Permission, SetAttr, Stats, Timestamp};
 use crate::error::StorageError;
-use crate::models::{FileAttr, FileType, Permission, SetAttr, Stats, Timestamp};
 use crate::nodes::{Directory, FSItem, File, SymLink};
 
 type Result<T> = std::result::Result<T, StorageError>;
@@ -101,7 +101,6 @@ impl FileSystem {
         let meta = real.symlink_metadata().ok()?;
 
         if meta.is_file() {
-            let size = meta.len() as usize;
             let file = FSItem::File(File::new(
                 real.file_name()?,
                 get_attributes_by_path(&real).unwrap(),

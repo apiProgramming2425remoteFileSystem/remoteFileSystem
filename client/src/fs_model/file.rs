@@ -1,4 +1,5 @@
-use crate::fs_model::attributes::FileAttr;
+use super::Attributes;
+
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt;
@@ -53,12 +54,12 @@ impl FilePage {
 #[derive(Clone)]
 pub struct File {
     pub name: OsString,
-    pub attributes: Option<FileAttr>,
+    pub attributes: Option<Attributes>,
     pub content: HashMap<u64, FilePage>,
 }
 
 impl File {
-    pub fn new(name: OsString, attributes: Option<FileAttr>) -> Self {
+    pub fn new(name: OsString, attributes: Option<Attributes>) -> Self {
         File {
             name,
             attributes,

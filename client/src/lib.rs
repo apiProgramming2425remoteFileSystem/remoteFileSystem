@@ -26,13 +26,13 @@ use crate::network::RemoteClient;
 
 type Result<T> = std::result::Result<T, ClientError>;
 
-/// Runs the program with the given configuration ([`config`]).<br>
+/// Runs the program with the given configuration (`config`).<br>
 /// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.
 ///
 /// Starts the daemon in background, unless the option `--foreground` is set.
 ///
 /// ## Arguments
-/// - [`config`]: Configuration for the daemon. For configuration options, see [`Config`][crate::config::Config].
+/// - `config`: Configuration for the daemon. For configuration options, see [`Config`][crate::config::Config].
 /// ### Returns
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
@@ -53,6 +53,8 @@ pub fn start(config: &Config) -> Result<()> {
         })?;
     }
 
+    let rc = RemoteClient::new(&config.server_url);
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -63,11 +65,16 @@ pub fn start(config: &Config) -> Result<()> {
             ))
         })?;
 
-    tracing::info!("Async Runtime started. Preparing Remote File System...");
-
-    let rc = RemoteClient::new(&config.server_url);
-
     runtime.block_on(async {
+        println!("Checking connection to server at {}...", config.server_url);
+
+        rc.health_check().await.map_err(|err| {
+            println!("Connection to server failed: {}", err); // Write to log
+            err
+        })?;
+
+        rc.health_check().await?;
+
         println!("Welcome to Remote File System. First you need to authenticate!");
 
         let token_option = loop {
@@ -85,6 +92,7 @@ pub fn start(config: &Config) -> Result<()> {
             match rc.login(username, password).await {
                 Ok(t) => break Some(t),
                 Err(e) => {
+                    eprintln!("Login failed: {}", e);
                     println!("Invalid credentials. Do you want to try again? [y n]");
                     let mut answer = String::new();
                     io::stdin().read_line(&mut answer).unwrap();
@@ -101,7 +109,7 @@ pub fn start(config: &Config) -> Result<()> {
             )));
         }
 
-        let token = token_option.unwrap();
+        // let token = token_option.unwrap();
         println!("Login successful");
         Ok(())
     })?;
@@ -132,47 +140,14 @@ pub fn start(config: &Config) -> Result<()> {
 }
 
 async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<()> {
-    // let rc = RemoteClient::new(&config.server_url);
+    /*
+    tracing::info!("Checking connection to server at {}...", config.server_url);
 
-    // // --- 1. User login ---
-    // println!("Welcome to Remote File System. First you need to authenticate!");
-
-    // let token_option = loop {
-    //     println!("username:");
-    //     let username = {
-    //         let mut input = String::new();
-    //         io::stdin().read_line(&mut input).unwrap();
-    //         input.trim().to_string()
-    //     };
-    //     println!("Password: ");
-    //     io::stdout().flush().unwrap();
-    //     // Hide password
-    //     let password = read_password().unwrap();
-
-    //     match rc.login(username, password).await {
-    //         Ok(t) => break Some(t),
-    //         Err(e) => {
-    //             println!("Invalid credentials. Do you want to try again? [y n]");
-    //             let mut answer = String::new();
-    //             io::stdin().read_line(&mut answer).unwrap();
-    //             if !answer.trim().to_string().starts_with("y") {
-    //                 break None;
-    //             }
-    //         }
-    //     };
-    // };
-
-    // if token_option.is_none() {
-    //     return Err(ClientError::Other(anyhow::anyhow!(
-    //         "Impossible to login: Invalid credentials!"
-    //     )));
-    // }
-
-    // let token = token_option.unwrap();
-
-    // --- 2. File system mounting ---
-
-    // TODO: check the connection to the server before mounting, retry if necessary in case of failure
+    rc.health_check().await.map_err(|err| {
+        tracing::error!("Connection to server failed: {}", err); // Write to log
+        err
+    })?;
+    */
 
     let cache_config = config.cache_config();
 

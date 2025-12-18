@@ -1,7 +1,6 @@
 use crate::cache::CacheItem;
 use crate::error::FsModelError;
-use crate::fs_model::{FileAttr, SetAttr};
-use crate::fuse::Fs;
+use crate::fs_model::{Attributes, SetAttr};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
@@ -18,7 +17,7 @@ pub enum ItemType {
 pub struct SerializableFSItem {
     pub name: String,
     pub item_type: ItemType,
-    pub attributes: FileAttr,
+    pub attributes: Attributes,
 }
 
 impl TryFrom<&CacheItem> for SerializableFSItem {

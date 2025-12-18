@@ -1,5 +1,6 @@
 use super::*;
 
+use anyhow;
 use fuse3::MountOptions as MountOptionsFuse;
 use fuse3::path::prelude::*;
 use fuse3::raw::MountHandle;
@@ -16,7 +17,7 @@ impl MountFs for UnixSession {
         let mount_options = MountOptionsFuse::from(options);
         let session = Session::new(mount_options);
 
-        let mut mount_handle: MountHandle;
+        let mount_handle: MountHandle;
 
         if options.unprivileged {
             tracing::info!("Mounting with unprivileged user FUSE.");
