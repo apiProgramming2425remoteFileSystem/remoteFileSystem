@@ -41,7 +41,7 @@ impl PathFilesystem for Fs {
     async fn init(&self, req: Request) -> FuseResult<ReplyInit> {
         tracing::info!("Filesystem initialized");
         Ok(ReplyInit {
-            max_write: NonZeroU32::new(64 * 1024 * 1024).unwrap(),
+            max_write: NonZeroU32::new(64 * 1024).unwrap(),
         })
     }
 
@@ -316,10 +316,7 @@ impl PathFilesystem for Fs {
 
         let fs_type = fs_model::FileType::try_from(mode)?;
 
-        let file_attr = self
-            .fs
-            .create_file(req.uid, req.gid, &path, &fs_type, 0, &[])
-            .await?;
+        let file_attr = self.fs.create_file(&path, &fs_type, 0, &[]).await?;
 
         Ok(ReplyEntry {
             ttl: self.fs.get_ttl(),
@@ -366,12 +363,9 @@ impl PathFilesystem for Fs {
             );
         }
 
-        let file_attr = self
-            .fs
-            .create_file(req.uid, req.gid, &path, &fs_type, 0, &[])
-            .await?;
+        let file_attr = self.fs.create_file(&path, &fs_type, 0, &[]).await?;
 
-        let fh = self.fs.open(req.uid, req.gid, &path, &fs_flags).await?;
+        let fh = self.fs.open(&path, &fs_flags).await?;
 
         Ok(ReplyCreated {
             ttl: self.fs.get_ttl(),
@@ -407,7 +401,7 @@ impl PathFilesystem for Fs {
             return Err(FuseError::InvalidInput("Invalid open flags".to_string()).into());
         }
 
-        let fh = self.fs.open(req.uid, req.gid, path, &fs_flags).await?;
+        let fh = self.fs.open(path, &fs_flags).await?;
 
         Ok(ReplyOpen { fh, flags })
     }
@@ -442,8 +436,6 @@ impl PathFilesystem for Fs {
         let data = self
             .fs
             .read_file(
-                req.uid,
-                req.gid,
                 &file_path,
                 offset as usize,
                 size as usize,
@@ -490,8 +482,6 @@ impl PathFilesystem for Fs {
         let write_data = self
             .fs
             .write_file(
-                req.uid,
-                req.gid,
                 &file_path,
                 &fs_flags,
                 offset as usize,
@@ -559,9 +549,7 @@ impl PathFilesystem for Fs {
 
         let fs_flags = fs_model::Flags::try_from(flags)?;
 
-        self.fs
-            .release(req.uid, req.gid, &file_path, &fs_flags, fh)
-            .await?;
+        self.fs.release(&file_path, &fs_flags, fh).await?;
 
         if flush {
             self.fs.flush_write_buffer().await?;
@@ -635,8 +623,6 @@ impl PathFilesystem for Fs {
         let data = self
             .fs
             .read_file(
-                req.uid,
-                req.gid,
                 &file_in_path,
                 offset_in as usize,
                 length as usize,
@@ -649,8 +635,6 @@ impl PathFilesystem for Fs {
         let write_data = self
             .fs
             .write_file(
-                req.uid,
-                req.gid,
                 &file_out_path,
                 &fs_flags,
                 offset_out as usize,
@@ -696,8 +680,6 @@ impl PathFilesystem for Fs {
 
         self.fs
             .create_file(
-                req.uid,
-                req.gid,
                 &file_path,
                 &fs_type,
                 offset as usize,
@@ -760,7 +742,7 @@ impl PathFilesystem for Fs {
         }
         */
 
-        let fh = self.fs.open(req.uid, req.gid, path, &fs_flags).await?;
+        let fh = self.fs.open(path, &fs_flags).await?;
 
         Ok(ReplyOpen { fh, flags })
     }
@@ -852,9 +834,7 @@ impl PathFilesystem for Fs {
 
         let fs_flags = fs_model::Flags::try_from(flags)?;
 
-        self.fs
-            .release(req.uid, req.gid, &file_path, &fs_flags, fh)
-            .await?;
+        self.fs.release(&file_path, &fs_flags, fh).await?;
 
         Ok(())
     }

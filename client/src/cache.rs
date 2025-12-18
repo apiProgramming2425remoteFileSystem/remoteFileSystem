@@ -115,9 +115,9 @@ pub struct Cache {
     pub max_file_size: usize,
 }
 
-fn parent_paths(path: &Path) -> Vec<PathBuf> {
+fn parent_paths<P: AsRef<Path> + Debug>(path: P) -> Vec<PathBuf> {
     let mut parents = Vec::new();
-    let mut current = path.parent();
+    let mut current = path.as_ref().parent();
 
     while let Some(p) = current {
         parents.push(p.to_path_buf());

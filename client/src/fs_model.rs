@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::fmt::Debug;
+use std::path::{self, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -38,7 +39,9 @@ pub struct FileSystem {
     cache: Option<Cache>,
 }
 
-fn get_parent_path(path: &Path) -> PathBuf {
+fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
+    let path = path.as_ref();
+
     if path == Path::new("/") {
         return PathBuf::from("/");
     }
@@ -74,23 +77,28 @@ impl FileSystem {
         }
     }
 
-    fn cache_get(&self, path: &Path) -> Option<CacheItem> {
+    fn cache_get<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
         self.cache.as_ref()?.get(path)
     }
 
-    fn cache_put(&self, path: &Path, item: CacheItem, invalidate_attributes: bool) {
+    fn cache_put<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        item: CacheItem,
+        invalidate_attributes: bool,
+    ) {
         if let Some(cache) = &self.cache {
-            cache.put(path.to_path_buf(), item, invalidate_attributes)
+            cache.put(path.as_ref().to_path_buf(), item, invalidate_attributes)
         }
     }
 
-    fn cache_put_new(&self, path: &Path, item: CacheItem) {
+    fn cache_put_new<P: AsRef<Path> + Debug>(&self, path: P, item: CacheItem) {
         if let Some(cache) = &self.cache {
-            cache.put_new(path.to_path_buf(), item)
+            cache.put_new(path.as_ref().to_path_buf(), item)
         }
     }
 
-    fn cache_remove(&self, path: &Path) -> Option<CacheItem> {
+    fn cache_remove<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
         if let Some(cache) = &self.cache {
             cache.remove(path)
         } else {
@@ -98,22 +106,22 @@ impl FileSystem {
         }
     }
 
-    fn cache_write_file(
+    fn cache_write_file<P: AsRef<Path> + Debug>(
         &self,
-        path: &Path,
+        path: P,
         offset: usize,
         data: &[u8],
         invalidate_attributes: bool,
     ) {
-        if let Some(name) = path.file_name() {
+        if let Some(name) = path.as_ref().file_name() {
             let mut file = File::new(name.to_os_string(), None);
             file.write_content(offset, &data);
             self.cache_put(path, CacheItem::File(file), invalidate_attributes);
         }
     }
 
-    fn cache_put_attr(&self, path: &Path, attributes: Attributes) {
-        if let Some(name) = path.file_name() {
+    fn cache_put_attr<P: AsRef<Path> + Debug>(&self, path: P, attributes: Attributes) {
+        if let Some(name) = path.as_ref().file_name() {
             let item = match attributes.kind {
                 FileType::Directory => CacheItem::Directory(Directory::new(
                     name.to_os_string(),
@@ -151,7 +159,12 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn readdir(&self, path: &Path) -> Result<Vec<SerializableFSItem>> {
+    pub async fn readdir<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+    ) -> Result<Vec<SerializableFSItem>> {
+        let path = path.as_ref();
+
         if let Some(CacheItem::Directory(dir)) = self.cache_get(path) {
             let mut all_children = Vec::new();
             let mut cache_hit = true;
@@ -237,8 +250,9 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    async fn list_path(&self, path: &Path) -> Result<Vec<SerializableFSItem>> {
+    async fn list_path<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Vec<SerializableFSItem>> {
         let path_str = path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
@@ -247,17 +261,16 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn create_file(
+    pub async fn create_file<P: AsRef<Path> + Debug>(
         &self,
-        uid: u32,
-        gid: u32,
-        path: &Path,
+        path: P,
         file_type: &FileType,
         offset: usize,
         data: &[u8],
     ) -> Result<Attributes> {
-        // TODO: check access
+        // TODO: flags
 
+        let path = path.as_ref();
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
@@ -275,27 +288,25 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn open(&self, uid: u32, gid: u32, path: &Path, flags: &Flags) -> Result<u64> {
-        // TODO: check access
+    pub async fn open<P: AsRef<Path> + Debug>(&self, path: P, flags: &Flags) -> Result<u64> {
+        // TODO: flags
 
         let fh = CURRENT_FH.fetch_add(1, Ordering::Relaxed);
         let mut guard = self.file_handlers.write().await;
 
-        guard.insert(fh, path.to_path_buf());
+        guard.insert(fh, path.as_ref().to_path_buf());
 
         Ok(fh)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn release(
+    pub async fn release<P: AsRef<Path> + Debug>(
         &self,
-        uid: u32,
-        gid: u32,
-        path: &Path,
+        path: P,
         flags: &Flags,
         fh: u64,
     ) -> Result<()> {
-        // TODO: check access
+        // TODO: flags
 
         let mut guard = self.file_handlers.write().await;
 
@@ -304,15 +315,14 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn read_file(
+    pub async fn read_file<P: AsRef<Path> + Debug>(
         &self,
-        uid: u32,
-        gid: u32,
-        path: &Path,
+        path: P,
         offset: usize,
         size: usize,
     ) -> Result<Vec<u8>> {
-        // TODO: check access
+        let path = path.as_ref();
+
         if let Some(CacheItem::File(file)) = self.cache_get(path) {
             let data = file.read(offset, size);
             if data.len() > 0 {
@@ -352,16 +362,15 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn write_file(
+    pub async fn write_file<P: AsRef<Path> + Debug>(
         &self,
-        uid: u32,
-        gid: u32,
-        path: &Path,
+        path: P,
         flags: &Flags,
         offset: usize,
         data: &[u8],
     ) -> Result<usize> {
         /*
+        // TODO flags
         mi dà errore nelle copy
         if !(flags.writeonly || flags.readwrite) {
             return Err(FsModelError::PermissionDenied(String::from(
@@ -370,6 +379,7 @@ impl FileSystem {
         }
          */
 
+        let path = path.as_ref();
         let mut data_written = 0;
 
         let mut uploads: Vec<(String, usize, Vec<u8>)> = Vec::new();
@@ -414,14 +424,15 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn mkdir(&self, path: &Path) -> Result<Attributes> {
+    pub async fn mkdir<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
         let path_str = path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         let attr = self.remote_client.mkdir(path_str).await?;
 
-        if let Some(name) = path.file_name() {
+        if let Some(name) = path.as_ref().file_name() {
             let item = CacheItem::Directory(Directory::new(
                 name.to_os_string(),
                 Some(attr),
@@ -434,12 +445,14 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn rename(&self, old_path: &Path, new_path: &Path) -> Result<()> {
+    pub async fn rename<P: AsRef<Path> + Debug>(&self, old_path: P, new_path: P) -> Result<()> {
         let old_path_str = old_path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         let new_path_str = new_path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
@@ -448,7 +461,7 @@ impl FileSystem {
             .await?;
 
         let old_item = self.cache_remove(old_path);
-        if let Some(name) = new_path.file_name() {
+        if let Some(name) = new_path.as_ref().file_name() {
             if let Some(mut item) = old_item {
                 item.rename(name.to_os_string());
                 self.cache_put_new(new_path, item);
@@ -459,8 +472,9 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove(&self, path: &Path) -> Result<()> {
+    pub async fn remove<P: AsRef<Path> + Debug>(&self, path: P) -> Result<()> {
         let path_str = path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
@@ -470,7 +484,9 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn resolve_child(&self, uid: u32, gid: u32, path: &Path) -> Result<Attributes> {
+    pub async fn resolve_child<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
+        let path = path.as_ref();
+
         if let Some(item) = self.cache_get(path) {
             if let Some(attr) = item.get_attributes() {
                 // cache hit
@@ -483,14 +499,16 @@ impl FileSystem {
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        let attributes = self.remote_client.resolve_child(uid, gid, path_str).await?;
+        let attributes = self.remote_client.resolve_child(path_str).await?;
 
         self.cache_put_attr(path, attributes);
         Ok(attributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes(&self, path: &Path) -> Result<Attributes> {
+    pub async fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
+        let path = path.as_ref();
+
         if let Some(item) = self.cache_get(path) {
             if let Some(attr) = item.get_attributes() {
                 // cache hit
@@ -509,14 +527,15 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_attributes(
+    pub async fn set_attributes<P: AsRef<Path> + Debug>(
         &self,
         uid: u32,
         gid: u32,
-        path: &Path,
+        path: P,
         new_attributes: SetAttr,
     ) -> Result<Attributes> {
         let path_str = path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
@@ -530,10 +549,11 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions(&self, path: &Path) -> Result<u32> {
+    pub async fn get_permissions<P: AsRef<Path> + Debug>(&self, path: P) -> Result<u32> {
         // TODO: cache
 
         let path_str = path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
@@ -542,10 +562,11 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_fs_stats(&self, path: &Path) -> Result<Stats> {
-        // TODO: cache, can't do it without knowing file type
+    pub async fn get_fs_stats<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Stats> {
+        // No cache here
 
         let path_str = path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
@@ -554,40 +575,81 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_x_attributes(&self, path: &OsStr, name: &str) -> Result<Xattributes> {
-        let xattributes = self.remote_client.get_x_attributes(path, name).await?;
+    pub async fn get_x_attributes<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        name: &str,
+    ) -> Result<Xattributes> {
+        // No cache here
+
+        let path_str = path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let xattributes = self.remote_client.get_x_attributes(path_str, name).await?;
         Ok(xattributes)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_x_attributes(
+    pub async fn set_x_attributes<P: AsRef<Path> + Debug>(
         &self,
-        path: &OsStr,
+        path: P,
         name: &str,
         xattributes: &[u8],
     ) -> Result<()> {
+        // No cache here
+
+        let path_str = path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
         self.remote_client
-            .set_x_attributes(path, name, xattributes)
+            .set_x_attributes(path_str, name, xattributes)
             .await?;
         Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_x_attribute(&self, path: &OsStr) -> Result<Vec<String>> {
-        let names = self.remote_client.list_x_attributes(path).await?;
+    pub async fn list_x_attribute<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Vec<String>> {
+        // No cache here
+
+        let path_str = path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        let names = self.remote_client.list_x_attributes(path_str).await?;
         Ok(names)
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove_x_attributes(&self, path: &OsStr, name: &str) -> Result<()> {
-        self.remote_client.remove_x_attributes(path, name).await?;
+    pub async fn remove_x_attributes<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        name: &str,
+    ) -> Result<()> {
+        let path_str = path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+        self.remote_client
+            .remove_x_attributes(path_str, name)
+            .await?;
         Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn create_symlink(&self, path: &Path, target: &str) -> Result<Attributes> {
+    pub async fn create_symlink<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        target: &str,
+    ) -> Result<Attributes> {
         // TODO: check access
 
+        let path = path.as_ref();
         let path_str = path
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
@@ -606,9 +668,9 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn read_symlink(&self, path: &Path) -> Result<String> {
+    pub async fn read_symlink<P: AsRef<Path> + Debug>(&self, path: P) -> Result<String> {
         // TODO: check access
-        if let Some(CacheItem::SymLink(SymLink { target, .. })) = self.cache_get(path) {
+        if let Some(CacheItem::SymLink(SymLink { target, .. })) = self.cache_get(path.as_ref()) {
             if let Some(target) = target {
                 // cache hit
                 return Ok(target);
@@ -617,11 +679,13 @@ impl FileSystem {
 
         // cache miss
         let path_str = path
+            .as_ref()
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         let target = self.remote_client.read_symlink(path_str).await?;
-        if let Some(name) = path.file_name() {
+
+        if let Some(name) = path.as_ref().file_name() {
             let item = CacheItem::SymLink(SymLink::new(
                 name.to_os_string(),
                 None,
@@ -655,7 +719,7 @@ impl FileSystem {
         Ok(())
     }
 
-    pub fn cache_invalidate(&self, path: &Path) {
+    pub fn cache_invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
         if let Some(cache) = &self.cache {
             cache.invalidate(path);
         }
