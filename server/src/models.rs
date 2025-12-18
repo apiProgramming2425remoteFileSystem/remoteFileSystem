@@ -157,7 +157,7 @@ impl Xattributes {
     }
 }
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromRow, Default)]
 pub struct ListXattributes {
     pub names: Vec<String>,
 }

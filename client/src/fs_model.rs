@@ -579,7 +579,7 @@ impl FileSystem {
         &self,
         path: P,
         name: &str,
-    ) -> Result<Xattributes> {
+    ) -> Result<Vec<u8>> {
         // No cache here
 
         let path_str = path
@@ -588,7 +588,7 @@ impl FileSystem {
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         let xattributes = self.remote_client.get_x_attributes(path_str, name).await?;
-        Ok(xattributes)
+        Ok(xattributes.get())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -597,6 +597,8 @@ impl FileSystem {
         path: P,
         name: &str,
         xattributes: &[u8],
+        flags: u32,
+        position: u32,
     ) -> Result<()> {
         // No cache here
 

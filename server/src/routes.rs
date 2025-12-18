@@ -342,11 +342,12 @@ async fn list_x_attributes(
 ) -> Result<impl Responder> {
     let path = path.into_inner();
 
-    let option = pool.list_x_attributes(&path).await?;
-    match option {
-        Some(names) => Ok(HttpResponse::Ok().json(names)),
-        None => Err(ApiError::NotFound("Xattributes not found".into())),
-    }
+    let names = pool
+        .list_x_attributes(&path)
+        .await?
+        .unwrap_or_default();
+
+    Ok(HttpResponse::Ok().json(names))
 }
 
 #[delete("/xattributes/{path}/names/{name}")]

@@ -59,14 +59,14 @@ impl RemoteClient {
         return url;
     }
 
-    fn set_long_url<S: AsRef<str>>(&self, api: S, obj_1: S, group: S, obj_2: Option<S>) -> String {
+    fn set_long_url<S: AsRef<str>>(&self, api: S, path: S, group: S, obj: Option<S>) -> String {
         let url: String;
-        if let Some(ob_2) = obj_2 {
+        if let Some(ob_2) = obj {
             url = format!(
                 "{}/{}/{}/{}/{}",
                 self.base_url,
                 api.as_ref(),
-                obj_1.as_ref(),
+                urlencoding::encode(path.as_ref()),
                 group.as_ref(),
                 ob_2.as_ref()
             );
@@ -75,7 +75,7 @@ impl RemoteClient {
                 "{}/{}/{}/{}",
                 self.base_url,
                 api.as_ref(),
-                obj_1.as_ref(),
+                urlencoding::encode(path.as_ref()),
                 group.as_ref()
             );
         }

@@ -161,9 +161,16 @@ impl PathFilesystem for Fs {
         name: &OsStr,
         size: u32,
     ) -> FuseResult<ReplyXAttr> {
-        // TODO:
-        tracing::debug!("{}", FuseError::NotImplemented);
-        Err(FuseError::NotImplemented.into())
+        let path = Path::new(path);
+        let name = name.to_str().ok_or_else(|| FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string()))?;;
+        let xattr = self.fs.get_x_attributes(path, name).await?;
+        if size == 0{
+            return Ok(ReplyXAttr::Size(xattr.len() as u32))
+        }
+        if size < xattr.len() as u32 {
+            return Err(libc::ERANGE.into());
+        }
+        Ok(ReplyXAttr::Data(Bytes::from(xattr)))
     }
 
     /// set an extended attribute.
@@ -177,23 +184,39 @@ impl PathFilesystem for Fs {
         flags: u32,
         position: u32,
     ) -> FuseResult<()> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        let path = Path::new(path);
+        let name = name.to_str().ok_or_else(|| FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string()))?;;
+        self.fs.set_x_attributes(path, name, value, flags, position).await;
+        Ok(())
     }
 
     /// list extended attribute names. If size is too small, use [`ReplyXAttr::Size`] to return
     /// correct size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn listxattr(&self, req: Request, path: &OsStr, size: u32) -> FuseResult<ReplyXAttr> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        let path = Path::new(path);
+        let names = self.fs.list_x_attribute(path).await?;
+        let mut buf = Vec::new();
+        for name in &names {
+            buf.extend_from_slice(name.as_bytes());
+            buf.push(0);
+        }
+        if size == 0 {
+            return Ok(ReplyXAttr::Size(buf.len() as u32));
+        }
+        if size < buf.len() as u32 {
+            return Err(libc::ERANGE.into());
+        }
+        Ok(ReplyXAttr::Data(Bytes::from(buf)))
     }
 
     /// remove an extended attribute.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn removexattr(&self, req: Request, path: &OsStr, name: &OsStr) -> FuseResult<()> {
-        // TODO:
-        Err(FuseError::NotImplemented.into())
+        let path = Path::new(path);
+        let name = name.to_str().ok_or_else(|| FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string()))?;;
+        let result = self.fs.remove_x_attributes(path, name).await?;
+        Ok(result)
     }
 
     /// get filesystem statistics.
@@ -943,7 +966,7 @@ impl PathFilesystem for Fs {
         let Some(target) = link_path.to_str() else {
             return Err(FuseError::InvalidInput("Invalid symlink target".to_string()).into());
         };
-        let file_attr = self.fs.create_symlink(&path, target).await?;
+        let file_attr = self.fs.create_symlink(&path, target.as_ref()).await?;
 
         Ok(ReplyEntry {
             ttl: self.fs.get_ttl(),
