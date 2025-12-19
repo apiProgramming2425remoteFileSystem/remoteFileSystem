@@ -33,6 +33,7 @@ const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
 #[derive(Debug)]
 pub struct FileSystem {
     remote_client: RemoteClient,
+    xattributes_enabled: bool,
     file_handlers: RwLock<HashMap<u64, PathBuf>>,
     read_buffer: RwLock<ReadBuffer>,
     write_buffer: RwLock<WriteBuffer>,
@@ -67,10 +68,11 @@ fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
 //
 impl FileSystem {
     // #[instrument(ret(level = Level::DEBUG))]
-    pub fn new(rc: RemoteClient, cache_config: CacheConfig) -> Self {
+    pub fn new(rc: RemoteClient, cache_config: CacheConfig, xattributes_enabled: bool) -> Self {
         Self {
             remote_client: rc,
             file_handlers: RwLock::new(HashMap::new()),
+            xattributes_enabled,
             read_buffer: RwLock::new(ReadBuffer::new(BUFFER_CAPACITY)),
             write_buffer: RwLock::new(WriteBuffer::new(BUFFER_CAPACITY)),
             cache: Cache::from_config(&cache_config),
@@ -150,6 +152,10 @@ impl FileSystem {
 
     pub fn get_ttl(&self) -> Duration {
         self.cache_get_ttl()
+    }
+
+    pub fn use_xattributes(&self) -> bool {
+        self.xattributes_enabled
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]

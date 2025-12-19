@@ -150,9 +150,10 @@ async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<(
     */
 
     let cache_config = config.cache_config();
+    let xattributes_enabled = config.xattributes_enabled;
 
     // Create Filesystem
-    let fs = Fs::new(rc, cache_config);
+    let fs = Fs::new(rc, cache_config, xattributes_enabled);
 
     let mount_options = MountOptions::from(&config);
 

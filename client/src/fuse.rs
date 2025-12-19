@@ -12,9 +12,9 @@ pub struct Fs {
 }
 
 impl Fs {
-    pub fn new(rc: RemoteClient, cache_config: CacheConfig) -> Self {
+    pub fn new(rc: RemoteClient, cache_config: CacheConfig, xattributes_enabled: bool) -> Self {
         Self {
-            fs: FileSystem::new(rc, cache_config),
+            fs: FileSystem::new(rc, cache_config, xattributes_enabled),
         }
     }
 }

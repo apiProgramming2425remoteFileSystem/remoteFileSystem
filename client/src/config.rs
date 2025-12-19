@@ -51,6 +51,10 @@ pub struct Config {
     #[arg(long, default_value_t = 1_048_576)]
     pub cache_max_size: usize,
 
+    /// Enable xattributes
+    #[arg(short, long, default_value_t = false)]
+    pub xattributes_enabled: bool,
+
     /// Log targets as comma separated list
     #[arg(short, long, value_enum, value_delimiter = ',', default_values_t = [LogTargets::All], env = "LOG_TARGETS")]
     pub log_targets: Vec<LogTargets>,
