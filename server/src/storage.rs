@@ -2,17 +2,20 @@
 use nix::sys::statvfs::statvfs;
 use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::fs;
+use std::fs::{self, FileTimes};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::num::NonZero;
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt, symlink};
+#[cfg(target_family = "unix")]
+use nix::unistd::{chown, Uid, Gid};
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 use tracing::{Level, instrument};
 
 use crate::error::StorageError;
-use crate::models::{FileAttr, FileType, Permission, SetAttr, Stats, Timestamp};
+use crate::models::{FileAttr, FileType, Operation, Permission, SetAttr, Stats, Timestamp};
 use crate::nodes::{Directory, FSItem, File, SymLink};
 
 type Result<T> = std::result::Result<T, StorageError>;
@@ -22,47 +25,52 @@ pub struct FileSystem {
     real_path: PathBuf, // the real path of the file system
 }
 
-fn check_permission(owner_uid: u32, owner_gid: u32, uid: u32, gid: u32) -> bool {
-    owner_uid == uid || uid == 0 || owner_gid == gid
-}
 
-fn get_attributes_by_path(path: &Path) -> Result<FileAttr> {
+fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
+    tracing::trace!("--PATH: {:?}", path);
     match fs::symlink_metadata(path) {
-        Ok(object) => {
+        Ok(metadata) => {
             let nlink = 1;
 
-            let kind = if object.is_dir() {
+            let kind = if metadata.is_dir() {
                 FileType::Directory
-            } else if object.is_file() {
+            } else if metadata.is_file() {
                 FileType::RegularFile
-            } else if object.is_symlink() {
+            } else if metadata.is_symlink() {
                 FileType::Symlink
             } else {
                 FileType::RegularFile
             };
 
             let attributes = FileAttr {
-                size: object.len(),
+                size: metadata.len(),
                 blocks: 0, //  ? eventualmente modificare ?
-                atime: Timestamp::from(object.accessed().unwrap()),
-                mtime: Timestamp::from(object.modified().unwrap()),
+                atime: Timestamp::from(metadata.accessed().unwrap()),
+                mtime: Timestamp::from(metadata.modified().unwrap()),
                 ctime: Timestamp::from(SystemTime::now()),
                 crtime: Timestamp::from(SystemTime::now()),
                 kind: kind,
-                perm: Permission::try_from(0o755 as u16).unwrap(),
+                perm: metadata.permissions().mode(),
                 nlink: nlink,
-                uid: 0,     // retrieve from db
-                gid: 0,     // retrieve from db
+                uid: metadata.uid(),     // retrieve from db
+                gid: metadata.gid(),     // retrieve from db
                 rdev: 0, // device ID of a special file in Unix-like operating systems, indicating the device associated with a file
                 blksize: 0, // ? eventualmente modificare ?
                 flags: 0, // macOS only
             };
             return Ok(attributes);
         }
-        Err(_) => {
-            return Err(StorageError::NotFound("There is no such node.".to_string()));
+        Err(e) => {
+            return Err(StorageError::NotFound(e.to_string()));
         }
     }
+}
+
+fn set_owner(user_id: i64, group_id: i64, path: &PathBuf) -> Result<()>{
+    let new_uid = Some(Uid::from_raw(user_id as u32));
+    let new_gid = Some(Gid::from_raw(group_id as u32));
+    chown(path, new_uid, new_gid).map_err(|e|StorageError::Other(e.into()))?;
+    Ok(())
 }
 
 impl FileSystem {
@@ -261,16 +269,21 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn make_dir<P: AsRef<Path> + Debug, S: AsRef<OsStr> + Debug>(
         &self,
+        user_id: i64,
+        group_id: i64,
         path: P,
         name: S,
     ) -> Result<()> {
         let name = name.as_ref();
         let target = self.make_real_path(path)?.join(name);
+
         if target.exists() {
             return Err(StorageError::AlreadyExists(format!("{:?}", target)));
         }
         fs::create_dir(&target)?;
-        Ok(())
+        set_owner(user_id, group_id, &target)?;
+
+        return Ok(());
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -281,6 +294,7 @@ impl FileSystem {
     ) -> Result<()> {
         let name = name.as_ref();
         let target = self.make_real_path(path)?.join(name);
+
         if target.exists() {
             return Err(StorageError::AlreadyExists(format!("{:?}", target)));
         }
@@ -323,11 +337,14 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn write_file<P: AsRef<Path> + Debug>(
         &self,
+        user_id: i64,
+        group_id: i64,
         path: P,
         data: &[u8],
         offset: usize,
     ) -> Result<()> {
         let real = self.make_real_path(path)?;
+
         let mut f = fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -336,6 +353,7 @@ impl FileSystem {
         f.seek(SeekFrom::Start(offset as u64))?;
         // Write data
         f.write_all(data)?;
+        set_owner(user_id, group_id, &real)?;
 
         // useless??
         // Rewind to start to read the updated file content
@@ -359,38 +377,109 @@ impl FileSystem {
         Ok(buffer)
     }
 
-    pub fn get_attributes(&self, path: &str) -> Result<FileAttr> {
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
         let target = Path::new(&real_path);
-        get_attributes_by_path(target)
+        return get_attributes_by_path(target);
     }
 
-    // Mirko poi vediamo insieme come crearla con il DB
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn get_permissions<P: AsRef<Path> + Debug>(&self, path: P) -> Result<u32>{
+        let attributes = self.get_attributes(path)?;
+        return Ok(attributes.perm);
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn set_attributes(
         &self,
         path: &str,
-        uid: u32,
-        gid: u32,
+        user_id: i64,
+        group_id: i64,
         new_attributes: SetAttr,
     ) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
-        if let Some(size) = new_attributes.size {
-            // just doing touch
-            let file = fs::OpenOptions::new().write(true).open(&real_path)?;
+        let file = fs::OpenOptions::new().write(true).open(&real_path)?;
+
+        let times = FileTimes::new();
+        let mut to_add = false;
+
+        // Allowed only if user is the owner or root
+        if let Some(mode) = new_attributes.mode && self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
+            let perms = std::fs::Permissions::from_mode(mode);
+            file.set_permissions(perms)?;
+        }
+        if let Some(gid) = new_attributes.gid && self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)?{
+            let new_uid = None;
+            let new_gid = Some(Gid::from_raw(gid));
+            chown(&real_path, new_uid, new_gid).map_err(|e|StorageError::Other(e.into()))?;
+        }
+
+        // Allowed only if user has write permissions
+        if let Some(size) = new_attributes.size && self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)? {
             file.set_len(size)?;
         }
+        if let Some(mtime) = new_attributes.mtime && self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)? {
+            times.set_accessed(mtime.into());
+            to_add = true;
+        }
+
+        // Always allowed to set
+        if let Some(atime) = new_attributes.atime {
+            times.set_accessed(atime.into());
+            to_add = true;
+        }
+        if to_add {
+            file.set_times(times)?;
+        }
+        
         get_attributes_by_path(&real_path)
     }
 
-    pub fn get_permissions(&self, path: &str) -> Result<u32> {
-        let real = self.make_real_path(path)?;
-        if !real.exists() {
-            return Err(StorageError::InvalidPath(format!(
-                "Path {:?} does not exist",
-                path
-            )));
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub fn is_allowed(&self, user_id: i64, group_id: i64, path: &Path, operation: Operation) -> Result<bool> {
+        let mut path = self.make_real_path(path)?;
+        if !path.exists() {
+            path = PathBuf::from(path.parent().expect("Generic error"));
         }
-        Ok(0o755)
+        let attributes = get_attributes_by_path(&path)?;
+        let permissions = Permission::try_from(attributes.perm as u16).map_err(|_| StorageError::MetadataError("Error during convertion.".to_string()))?;
+        let owner_uid = attributes.uid as i64;
+        let owner_gid = attributes.gid as i64;
+
+        // if path owner is root, it means it has not been created by any user, so everyone can access to it
+        if owner_uid == 0{
+            return Ok(true);
+        }
+
+        // 1. user_id == owner_uid -> check permissions
+        if user_id == owner_uid {
+            let user_permissions = permissions.user;
+            match operation {
+                Operation::Read => return Ok(user_permissions.read),
+                Operation::Write => return Ok(user_permissions.write),
+                Operation::Execute => return Ok(user_permissions.execute),
+                Operation::OwnerOnly => return Ok(true),
+            }
+        } else if group_id == owner_gid {
+            // 2. group_id == owner_gid -> check permissions
+            let group_permissions = permissions.group;
+            match operation {
+                Operation::Read => return Ok(group_permissions.read),
+                Operation::Write => return Ok(group_permissions.write),
+                Operation::Execute => return Ok(group_permissions.execute),
+                Operation::OwnerOnly => return Ok(false),
+            }
+        }else{
+            // 3. check permissions for other
+            let other_permissions = permissions.other;
+            match operation {
+                Operation::Read => return Ok(other_permissions.read),
+                Operation::Write => return Ok(other_permissions.write),
+                Operation::Execute => return Ok(other_permissions.execute),
+                Operation::OwnerOnly => return Ok(false),
+            }
+        }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]

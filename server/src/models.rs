@@ -137,7 +137,7 @@ pub struct FileAttr {
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
     /// Permissions
-    pub perm: Permission,
+    pub perm: u32,
     /// Number of hard links
     pub nlink: u32,
     /// User id
@@ -197,7 +197,7 @@ pub enum FileType {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct SetAttr {
     /// set file or directory mode.
-    pub mode: Option<Permission>,
+    pub mode: Option<u32>,
     /// set file or directory uid.
     pub uid: Option<u32>,
     /// set file or directory gid.
@@ -521,4 +521,12 @@ impl Xattributes {
 #[derive(Debug, Serialize, FromRow)]
 pub struct ListXattributes {
     pub names: Vec<String>,
+}
+
+#[derive(Debug)]
+pub enum Operation{
+    Read,
+    Write,
+    Execute,
+    OwnerOnly,
 }

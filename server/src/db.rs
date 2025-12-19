@@ -312,6 +312,7 @@ impl DB {
     }
 
     // -- XATTRIBUTES MANAGEMENT --
+    /* GESTIRE PERMESSI */
     #[instrument(ret(level = Level::DEBUG))]
     pub async fn set_x_attributes(
         &self,

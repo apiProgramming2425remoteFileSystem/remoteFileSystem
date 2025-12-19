@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use actix_web::middleware::from_fn;
 use actix_web::{HttpResponse, Responder, delete, get, post, put, web};
 use bytes::Bytes;
@@ -49,9 +51,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 }
 
 #[get("/list/{path}")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn list_path(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Read) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
 
     let Some(item) = fs.find(&path) else {
         return HttpResponse::NotFound().json(String::from("Path not found"));
@@ -75,6 +85,15 @@ async fn get_file_content(
     json: web::Json<ReadFileRequest>,
 ) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Read) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
     let offset = json.offset();
     let size = json.size();
 
@@ -100,16 +119,26 @@ async fn write_file(
     body: Bytes,
 ) -> impl Responder {
     let path = path.into_inner();
+
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Write) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
     let offset = query.offset;
 
-    match fs.write_file(&path, &body, offset) {
+    match fs.write_file(user.user_id, user.group_id, &path, &body, offset) {
         Ok(_) => {
-            let attr = fs
-                .get_attributes(&path)
-                .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
-            Ok(HttpResponse::Ok().json(attr))
+            match fs.get_attributes(&path){
+                Ok(attr) => return HttpResponse::Ok().json(attr),
+                Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+            }
         }
-        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
     }
 }
 
@@ -121,7 +150,18 @@ async fn make_directory(user: AuthenticatedUser, fs: web::Data<FileSystem>, path
         Some((p, n)) => (if p.is_empty() { "/" } else { p }, n),
         None => return HttpResponse::BadRequest().body("Invalid path"),
     };
-    if let Err(e) = fs.make_dir(parent, name) {
+
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&parent), Operation::Write) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
+
+    if let Err(e) = fs.make_dir(user.user_id, user.group_id, parent, name) {
         tracing::error!("mkdir failed: {}", e);
         return HttpResponse::InternalServerError().body(format!("Mkdir failed: {}", e));
     }
@@ -141,6 +181,15 @@ async fn make_directory(user: AuthenticatedUser, fs: web::Data<FileSystem>, path
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
 async fn delete_item(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Write) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
     match fs.delete(path.as_str()) {
         Ok(_) => HttpResponse::Ok().body("Successful deletion!"),
         Err(s) => HttpResponse::BadRequest().body(format!("Delete failed: {}", s)),
@@ -181,8 +230,8 @@ async fn set_attributes(
 ) -> impl Responder {
     let path = path.into_inner();
 
-    let uid = json.uid();
-    let gid = json.gid();
+    let uid = json.uid() as i64;
+    let gid = json.gid() as i64;
     let new_attributes = json.setattr();
 
     match fs.set_attributes(path.as_str(), uid, gid, new_attributes) {
@@ -199,7 +248,7 @@ async fn set_attributes(
 async fn get_permissions(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
 
-    match fs.get_permissions(path.as_str()) {
+    match fs.get_permissions(path) {
         Ok(permissions) => HttpResponse::Ok().json(permissions),
         Err(e) => {
             tracing::error!("{}", e.to_string());
@@ -211,6 +260,14 @@ async fn get_permissions(user: AuthenticatedUser, fs: web::Data<FileSystem>, pat
 #[get("/stats/{path}")]
 async fn get_stats(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Read) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
 
     match fs.get_fs_stats(path.as_str()) {
         Ok(stats) => HttpResponse::Ok().json(stats),
@@ -225,6 +282,15 @@ async fn get_stats(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web
 #[instrument(skip(fs ), ret(level = Level::DEBUG))]
 async fn rename(user: AuthenticatedUser, fs: web::Data<FileSystem>, json: web::Json<RenameRequest>) -> impl Responder {
     let old_path = json.old_path();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&old_path), Operation::Write) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
     let new_path = json.new_path();
 
     match fs.rename(&old_path, &new_path) {
@@ -242,6 +308,15 @@ async fn create_symlink(
     body: web::Json<SymlinkRequest>,
 ) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Write) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
     let target = &body.target;
 
     match fs.create_symlink(&path, target) {
@@ -257,6 +332,14 @@ async fn create_symlink(
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn read_symlink(user: AuthenticatedUser, fs: web::Data<FileSystem>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Read) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
 
     match fs.read_symlink(path.as_str()) {
         Ok(target) => HttpResponse::Ok().json(target),
@@ -297,6 +380,7 @@ pub async fn logout(user: AuthenticatedUser, pool: web::Data<DB>) -> impl Respon
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn set_x_attributes(
     user: AuthenticatedUser, 
+    fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
     path: web::Path<String>,
     name: web::Path<String>,
@@ -304,6 +388,14 @@ async fn set_x_attributes(
 ) -> impl Responder {
     let path = path.into_inner();
     let name = name.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Write) {
+        Ok(is_allowed) => {
+            if !is_allowed || !name.starts_with("user") {
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
 
     match pool.set_x_attributes(&path, &name, &json.get()).await {
         Ok(()) => HttpResponse::Ok().finish(),
@@ -316,11 +408,21 @@ async fn set_x_attributes(
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn get_x_attributes(
     user: AuthenticatedUser, 
+    fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
     name: web::Path<String>,
     path: web::Path<String>,
 ) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Read) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
     let name = name.into_inner();
 
     let result = pool.get_x_attributes(&path, &name).await;
@@ -339,8 +441,16 @@ async fn get_x_attributes(
 #[get("/xattributes/{path}/names")]
 #[instrument(ret(level = Level::DEBUG))]
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
-async fn list_x_attributes(user: AuthenticatedUser, pool: web::Data<DB>, path: web::Path<String>) -> impl Responder {
+async fn list_x_attributes(user: AuthenticatedUser, fs: web::Data<FileSystem>, pool: web::Data<DB>, path: web::Path<String>) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Read) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
 
     let result = pool.list_x_attributes(&path).await;
     match result {
@@ -360,11 +470,21 @@ async fn list_x_attributes(user: AuthenticatedUser, pool: web::Data<DB>, path: w
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn delete_x_attributes(
     user: AuthenticatedUser, 
+    fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
     path: web::Path<String>,
     name: web::Path<String>,
 ) -> impl Responder {
     let path = path.into_inner();
+    match fs.is_allowed(user.user_id, user.group_id, &Path::new(&path), Operation::Write) {
+        Ok(is_allowed) => {
+            if !is_allowed{
+                return HttpResponse::Forbidden().json(String::from("You do not have permissions."));
+            }
+        },
+        Err(e) => return HttpResponse::InternalServerError().json(e.to_string()),
+    }
+
     let name = name.into_inner();
 
     match pool.remove_x_attributes(&path, &name).await {

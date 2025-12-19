@@ -1241,8 +1241,7 @@ impl From<fuse3::SetAttr> for SetAttr {
             // Conversione del mode (permessi)
             // Nota: Assumiamo che il mode di fuser sia un u32 che rappresenta i permessi POSIX
             mode: value
-                .mode
-                .and_then(|m| fs_model::Permission::try_from(m).ok()),
+                .mode,
 
             // Conversione di SystemTime in Timestamp
             atime: value.atime.map(fs_model::attributes::Timestamp::from),

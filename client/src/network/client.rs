@@ -348,7 +348,7 @@ impl RemoteClient {
         let resp = self.http_client.get(url).send().await?.error_for_status()?;
 
         let body: u32 = resp.json().await?;
-        tracing::debug!("response: {:?}", body);
+        tracing::info!("{}",format!("permission response: {:o}", body));
 
         Ok(body)
     }
