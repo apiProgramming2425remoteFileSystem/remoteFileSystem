@@ -132,11 +132,11 @@ impl DB {
         /* AGGIUNTA UTENTE */
         let db = DB { pool: pool };
 
-        /*
+
         db.create_user("mirko", "password").await?;
         db.create_user("fabrizio", "password").await?;
         db.create_user("iulian", "password").await?;
-        */
+
         Ok(db)
     }
 
@@ -300,6 +300,7 @@ impl DB {
     }
 
     // -- XATTRIBUTES MANAGEMENT --
+    /* GESTIRE PERMESSI */
     #[instrument(ret(level = Level::DEBUG))]
     pub async fn set_x_attributes(&self, path: &str, name: &str, xattributes: &[u8]) -> Result<()> {
         let result = sqlx::query_scalar::<_, u8>(

@@ -19,7 +19,7 @@ pub struct FileAttr {
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
     /// Permissions
-    pub perm: Permission,
+    pub perm: u32,
     /// Number of hard links
     pub nlink: u32,
     /// User id
@@ -74,6 +74,14 @@ pub struct Permission {
     pub group: PermissionType,
     /// Permissions for all others.
     pub other: PermissionType,
+}
+
+#[derive(Debug)]
+pub enum Operation{
+    Read,
+    Write,
+    Execute,
+    OwnerOnly,
 }
 
 /*
@@ -163,7 +171,7 @@ impl From<Timestamp> for SystemTime {
 #[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize)]
 pub struct SetAttr {
     /// set file or directory mode.
-    pub mode: Option<Permission>,
+    pub mode: Option<u32>,
     /// set file or directory uid.
     pub uid: Option<u32>,
     /// set file or directory gid.

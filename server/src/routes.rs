@@ -1,4 +1,6 @@
 use actix_web::http::StatusCode;
+use std::path::Path;
+use crate::attributes::Operation;
 use actix_web::middleware::from_fn;
 use actix_web::{HttpResponse, Responder, ResponseError, delete, get, post, put, web};
 use bytes::Bytes;
@@ -61,13 +63,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 }
 
 #[get("/list/{path}")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn list_path(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    user.check_permission(&fs, &path, Operation::Read)?;
 
     let Some(item) = fs.find(&path) else {
         return Err(api_err!(NotFound, "Path not found"));
@@ -92,6 +95,8 @@ async fn get_file_content(
     json: web::Json<ReadFileRequest>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    user.check_permission(&fs, &path, Operation::Read)?;
+
     let offset = json.offset();
     let size = json.size();
 
@@ -112,9 +117,12 @@ async fn write_file(
     body: Bytes,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+
+    user.check_permission(&fs, &path, Operation::Write)?;
+
     let offset = query.offset;
 
-    fs.write_file(&path, &body, offset)?;
+    fs.write_file(user.user_id, user.group_id, &path, &body, offset)?;
 
     let attr = fs.get_attributes(&path)?;
 
@@ -134,7 +142,9 @@ async fn make_directory(
         None => return Err(api_err!(InvalidInput, "Invalid path")),
     };
 
-    fs.make_dir(parent, name)?;
+    user.check_permission(&fs, &path, Operation::Write)?;
+
+    fs.make_dir(user.user_id, user.group_id, parent, name)?;
 
     let attributes = fs.get_attributes(path.as_str())?;
 
@@ -149,6 +159,8 @@ async fn delete_item(
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    user.check_permission(&fs, &path, Operation::Write)?;
+
     fs.delete(path.as_str())?;
 
     Ok(HttpResponse::Ok().body("Successful deletion!"))
@@ -191,8 +203,8 @@ async fn set_attributes(
 ) -> Result<impl Responder> {
     let path = path.into_inner();
 
-    let uid = json.uid();
-    let gid = json.gid();
+    let uid = json.uid() as i64;
+    let gid = json.gid() as i64;
     let new_attributes = json.setattr();
 
     let attributes = fs.set_attributes(path.as_str(), uid, gid, new_attributes)?;
@@ -221,7 +233,7 @@ async fn get_stats(
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
-
+    user.check_permission(&fs, &path, Operation::Read)?;
     let stats = fs.get_fs_stats(path.as_str())?;
 
     Ok(HttpResponse::Ok().json(stats))
@@ -235,6 +247,8 @@ async fn rename(
     json: web::Json<RenameRequest>,
 ) -> Result<impl Responder> {
     let old_path = json.old_path();
+    user.check_permission(&fs, &old_path, Operation::Write)?;
+
     let new_path = json.new_path();
 
     fs.rename(&old_path, &new_path)?;
@@ -251,6 +265,8 @@ async fn create_symlink(
     body: web::Json<SymlinkRequest>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    user.check_permission(&fs, &path, Operation::Write)?;
+
     let target = &body.target;
 
     let attributes = fs.create_symlink(&path, target)?;
@@ -266,7 +282,7 @@ async fn read_symlink(
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
-
+    user.check_permission(&fs, &path, Operation::Read)?;
     let target = fs.read_symlink(path.as_str())?;
 
     Ok(HttpResponse::Ok().json(target))
@@ -302,6 +318,7 @@ pub async fn logout(user: AuthenticatedUser, pool: web::Data<DB>) -> Result<impl
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn set_x_attributes(
     user: AuthenticatedUser,
+    fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
     path: web::Path<String>,
     name: web::Path<String>,
@@ -309,6 +326,7 @@ async fn set_x_attributes(
 ) -> Result<impl Responder> {
     let path = path.into_inner();
     let name = name.into_inner();
+    user.check_permission(&fs, &path, Operation::Write)?;
 
     pool.set_x_attributes(&path, &name, &json.get()).await?;
 
@@ -319,11 +337,14 @@ async fn set_x_attributes(
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn get_x_attributes(
     user: AuthenticatedUser,
+    fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
     name: web::Path<String>,
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    user.check_permission(&fs, &path, Operation::Read)?;
+
     let name = name.into_inner();
 
     let option = pool.get_x_attributes(&path, &name).await?;
@@ -337,10 +358,11 @@ async fn get_x_attributes(
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn list_x_attributes(
     user: AuthenticatedUser,
-    pool: web::Data<DB>,
+    fs: web::Data<FileSystem>, pool: web::Data<DB>,
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    user.check_permission(&fs, &path, Operation::Read)?;
 
     let names = pool
         .list_x_attributes(&path)
@@ -354,11 +376,14 @@ async fn list_x_attributes(
 #[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn delete_x_attributes(
     user: AuthenticatedUser,
+    fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
     path: web::Path<String>,
     name: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    user.check_permission(&fs, &path, Operation::Write)?;
+
     let name = name.into_inner();
 
     pool.remove_x_attributes(&path, &name).await?;
@@ -403,5 +428,15 @@ impl ResponseError for ApiError {
 
     fn error_response(&self) -> HttpResponse {
         HttpResponse::build(self.status_code()).json(self)
+    }
+}
+
+impl AuthenticatedUser{
+    pub fn check_permission(&self, fs: &FileSystem, path: &str, op: Operation) -> Result<()> {
+        match fs.is_allowed(self.user_id, self.group_id, Path::new(path), op) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(ApiError::PermissionDenied(String::from("You do not have the needed permissions."))),
+            Err(e) => Err(ApiError::InternalError(e.to_string())),
+        }
     }
 }
