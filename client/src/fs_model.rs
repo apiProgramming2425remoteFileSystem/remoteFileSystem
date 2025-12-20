@@ -4,6 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::path::{self, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::RwLock;
@@ -37,7 +38,7 @@ pub struct FileSystem {
     file_handlers: RwLock<HashMap<u64, PathBuf>>,
     read_buffer: RwLock<ReadBuffer>,
     write_buffer: RwLock<WriteBuffer>,
-    cache: Option<Cache>,
+    cache: Option<Arc<Cache>>,
 }
 
 fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
@@ -57,6 +58,47 @@ fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
         None => PathBuf::from("/"),
     }
 }
+
+fn cache_write_file<P: AsRef<Path> + Debug>(
+    cache: &Arc<Cache>,
+    path: P,
+    offset: usize,
+    data: &[u8],
+    invalidate_attributes: bool,
+) {
+    if let Some(name) = path.as_ref().file_name() {
+        let mut file = File::new(name.to_os_string(), None);
+        file.write_content(offset, data);
+        cache.put(path.as_ref().to_path_buf(), CacheItem::File(file), invalidate_attributes);
+    }
+}
+
+fn cache_put_attr<P: AsRef<Path> + Debug>(
+    cache: &Arc<Cache>,
+    path: P,
+    attributes: Attributes,
+) {
+    if let Some(name) = path.as_ref().file_name() {
+        let item = match attributes.kind {
+            FileType::Directory => CacheItem::Directory(Directory::new(
+                name.to_os_string(),
+                Some(attributes),
+                None,
+            )),
+            FileType::RegularFile => {
+                CacheItem::File(File::new(name.to_os_string(), Some(attributes)))
+            }
+            FileType::Symlink => {
+                CacheItem::SymLink(SymLink::new(name.to_os_string(), Some(attributes), None))
+            }
+            _ => CacheItem::File(File::new(name.to_os_string(), Some(attributes))),
+        };
+
+        cache.put(path.as_ref().to_path_buf(), item, false);
+    }
+}
+
+
 
 /// pub async fn template_fn(&self, args) -> Result<> {
 ///     1. check args
@@ -78,80 +120,13 @@ impl FileSystem {
             cache: Cache::from_config(&cache_config),
         }
     }
-
-    fn cache_get<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
-        self.cache.as_ref()?.get(path)
-    }
-
-    fn cache_put<P: AsRef<Path> + Debug>(
-        &self,
-        path: P,
-        item: CacheItem,
-        invalidate_attributes: bool,
-    ) {
-        if let Some(cache) = &self.cache {
-            cache.put(path.as_ref().to_path_buf(), item, invalidate_attributes)
-        }
-    }
-
-    fn cache_put_new<P: AsRef<Path> + Debug>(&self, path: P, item: CacheItem) {
-        if let Some(cache) = &self.cache {
-            cache.put_new(path.as_ref().to_path_buf(), item)
-        }
-    }
-
-    fn cache_remove<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
-        if let Some(cache) = &self.cache {
-            cache.remove(path)
-        } else {
-            None
-        }
-    }
-
-    fn cache_write_file<P: AsRef<Path> + Debug>(
-        &self,
-        path: P,
-        offset: usize,
-        data: &[u8],
-        invalidate_attributes: bool,
-    ) {
-        if let Some(name) = path.as_ref().file_name() {
-            let mut file = File::new(name.to_os_string(), None);
-            file.write_content(offset, &data);
-            self.cache_put(path, CacheItem::File(file), invalidate_attributes);
-        }
-    }
-
-    fn cache_put_attr<P: AsRef<Path> + Debug>(&self, path: P, attributes: Attributes) {
-        if let Some(name) = path.as_ref().file_name() {
-            let item = match attributes.kind {
-                FileType::Directory => CacheItem::Directory(Directory::new(
-                    name.to_os_string(),
-                    Some(attributes),
-                    None,
-                )),
-                FileType::RegularFile => {
-                    CacheItem::File(File::new(name.to_os_string(), Some(attributes)))
-                }
-                FileType::Symlink => {
-                    CacheItem::SymLink(SymLink::new(name.to_os_string(), Some(attributes), None))
-                }
-                _ => CacheItem::File(File::new(name.to_os_string(), Some(attributes))),
-            };
-            self.cache_put(path, item, false);
-        }
-    }
-
-    fn cache_get_ttl(&self) -> Duration {
+    pub fn get_ttl(&self) -> Duration {
         if let Some(cache) = &self.cache {
             cache.ttl
-        } else {
+        }
+        else {
             Duration::from_secs(0)
         }
-    }
-
-    pub fn get_ttl(&self) -> Duration {
-        self.cache_get_ttl()
     }
 
     pub fn use_xattributes(&self) -> bool {
@@ -171,52 +146,57 @@ impl FileSystem {
     ) -> Result<Vec<SerializableFSItem>> {
         let path = path.as_ref();
 
-        if let Some(CacheItem::Directory(dir)) = self.cache_get(path) {
-            let mut all_children = Vec::new();
-            let mut cache_hit = true;
 
-            if let Some(children) = &dir.children {
-                for child in children {
-                    let child_path = path.join(child);
-                    if let Some(item) = self.cache_get(&child_path) {
-                        let Ok(serializable) = SerializableFSItem::try_from(&item) else {
+        if let Some(cache) = &self.cache {
+            if let Some(CacheItem::Directory(dir)) = cache.get(path) {
+                let mut all_children = Vec::new();
+                let mut cache_hit = true;
+
+                if let Some(children) = &dir.children {
+                    for child in children {
+                        let child_path = path.join(child);
+                        if let Some(item) = cache.get(&child_path) {
+                            let Ok(serializable) = SerializableFSItem::try_from(&item) else {
+                                cache_hit = false;
+                                break;
+                            };
+                            all_children.push(serializable);
+                        } else {
                             cache_hit = false;
                             break;
-                        };
-                        all_children.push(serializable);
-                    } else {
-                        cache_hit = false;
-                        break;
+                        }
                     }
-                }
-            } else {
-                cache_hit = false;
-            }
-
-            // cache hit
-            if cache_hit {
-                let mut result = Vec::new();
-
-                result.push(SerializableFSItem {
-                    name: ".".into(),
-                    item_type: ItemType::Directory,
-                    attributes: self.get_attributes(path).await?,
-                });
-
-                let parent = get_parent_path(path);
-                result.push(SerializableFSItem {
-                    name: "..".into(),
-                    item_type: ItemType::Directory,
-                    attributes: self.get_attributes(&parent).await?,
-                });
-
-                for c in all_children {
-                    result.push(c);
+                } else {
+                    cache_hit = false;
                 }
 
-                return Ok(result);
+                // cache hit
+                if cache_hit {
+                    let mut result = Vec::new();
+
+                    result.push(SerializableFSItem {
+                        name: ".".into(),
+                        item_type: ItemType::Directory,
+                        attributes: self.get_attributes(path).await?,
+                    });
+
+                    let parent = get_parent_path(path);
+                    result.push(SerializableFSItem {
+                        name: "..".into(),
+                        item_type: ItemType::Directory,
+                        attributes: self.get_attributes(&parent).await?,
+                    });
+
+                    for c in all_children {
+                        result.push(c);
+                    }
+
+                    return Ok(result);
+                }
             }
         }
+
+
 
         // cache miss
         let elements = self.list_path(path).await?;
@@ -233,11 +213,12 @@ impl FileSystem {
             Some(self.get_attributes(path).await?),
             Some(children_names),
         );
-        self.cache_put(path, CacheItem::Directory(dir), false);
-
-        for element in &elements {
-            let child_path = path.join(&element.name);
-            self.cache_put(&child_path, CacheItem::from(element.clone()), false);
+        if let Some(cache) = &self.cache {
+            cache.put(path, CacheItem::Directory(dir), false);
+            for element in &elements {
+                let child_path = path.join(&element.name);
+                cache.put(&child_path, CacheItem::from(element.clone()), false);
+            }
         }
         let mut result = Vec::new();
         result.push(SerializableFSItem {
@@ -283,12 +264,12 @@ impl FileSystem {
 
         let attr = self
             .remote_client
-            .write_file(path_str, offset, data.to_vec())
+            .write_file(path_str, offset, data)
             .await?;
 
-        if let Some(name) = path.file_name() {
+        if let (Some(name), Some(cache)) = (path.file_name(), &self.cache) {
             let item = CacheItem::File(File::new(name.to_os_string(), Some(attr)));
-            self.cache_put_new(path, item);
+            cache.put_new(path, item);
         }
         Ok(attr)
     }
@@ -329,11 +310,13 @@ impl FileSystem {
     ) -> Result<Vec<u8>> {
         let path = path.as_ref();
 
-        if let Some(CacheItem::File(file)) = self.cache_get(path) {
-            let data = file.read(offset, size);
-            if data.len() > 0 {
-                // cache hit
-                return Ok(data);
+        if let Some(cache) = &self.cache {
+            if let Some(CacheItem::File(file)) = cache.get(path) {
+                let data = file.read(offset, size);
+                if data.len() > 0 {
+                    // cache hit
+                    return Ok(data);
+                }
             }
         }
 
@@ -342,7 +325,9 @@ impl FileSystem {
             let data = buffer.read(path, offset, size);
             if !data.is_empty() {
                 // buffer hit
-                self.cache_write_file(path, offset, &data, false);
+                if let Some(cache) = &self.cache {
+                    cache_write_file(cache, path, offset, &data, false);
+                }
                 return Ok(data);
             }
         }
@@ -362,7 +347,9 @@ impl FileSystem {
             let mut buffer = self.read_buffer.write().await;
             buffer.fill(path, offset, &data);
         }
-        self.cache_write_file(path, offset, &data, false);
+        if let Some(cache) = &self.cache {
+            cache_write_file(cache, path, offset, &data, false);
+        }
         let end = data.len().min(size);
         Ok(data[..end].to_vec())
     }
@@ -388,7 +375,7 @@ impl FileSystem {
         let path = path.as_ref();
         let mut data_written = 0;
 
-        let mut uploads: Vec<(String, usize, Vec<u8>)> = Vec::new();
+        let mut uploads: Vec<(PathBuf, usize, Vec<u8>)> = Vec::new();
 
         {
             let mut buffer = self.write_buffer.write().await;
@@ -397,7 +384,7 @@ impl FileSystem {
                 let (buf_path, buf_offset, buf_data) = buffer.get_content();
                 if !buf_data.is_empty() {
                     uploads.push((
-                        buf_path.to_string_lossy().to_string(),
+                        buf_path.to_path_buf(),
                         buf_offset,
                         buf_data.to_vec(),
                     ));
@@ -410,7 +397,7 @@ impl FileSystem {
             if buffer.is_full() {
                 let (buf_path, buf_offset, buf_data) = buffer.get_content();
                 uploads.push((
-                    buf_path.to_string_lossy().to_string(),
+                    buf_path.to_path_buf(),
                     buf_offset,
                     buf_data.to_vec(),
                 ));
@@ -418,14 +405,22 @@ impl FileSystem {
             }
         }
 
+
+
         for (path, offset, data) in uploads {
+            let cache = self.cache.clone();
             let client = self.remote_client.clone();
             tokio::spawn(async move {
-                let _ = client.write_file(&path, offset, data).await;
+                if client.write_file(&path.to_string_lossy().to_string(), offset, &data).await.is_err() {
+                    return;
+                };
+                if let Some(cache_thread) = cache {
+                    cache_write_file(&cache_thread, &path, offset, &data, true);
+                }
             });
         }
 
-        self.cache_write_file(path, offset, data, true);
+
         Ok(data_written)
     }
 
@@ -438,13 +433,13 @@ impl FileSystem {
 
         let attr = self.remote_client.mkdir(path_str).await?;
 
-        if let Some(name) = path.as_ref().file_name() {
+        if let (Some(name), Some(cache)) = (path.as_ref().file_name(), &self.cache) {
             let item = CacheItem::Directory(Directory::new(
                 name.to_os_string(),
                 Some(attr),
                 Some(vec![]),
             ));
-            self.cache_put_new(path, item);
+            cache.put_new(path, item);
         }
 
         Ok(attr)
@@ -466,11 +461,13 @@ impl FileSystem {
             .rename(old_path_str, new_path_str)
             .await?;
 
-        let old_item = self.cache_remove(old_path);
-        if let Some(name) = new_path.as_ref().file_name() {
-            if let Some(mut item) = old_item {
-                item.rename(name.to_os_string());
-                self.cache_put_new(new_path, item);
+        if let Some(cache) = &self.cache {
+            let old_item = cache.remove(old_path);
+            if let Some(name) = new_path.as_ref().file_name() {
+                if let Some(mut item) = old_item {
+                    item.rename(name.to_os_string());
+                    cache.put_new(new_path, item);
+                }
             }
         }
 
@@ -485,7 +482,9 @@ impl FileSystem {
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
         self.remote_client.remove(path_str).await?;
-        self.cache_remove(path);
+        if let Some(cache) = &self.cache {
+            cache.remove(path);
+        }
         Ok(())
     }
 
@@ -493,10 +492,13 @@ impl FileSystem {
     pub async fn resolve_child<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
         let path = path.as_ref();
 
-        if let Some(item) = self.cache_get(path) {
-            if let Some(attr) = item.get_attributes() {
-                // cache hit
-                return Ok(attr);
+
+        if let Some(cache) = &self.cache {
+            if let Some(item) = cache.get(path) {
+                if let Some(attr) = item.get_attributes() {
+                    // cache hit
+                    return Ok(attr);
+                }
             }
         }
 
@@ -507,7 +509,9 @@ impl FileSystem {
 
         let attributes = self.remote_client.resolve_child(path_str).await?;
 
-        self.cache_put_attr(path, attributes);
+        if let Some(cache) = &self.cache {
+            cache_put_attr(cache, path, attributes);
+        }
         Ok(attributes)
     }
 
@@ -515,10 +519,12 @@ impl FileSystem {
     pub async fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
         let path = path.as_ref();
 
-        if let Some(item) = self.cache_get(path) {
-            if let Some(attr) = item.get_attributes() {
-                // cache hit
-                return Ok(attr);
+        if let Some(cache) = &self.cache {
+            if let Some(item) = cache.get(path) {
+                if let Some(attr) = item.get_attributes() {
+                    // cache hit
+                    return Ok(attr);
+                }
             }
         }
 
@@ -528,7 +534,9 @@ impl FileSystem {
 
         let attributes = self.remote_client.get_attributes(path_str).await?;
 
-        self.cache_put_attr(path, attributes);
+        if let Some(cache) = &self.cache {
+            cache_put_attr(cache, path, attributes);
+        }
         Ok(attributes)
     }
 
@@ -550,7 +558,9 @@ impl FileSystem {
             .set_attributes(uid, gid, path_str, new_attributes)
             .await?;
 
-        self.cache_put_attr(path, attributes);
+        if let Some(cache) = &self.cache {
+            cache_put_attr(cache, path, attributes);
+        }
         Ok(attributes)
     }
 
@@ -664,13 +674,13 @@ impl FileSystem {
 
         let attributes = self.remote_client.create_symlink(path_str, target).await?;
 
-        if let Some(name) = path.file_name() {
+        if let (Some(name), Some(cache))= (path.file_name(), &self.cache) {
             let item = CacheItem::SymLink(SymLink::new(
                 name.to_os_string(),
                 Some(attributes),
                 Some(target.to_string()),
             ));
-            self.cache_put_new(path, item);
+            cache.put_new(path, item);
         }
         Ok(attributes)
     }
@@ -678,10 +688,12 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn read_symlink<P: AsRef<Path> + Debug>(&self, path: P) -> Result<String> {
         // TODO: check access
-        if let Some(CacheItem::SymLink(SymLink { target, .. })) = self.cache_get(path.as_ref()) {
-            if let Some(target) = target {
-                // cache hit
-                return Ok(target);
+        if let Some(cache) = &self.cache {
+            if let Some(CacheItem::SymLink(SymLink { target, .. })) = cache.get(path.as_ref()) {
+                if let Some(target) = target {
+                    // cache hit
+                    return Ok(target);
+                }
             }
         }
 
@@ -693,13 +705,13 @@ impl FileSystem {
 
         let target = self.remote_client.read_symlink(path_str).await?;
 
-        if let Some(name) = path.as_ref().file_name() {
+        if let (Some(name), Some(cache)) = (path.as_ref().file_name(), &self.cache) {
             let item = CacheItem::SymLink(SymLink::new(
                 name.to_os_string(),
                 None,
                 Some(target.clone()),
             ));
-            self.cache_put(path, item, false);
+            cache.put(path, item, false);
         }
 
         Ok(target)
@@ -707,25 +719,39 @@ impl FileSystem {
 
     pub async fn flush_write_buffer(&self) -> Result<()> {
         let mut buffer = self.write_buffer.write().await;
+        let (path, offset, data) = buffer.get_content();
 
-        let (path, buffer_offset, buffer_data) = buffer.get_content();
-
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
-        let path_string = path_str.to_string();
-        let buffer_data = buffer_data.to_vec();
-        if buffer_data.len() > 0 {
-            let client = self.remote_client.clone();
-            tokio::spawn(async move {
-                let _ = client
-                    .write_file(&path_string, buffer_offset, buffer_data)
-                    .await;
-            });
+        if data.is_empty() {
+            return Ok(());
         }
+
+        let path_owned = path.to_path_buf();
+        let data_owned = data.to_vec();
         buffer.clean();
+
+        let client = self.remote_client.clone();
+        let cache = self.cache.clone();
+
+        tokio::spawn(async move {
+            if let Some(cache) = cache {
+                if client
+                    .write_file(&path_owned.to_string_lossy(), offset, &data_owned)
+                    .await.is_ok()
+                {
+                    cache_write_file(
+                        &cache,
+                        &path_owned,
+                        offset,
+                        &data_owned,
+                        true,
+                    );
+                }
+            }
+        });
+
         Ok(())
     }
+
 
     pub fn cache_invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
         if let Some(cache) = &self.cache {

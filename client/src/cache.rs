@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -128,7 +128,7 @@ fn parent_paths<P: AsRef<Path> + Debug>(path: P) -> Vec<PathBuf> {
 }
 
 impl Cache {
-    pub fn from_config(cfg: &CacheConfig) -> Option<Self> {
+    pub fn from_config(cfg: &CacheConfig) -> Option<Arc<Self>> {
         if !cfg.enabled {
             return None;
         }
@@ -136,14 +136,14 @@ impl Cache {
         MAX_PAGES
             .set(cfg.max_size / PAGE_SIZE)
             .expect("MAX_PAGES already set");
-        Some(Self {
+        Some(Arc::new(Cache {
             entries: RwLock::new(HashMap::new()),
             capacity: cfg.capacity,
             ttl: cfg.ttl,
             use_ttl: cfg.use_ttl,
             policy: cfg.policy,
             max_file_size: cfg.max_size,
-        })
+        }))
     }
 
     fn invalidate_parents<P: AsRef<Path>>(&self, path: P) {

@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt::Debug;
-
+use std::io::Read;
 use reqwest::{Client, Response, Result as ReqwestResult};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
@@ -116,7 +116,7 @@ impl RemoteClient {
         &self,
         path: S,
         offset: usize,
-        data: Vec<u8>,
+        data: &[u8],
     ) -> Result<Attributes> {
         use reqwest::header::CONTENT_TYPE;
 
@@ -127,7 +127,7 @@ impl RemoteClient {
             .put(url)
             .query(&[("offset", &offset.to_string())])
             .header(CONTENT_TYPE, "application/octet-stream")
-            .body(data)
+            .body(data.to_vec())
             .send()
             .await?;
 
