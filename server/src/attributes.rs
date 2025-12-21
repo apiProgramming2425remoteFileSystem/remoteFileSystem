@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
+
+use crate::error::ApiError;
 
 /// File attributes
 #[derive(Debug, Copy, Clone, Serialize /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
@@ -82,6 +84,33 @@ pub enum Operation{
     Write,
     Execute,
     OwnerOnly,
+}
+
+impl TryFrom<u32> for Operation {
+    type Error = ApiError;
+
+    fn try_from(mask: u32) -> Result<Self, Self::Error> {
+        match mask {
+            4 => Ok(Operation::Read),
+            2 => Ok(Operation::Write),
+            1 => Ok(Operation::Execute),
+            _ => Err(ApiError::InvalidInput(String::from("Invalid mask"))),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OperationQuery{
+    mask: String
+}
+
+impl OperationQuery{
+    pub fn get_mask(&self) -> Result<u32, ApiError>{
+        let mask: u32 = self.mask.parse().map_err(|_| {
+            ApiError::InvalidInput(String::from("Invalid mask"))
+        })?;
+        Ok(mask)
+    }
 }
 
 /*

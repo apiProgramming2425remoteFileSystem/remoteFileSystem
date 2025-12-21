@@ -1,6 +1,6 @@
 use actix_web::http::StatusCode;
 use std::path::Path;
-use crate::attributes::Operation;
+use crate::attributes::{Operation, OperationQuery};
 use actix_web::middleware::from_fn;
 use actix_web::{HttpResponse, Responder, ResponseError, delete, get, post, put, web};
 use bytes::Bytes;
@@ -218,12 +218,18 @@ async fn get_permissions(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     path: web::Path<String>,
+    query: web::Query<OperationQuery>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
+    let query = query.into_inner();
 
-    let permissions = fs.get_permissions(path.as_str())?;
-
-    Ok(HttpResponse::Ok().json(permissions))
+    let mask = query.get_mask()?;
+    if mask != 0{
+        let operation: Operation = mask.try_into()?;
+        user.check_permission(&fs, &path, operation)?;
+    }
+    
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[get("/stats/{path}")]

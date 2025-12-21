@@ -200,11 +200,17 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions<S: AsRef<str> + Debug>(&self, path: S) -> Result<u32> {
+    pub async fn get_permissions<S: AsRef<str> + Debug>(&self, path: S, mask: u32) -> Result<()> {
         let url = self.set_url("permissions", path.as_ref());
-        let resp = self.http_client.get(url).send().await?;
+        let resp = self.http_client
+                                .get(url)
+                                .query(&[("mask", &mask.to_string())])
+                                .send()
+                                .await?;
 
-        handle_response(resp, |r| r.json()).await
+        handle_response(resp, |_| async {
+            Ok(())
+        }).await
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]

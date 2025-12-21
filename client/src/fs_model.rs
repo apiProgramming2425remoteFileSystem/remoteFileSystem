@@ -565,7 +565,7 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_permissions<P: AsRef<Path> + Debug>(&self, path: P) -> Result<u32> {
+    pub async fn get_permissions<P: AsRef<Path> + Debug>(&self, path: P, mask: u32) -> Result<()> {
         // TODO: cache
 
         let path_str = path
@@ -573,8 +573,8 @@ impl FileSystem {
             .to_str()
             .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
 
-        let permissions = self.remote_client.get_permissions(path_str).await?;
-        Ok(permissions)
+        self.remote_client.get_permissions(path_str, mask).await?;
+        Ok(())
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]

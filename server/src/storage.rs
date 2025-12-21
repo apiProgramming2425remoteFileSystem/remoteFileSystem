@@ -53,8 +53,8 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
                 kind: kind,
                 perm: metadata.permissions().mode(),
                 nlink: nlink,
-                uid: metadata.uid(),     // retrieve from db
-                gid: metadata.gid(),     // retrieve from db
+                uid: metadata.uid() + 1000,     // retrieve from db
+                gid: metadata.gid() + 1000,     // retrieve from db
                 rdev: 0, // device ID of a special file in Unix-like operating systems, indicating the device associated with a file
                 blksize: 0, // ? eventualmente modificare ?
                 flags: 0, // macOS only
@@ -381,6 +381,7 @@ impl FileSystem {
     pub fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
         let target = Path::new(&real_path);
+
         return get_attributes_by_path(target);
     }
 
@@ -444,8 +445,8 @@ impl FileSystem {
         }
         let attributes = get_attributes_by_path(&path)?;
         let permissions = Permission::try_from(attributes.perm as u16).map_err(|_| StorageError::MetadataError("Error during convertion.".to_string()))?;
-        let owner_uid = attributes.uid as i64;
-        let owner_gid = attributes.gid as i64;
+        let owner_uid = (attributes.uid - 1000) as i64;
+        let owner_gid = (attributes.gid - 1000) as i64;
 
         // if path owner is root, it means it has not been created by any user, so everyone can access to it
         if owner_uid == 0{

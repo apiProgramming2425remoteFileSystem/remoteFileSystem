@@ -264,45 +264,11 @@ impl PathFilesystem for Fs {
     /// not called under Linux kernel versions 2.4.x.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn access(&self, req: Request, path: &OsStr, mask: u32) -> FuseResult<()> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let path = PathBuf::from(path);
 
-        let path = PathBuf::from(path);
+        self.fs.get_permissions(&path, mask).await?;
 
-        let permissions = self.fs.get_permissions(&path).await?;
-
-        /*if (permissions & 0o100) == mask {
-            Ok(())
-        }else{
-            Err(libc::EACCES.into())
-        }*/
-        match mask {
-            0 => Ok(()),
-            1 => {
-                if permissions & 0o100 != 0 {
-                    Ok(())
-                } else {
-                    Err(libc::EACCES.into())
-                }
-            }
-            2 => {
-                if permissions & 0o200 != 0 {
-                    Ok(())
-                } else {
-                    Err(libc::EACCES.into())
-                }
-            }
-            4 => {
-                if permissions & 0o400 != 0 {
-                    Ok(())
-                } else {
-                    Err(libc::EACCES.into())
-                }
-            }
-            _ => Err(libc::EACCES.into()),
-        }
+        Ok(())
     }
 
     /// map block index within file to block index within device.
