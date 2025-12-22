@@ -406,23 +406,45 @@ impl FileSystem {
         let mut to_add = false;
 
         // Allowed only if user is the owner or root
-        if let Some(mode) = new_attributes.mode && self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
-            let perms = std::fs::Permissions::from_mode(mode);
-            file.set_permissions(perms)?;
+        if let Some(mode) = new_attributes.mode {
+            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)?{
+                let perms = std::fs::Permissions::from_mode(mode);
+                file.set_permissions(perms)?;
+            }else{
+                return Err(StorageError::PermissionDenied);
+            }
         }
-        if let Some(gid) = new_attributes.gid && self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)?{
-            let new_uid = None;
-            let new_gid = Some(Gid::from_raw(gid));
-            chown(&real_path, new_uid, new_gid).map_err(|e|StorageError::Other(e.into()))?;
+
+        if new_attributes.uid.is_some() {
+            return Err(StorageError::PermissionDenied);
+        }
+        
+        if let Some(gid) = new_attributes.gid{
+            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)?{
+                let new_uid = None;
+                let new_gid = Some(Gid::from_raw(gid));
+                chown(&real_path, new_uid, new_gid).map_err(|e|StorageError::Other(e.into()))?; 
+            }else{
+                return Err(StorageError::PermissionDenied);
+            }
+            
         }
 
         // Allowed only if user has write permissions
-        if let Some(size) = new_attributes.size && self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)? {
-            file.set_len(size)?;
+        if let Some(size) = new_attributes.size {
+            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)?{
+              file.set_len(size)?;  
+            }else{
+                return Err(StorageError::PermissionDenied);
+            }
         }
-        if let Some(mtime) = new_attributes.mtime && self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)? {
-            times.set_accessed(mtime.into());
-            to_add = true;
+        if let Some(mtime) = new_attributes.mtime {
+            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)?{
+                times.set_accessed(mtime.into());
+                to_add = true; 
+            }else{
+                return Err(StorageError::PermissionDenied);
+            }
         }
 
         // Always allowed to set

@@ -79,20 +79,10 @@ impl RenameRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct SetAttrRequest {
-    pub uid: u32,
-    pub gid: u32,
     pub setattr: SetAttr,
 }
 
 impl SetAttrRequest {
-    pub fn uid(&self) -> u32 {
-        self.uid
-    }
-
-    pub fn gid(&self) -> u32 {
-        self.gid
-    }
-
     pub fn setattr(&self) -> SetAttr {
         self.setattr.clone()
     }

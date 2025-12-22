@@ -203,11 +203,9 @@ async fn set_attributes(
 ) -> Result<impl Responder> {
     let path = path.into_inner();
 
-    let uid = json.uid() as i64;
-    let gid = json.gid() as i64;
     let new_attributes = json.setattr();
 
-    let attributes = fs.set_attributes(path.as_str(), uid, gid, new_attributes)?;
+    let attributes = fs.set_attributes(path.as_str(), user.user_id, user.group_id, new_attributes)?;
 
     Ok(HttpResponse::Ok().json(attributes))
 }

@@ -105,16 +105,12 @@ impl RenameRequest {
 
 #[derive(Debug, Serialize)]
 pub struct SetAttrRequest {
-    pub uid: u32,
-    pub gid: u32,
     pub setattr: SetAttr,
 }
 
 impl SetAttrRequest {
-    pub fn new(uid: u32, gid: u32, setattr: SetAttr) -> Self {
+    pub fn new(setattr: SetAttr) -> Self {
         Self {
-            uid: uid,
-            gid: gid,
             setattr: setattr,
         }
     }

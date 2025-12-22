@@ -558,7 +558,7 @@ impl FileSystem {
 
         let attributes = self
             .remote_client
-            .set_attributes(uid, gid, path_str, new_attributes)
+            .set_attributes(path_str, new_attributes)
             .await?;
 
         if let Some(cache) = &self.cache {

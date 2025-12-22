@@ -182,8 +182,6 @@ impl RemoteClient {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn set_attributes<S: AsRef<str> + Debug>(
         &self,
-        uid: u32,
-        gid: u32,
         path: S,
         new_attributes: SetAttr,
     ) -> Result<Attributes> {
@@ -192,7 +190,7 @@ impl RemoteClient {
         let resp = self
             .http_client
             .put(url)
-            .json(&SetAttrRequest::new(uid, gid, new_attributes))
+            .json(&SetAttrRequest::new(new_attributes))
             .send()
             .await?;
 
