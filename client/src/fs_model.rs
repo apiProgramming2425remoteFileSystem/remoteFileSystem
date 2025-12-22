@@ -406,6 +406,9 @@ impl FileSystem {
         }
 
 
+        if uploads.len() > 0 {
+            self.get_permissions(path, 2).await?;
+        }
 
         for (path, offset, data) in uploads {
             let cache = self.cache.clone();
@@ -566,8 +569,6 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_permissions<P: AsRef<Path> + Debug>(&self, path: P, mask: u32) -> Result<()> {
-        // TODO: cache
-
         let path_str = path
             .as_ref()
             .to_str()
@@ -579,8 +580,6 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_fs_stats<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Stats> {
-        // No cache here
-
         let path_str = path
             .as_ref()
             .to_str()
@@ -596,8 +595,6 @@ impl FileSystem {
         path: P,
         name: &str,
     ) -> Result<Vec<u8>> {
-        // No cache here
-
         let path_str = path
             .as_ref()
             .to_str()
@@ -616,8 +613,6 @@ impl FileSystem {
         flags: u32,
         position: u32,
     ) -> Result<()> {
-        // No cache here
-
         let path_str = path
             .as_ref()
             .to_str()
@@ -631,8 +626,6 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_x_attribute<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Vec<String>> {
-        // No cache here
-
         let path_str = path
             .as_ref()
             .to_str()
@@ -665,8 +658,6 @@ impl FileSystem {
         path: P,
         target: &str,
     ) -> Result<Attributes> {
-        // TODO: check access
-
         let path = path.as_ref();
         let path_str = path
             .to_str()
@@ -687,7 +678,6 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn read_symlink<P: AsRef<Path> + Debug>(&self, path: P) -> Result<String> {
-        // TODO: check access
         if let Some(cache) = &self.cache {
             if let Some(CacheItem::SymLink(SymLink { target, .. })) = cache.get(path.as_ref()) {
                 if let Some(target) = target {
@@ -718,36 +708,36 @@ impl FileSystem {
     }
 
     pub async fn flush_write_buffer(&self) -> Result<()> {
-        let mut buffer = self.write_buffer.write().await;
-        let (path, offset, data) = buffer.get_content();
+        let (path_owned, offset, data_owned) = {
+            let mut buffer = self.write_buffer.write().await;
+            let (path, offset, data) = buffer.get_content();
 
-        if data.is_empty() {
-            return Ok(());
-        }
-
-        let path_owned = path.to_path_buf();
-        let data_owned = data.to_vec();
-        buffer.clean();
-
-        let client = self.remote_client.clone();
-        let cache = self.cache.clone();
-
-        tokio::spawn(async move {
-            if let Some(cache) = cache {
-                if client
-                    .write_file(&path_owned.to_string_lossy(), offset, &data_owned)
-                    .await.is_ok()
-                {
-                    cache_write_file(
-                        &cache,
-                        &path_owned,
-                        offset,
-                        &data_owned,
-                        true,
-                    );
-                }
+            if data.is_empty() {
+                return Ok(());
             }
-        });
+
+            let path_owned = path.to_path_buf();
+            let data_owned = data.to_vec();
+            buffer.clean();
+
+            (path_owned, offset, data_owned)
+        };
+
+        let path_str = path_owned
+            .to_str()
+            .ok_or_else(|| FsModelError::InvalidInput("Path is not valid UTF-8".to_string()))?;
+
+
+        self.remote_client.write_file(path_str, offset, &data_owned).await?;
+        if let Some(cache) = &self.cache  {
+            cache_write_file(
+                &cache,
+                &path_owned,
+                offset,
+                &data_owned,
+                true,
+            );
+        }
 
         Ok(())
     }
