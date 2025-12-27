@@ -6,6 +6,7 @@ use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use nix::libc::user;
 use sqlx::{
     Sqlite, SqlitePool,
     migrate::{MigrateDatabase, Migrator},
@@ -139,9 +140,9 @@ impl DB {
         /* AGGIUNTA UTENTE */
         let db = DB { pool: pool };
 
-        db.create_user("mirko", "password").await?;
-        db.create_user("fabrizio", "password").await?;
-        db.create_user("iulian", "password").await?;
+        db.create_user(1, 1, "mirko", "password").await?;
+        db.create_user(2, 2, "fabrizio", "password").await?;
+        db.create_user(3, 3, "iulian", "password").await?;
 
         Ok(db)
     }
@@ -282,27 +283,98 @@ impl DB {
         }
     }
 
-    #[instrument(skip(self, password), err(level = Level::ERROR))]
-    pub async fn create_user(&self, username: &str, password: &str) -> Result<()> {
-        let pass = hash_password(password)
-            .await
-            .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
-
-        let result = sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE username = ?")
-            .bind(username)
+    async fn count_user_id(&self, user_id: i64) -> Result<u8> {
+        let count = sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE user_id = ?")
+            .bind(user_id)
             .fetch_one(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+        Ok(count)
+    }
+    
+    #[instrument(ret(level = Level::DEBUG))]
+    pub async fn create_user(&self, user_id: i64, group_id: i64, username: &str, password: &str) -> Result<()> {      
+        let count_user_id = self.count_user_id(user_id).await?;
 
-        if result == 0 {
-            sqlx::query("INSERT INTO users(group_id, username, password) VALUES(?, ?, ?)")
-                .bind(0)
+        if count_user_id == 0 {
+            let pass = hash_password(password)
+                .await
+                .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
+
+            sqlx::query("INSERT INTO users(user_id, group_id, username, password) VALUES(?, ?, ?, ?)")
+                .bind(user_id)
+                .bind(group_id)
                 .bind(username)
                 .bind(pass)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+            println!("User {} added successfully!", username);
+        }else{
+            println!("User {} already exists!", user_id);
         }
+
+        Ok(())
+    }
+
+    #[instrument(ret(level = Level::DEBUG))]
+    pub async fn edit_username(&self, user_id: i64, username: &str) -> Result<()>{
+        let count_user_id = self.count_user_id(user_id).await?;
+
+        if count_user_id == 0 {
+            sqlx::query("UPDATE users WHERE user_id = ? SET username = ?")
+                    .bind(user_id)
+                    .bind(username)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+            println!("User {} username modified successfully!", user_id);
+        }else{
+            println!("User {} does not exist!", user_id);
+        }
+
+        Ok(())
+    }
+
+    #[instrument(ret(level = Level::DEBUG))]
+    pub async fn edit_password(&self, user_id: i64, password: &str) -> Result<()>{
+        let count_user_id = self.count_user_id(user_id).await?;
+
+        if count_user_id == 0 {
+            let pass = hash_password(password)
+                .await
+                .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
+
+            sqlx::query("UPDATE users WHERE user_id = ? SET password = ?")
+                    .bind(user_id)
+                    .bind(pass)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+            println!("User {} password modified successfully!", user_id);
+        }else{
+            println!("User {} does not exist!", user_id);
+        }
+
+        Ok(())
+    }
+
+    #[instrument(ret(level = Level::DEBUG))]
+    pub async fn edit_group_id(&self, user_id: i64, group_id: i64) -> Result<()>{
+        let count_user_id = self.count_user_id(user_id).await?;
+
+        if count_user_id == 0 {
+            sqlx::query("UPDATE users WHERE user_id = ? SET group_id = ?")
+                    .bind(user_id)
+                    .bind(group_id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+            println!("User {} username modified successfully!", user_id);
+        }else{
+            println!("User {} does not exist!", user_id);
+        }
+
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::fs::{self, FileTimes};
+use std::fs::{self, FileTimes, Permissions};
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt, symlink};
@@ -41,6 +41,12 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
                 FileType::RegularFile
             };
 
+            let mut uid = metadata.uid();
+            if uid < 1000 {uid += 1000;};
+
+            let mut gid = metadata.gid();
+            if gid < 1000 {gid += 1000;};
+
             let attributes = FileAttr {
                 size: metadata.len(),
                 blocks: 0, //  ? eventualmente modificare ?
@@ -51,8 +57,8 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
                 kind: kind,
                 perm: metadata.permissions().mode(),
                 nlink: nlink,
-                uid: metadata.uid() + 1000, // retrieve from db
-                gid: metadata.gid() + 1000, // retrieve from db
+                uid: uid,
+                gid: uid,
                 rdev: 0, // device ID of a special file in Unix-like operating systems, indicating the device associated with a file
                 blksize: 0, // ? eventualmente modificare ?
                 flags: 0, // macOS only
@@ -68,7 +74,21 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
 fn set_owner(user_id: i64, group_id: i64, path: &PathBuf) -> Result<()> {
     let new_uid = Some(Uid::from_raw(user_id as u32));
     let new_gid = Some(Gid::from_raw(group_id as u32));
-    chown(path, new_uid, new_gid).map_err(|e| StorageError::Other(e.into()))?;
+    chown(path, new_uid, new_gid).map_err(|e|StorageError::Other(e.into()))?;
+
+    // We set group_permissions = user_permissions, if user_id = group_id
+    if user_id == group_id {
+        let item = fs::metadata(path).map_err(|e|StorageError::Other(e.into()))?;
+        let original_perm = item.permissions().mode();
+
+        let mut permission = Permission::try_from(original_perm as u16).map_err(|_| StorageError::MetadataError("Error during convertion.".to_string()))?;
+        permission.group = permission.user;
+        let adjusted_perm: u16 = permission.into();
+
+        let perms: Permissions = Permissions::from_mode(adjusted_perm as u32);
+        fs::set_permissions(path,perms)?;
+    }
+
     Ok(())
 }
 
@@ -407,8 +427,16 @@ impl FileSystem {
 
         // Allowed only if user is the owner or root
         if let Some(mode) = new_attributes.mode {
-            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
-                let perms = std::fs::Permissions::from_mode(mode);
+            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)?{
+                let mut adjusted_mode = mode as u16;
+
+                if user_id == group_id {
+                    let mut permission = Permission::try_from(mode as u16).map_err(|_| StorageError::MetadataError("Error during convertion.".to_string()))?;
+                    permission.group = permission.user;
+                    adjusted_mode = permission.into();
+                }
+
+                let perms = std::fs::Permissions::from_mode(adjusted_mode as u32);
                 file.set_permissions(perms)?;
             } else {
                 return Err(StorageError::PermissionDenied);
@@ -419,10 +447,19 @@ impl FileSystem {
             return Err(StorageError::PermissionDenied);
         }
 
-        if let Some(gid) = new_attributes.gid {
+        if let Some(client_gid) = new_attributes.gid {
             if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
                 let new_uid = None;
-                let new_gid = Some(Gid::from_raw(gid));
+
+                // We accept client_gid >= 1001, so when converted to server_gid there is no confusion with root_id = 0
+                let mut server_gid = client_gid;
+                if client_gid <= 1000 {
+                    return Err(StorageError::PermissionDenied)
+                }else{
+                    server_gid = server_gid - 1000;
+                }
+                let new_gid = Some(Gid::from_raw(server_gid));
+
                 chown(&real_path, new_uid, new_gid).map_err(|e| StorageError::Other(e.into()))?;
             } else {
                 return Err(StorageError::PermissionDenied);
