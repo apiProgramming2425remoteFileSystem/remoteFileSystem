@@ -163,10 +163,12 @@ impl PathFilesystem for Fs {
     ) -> FuseResult<ReplyXAttr> {
         if self.fs.use_xattributes() {
             let path = Path::new(path);
-            let name = name.to_str().ok_or_else(|| FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string()))?;;
+            let name = name.to_str().ok_or_else(|| {
+                FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string())
+            })?;
             let xattr = self.fs.get_x_attributes(path, name).await?;
             if size == 0 {
-                return Ok(ReplyXAttr::Size(xattr.len() as u32))
+                return Ok(ReplyXAttr::Size(xattr.len() as u32));
             }
             if size < xattr.len() as u32 {
                 return Err(libc::ERANGE.into());
@@ -178,7 +180,7 @@ impl PathFilesystem for Fs {
     }
 
     /// set an extended attribute.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn setxattr(
         &self,
         req: Request,
@@ -190,8 +192,12 @@ impl PathFilesystem for Fs {
     ) -> FuseResult<()> {
         if self.fs.use_xattributes() {
             let path = Path::new(path);
-            let name = name.to_str().ok_or_else(|| FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string()))?;;
-            self.fs.set_x_attributes(path, name, value, flags, position).await;
+            let name = name.to_str().ok_or_else(|| {
+                FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string())
+            })?;
+            self.fs
+                .set_x_attributes(path, name, value, flags, position)
+                .await?;
             Ok(())
         } else {
             Err(FuseError::Unsupported("setxattr".to_string()).into())
@@ -223,11 +229,13 @@ impl PathFilesystem for Fs {
     }
 
     /// remove an extended attribute.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn removexattr(&self, req: Request, path: &OsStr, name: &OsStr) -> FuseResult<()> {
         if self.fs.use_xattributes() {
             let path = Path::new(path);
-            let name = name.to_str().ok_or_else(|| FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string()))?;;
+            let name = name.to_str().ok_or_else(|| {
+                FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string())
+            })?;
             let result = self.fs.remove_x_attributes(path, name).await?;
             Ok(result)
         } else {
@@ -262,7 +270,7 @@ impl PathFilesystem for Fs {
     /// check file access permissions. This will be called for the `access()` system call. If the
     /// `default_permissions` mount option is given, this method is not be called. This method is
     /// not called under Linux kernel versions 2.4.x.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn access(&self, req: Request, path: &OsStr, mask: u32) -> FuseResult<()> {
         let path = PathBuf::from(path);
 
@@ -514,7 +522,7 @@ impl PathFilesystem for Fs {
     /// errors. If the filesystem supports file locking operations (
     /// [`setlk`][PathFilesystem::setlk], [`getlk`][PathFilesystem::getlk]) it should remove all
     /// locks belonging to `lock_owner`.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn flush(
         &self,
         req: Request,
@@ -533,7 +541,7 @@ impl PathFilesystem for Fs {
     /// contain the value set by the open method, or will be undefined if the open method didn\'t
     /// set any value. `flags` will contain the same flags as for open. `flush` means flush the
     /// data or not when closing file. when `path` is None, it means the path may be deleted.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn release(
         &self,
         req: Request,
@@ -565,7 +573,7 @@ impl PathFilesystem for Fs {
 
     /// synchronize file contents. If the `datasync` is true, then only the user data should be
     /// flushed, not the metadata. when `path` is None, it means the path may be deleted.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn fsync(
         &self,
         req: Request,
@@ -659,7 +667,7 @@ impl PathFilesystem for Fs {
     /// # Notes:
     ///
     /// more information about `fallocate`, please see **`man 2 fallocate`**
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn fallocate(
         &self,
         req: Request,
@@ -718,7 +726,7 @@ impl PathFilesystem for Fs {
     }
 
     /// remove a directory.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn rmdir(&self, req: Request, parent: &OsStr, name: &OsStr) -> FuseResult<()> {
         // TODO:
         // tracing::warn!("[Not Implemented]");
@@ -833,7 +841,7 @@ impl PathFilesystem for Fs {
     /// be exactly one `releasedir` call. `fh` will contain the value set by the
     /// [`opendir`][PathFilesystem::opendir] method, or will be undefined if the
     /// [`opendir`][PathFilesystem::opendir] method didn\'t set any value.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn releasedir(&self, req: Request, path: &OsStr, fh: u64, flags: u32) -> FuseResult<()> {
         let file_path = PathBuf::from(path);
 
@@ -848,7 +856,7 @@ impl PathFilesystem for Fs {
     /// should be flushed, not the metadata. `fh` will contain the value set by the
     /// [`opendir`][PathFilesystem::opendir] method, or will be undefined if the
     /// [`opendir`][PathFilesystem::opendir] method didn\'t set any value.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn fsyncdir(
         &self,
         req: Request,
@@ -862,7 +870,7 @@ impl PathFilesystem for Fs {
     }
 
     /// rename a file or directory.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn rename(
         &self,
         req: Request,
@@ -882,7 +890,7 @@ impl PathFilesystem for Fs {
     }
 
     /// rename a file or directory with flags.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn rename2(
         &self,
         req: Request,
@@ -916,7 +924,7 @@ impl PathFilesystem for Fs {
     }
 
     /// remove a file.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn unlink(&self, req: Request, parent: &OsStr, name: &OsStr) -> FuseResult<()> {
         let path = Path::new(parent).join(name);
 
@@ -984,7 +992,7 @@ impl PathFilesystem for Fs {
     ///
     /// this is supported on enable **`file-lock`** feature.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn setlk(
         &self,
         req: Request,
@@ -1003,7 +1011,7 @@ impl PathFilesystem for Fs {
 
     /// handle interrupt. When a operation is interrupted, an interrupt request will send to fuse
     /// server with the unique id of the operation.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn interrupt(&self, req: Request, unique: u64) -> FuseResult<()> {
         // TODO:
         Err(FuseError::Unsupported("interrupt".to_string()).into())
@@ -1027,7 +1035,7 @@ impl PathFilesystem for Fs {
     }
 
     /// receive notify reply from kernel.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn notify_reply(
         &self,
         req: Request,
@@ -1092,8 +1100,7 @@ impl From<SetAttr> for fs_model::SetAttr {
 
             // Conversione del mode (permessi)
             // Nota: Assumiamo che il mode di fuser sia un u32 che rappresenta i permessi POSIX
-            mode: value
-                .mode,
+            mode: value.mode,
 
             // Conversione di SystemTime in Timestamp
             atime: value.atime.map(fs_model::attributes::Timestamp::from),
@@ -1159,6 +1166,7 @@ impl From<FsModelError> for Errno {
             FsModelError::ConversionFailed(_) => libc::EINVAL.into(),
             FsModelError::FileHandlerError => libc::EIO.into(),
             FsModelError::WriterError => libc::EIO.into(),
+            FsModelError::NoData(_) => libc::ENODATA.into(),
             FsModelError::ServerError(net_err) => Errno::from(net_err),
             FsModelError::Other(_) => libc::EIO.into(),
         }

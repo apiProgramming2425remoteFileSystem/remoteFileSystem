@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Formatter, Result};
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -102,10 +104,18 @@ pub struct User {
     pub password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct LoginBody {
     pub username: String,
     pub password: String,
+}
+impl Debug for LoginBody {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("LoginBody")
+            .field("username", &self.username)
+            .field("password", &"********")
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -127,12 +137,23 @@ impl Token {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AuthenticatedUser {
     pub user_id: i64,
     pub group_id: i64,
     pub token_id: String,
     pub expiration_time: i64,
+}
+
+impl Debug for AuthenticatedUser {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("AuthenticatedUser")
+            .field("user_id", &self.user_id)
+            .field("group_id", &self.group_id)
+            .field("expiration_time", &self.expiration_time)
+            .field("token_id", &"********")
+            .finish()
+    }
 }
 
 /* XATTRIBUTES MANAGEMENT */

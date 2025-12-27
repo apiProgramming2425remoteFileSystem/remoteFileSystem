@@ -1,12 +1,12 @@
 use actix_web::http::StatusCode;
-use std::path::Path;
-use crate::attributes::{Operation, OperationQuery};
 use actix_web::middleware::from_fn;
 use actix_web::{HttpResponse, Responder, ResponseError, delete, get, post, put, web};
 use bytes::Bytes;
+use std::path::Path;
 use tracing::{Level, instrument};
 
 use crate::api_err;
+use crate::attributes::{Operation, OperationQuery};
 use crate::db::DB;
 use crate::error::ApiError;
 use crate::middleware::auth_middleware;
@@ -59,7 +59,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(list_x_attributes)
                     .service(delete_x_attributes),
             ),
-    );
+    )
+    .default_service(web::route().to(|req: actix_web::HttpRequest| async move {
+        tracing::warn!("MISSING ROUTE: {} {}", req.method(), req.path());
+        actix_web::HttpResponse::BadRequest().body("Route not found")
+    }));
 }
 
 #[get("/list/{path}")]
@@ -108,7 +112,7 @@ async fn get_file_content(
 }
 
 #[put("/files/{path}")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn write_file(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
@@ -130,7 +134,7 @@ async fn write_file(
 }
 
 #[post("/mkdir/{path}")]
-#[instrument(skip(fs ), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn make_directory(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
@@ -152,7 +156,7 @@ async fn make_directory(
 }
 
 #[delete("/files/{path}")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn delete_item(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
@@ -168,7 +172,7 @@ async fn delete_item(
 
 /* Inutile se lookup = getAttr */
 #[get("/resolve/{path}")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn resolve_child(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
@@ -205,13 +209,14 @@ async fn set_attributes(
 
     let new_attributes = json.setattr();
 
-    let attributes = fs.set_attributes(path.as_str(), user.user_id, user.group_id, new_attributes)?;
+    let attributes =
+        fs.set_attributes(path.as_str(), user.user_id, user.group_id, new_attributes)?;
 
     Ok(HttpResponse::Ok().json(attributes))
 }
 
 #[get("/permissions/{path}")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn get_permissions(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
@@ -222,15 +227,16 @@ async fn get_permissions(
     let query = query.into_inner();
 
     let mask = query.get_mask()?;
-    if mask != 0{
+    if mask != 0 {
         let operation: Operation = mask.try_into()?;
         user.check_permission(&fs, &path, operation)?;
     }
-    
+
     Ok(HttpResponse::Ok().finish())
 }
 
 #[get("/stats/{path}")]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn get_stats(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
@@ -244,7 +250,7 @@ async fn get_stats(
 }
 
 #[put("/rename")]
-#[instrument(skip(fs ), ret(level = Level::DEBUG))]
+#[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn rename(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
@@ -294,19 +300,17 @@ async fn read_symlink(
 
 /* AUTHENTICATION MANAGEMENT */
 #[post("/login")]
-#[instrument(skip(pool ), ret(level = Level::DEBUG))]
+#[instrument(skip(pool), ret(level = Level::DEBUG))]
 async fn login(pool: web::Data<DB>, form: web::Json<LoginBody>) -> Result<impl Responder> {
     let token = pool
         .authenticate_user(&form.username, &form.password)
         .await?;
 
     match token {
-        Some(t) => return Ok(HttpResponse::Ok().json(Token::new(t))),
-        None => {
-            return Err(ApiError::Unauthorized(
-                "Invalid username or password".into(),
-            ));
-        }
+        Some(t) => Ok(HttpResponse::Ok().json(Token::new(t))),
+        None => Err(ApiError::Unauthorized(
+            "Invalid username or password".into(),
+        )),
     }
 }
 
@@ -319,17 +323,15 @@ pub async fn logout(user: AuthenticatedUser, pool: web::Data<DB>) -> Result<impl
 
 /* XATTRIBUTES MANEGEMENT */
 #[put("/xattributes/{path}/names/{name}")]
-#[instrument(skip(pool), ret(level = Level::DEBUG))]
+#[instrument(skip(fs, pool), ret(level = Level::DEBUG))]
 async fn set_x_attributes(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
-    path: web::Path<String>,
-    name: web::Path<String>,
+    path_params: web::Path<(String, String)>,
     json: web::Json<Xattributes>,
 ) -> Result<impl Responder> {
-    let path = path.into_inner();
-    let name = name.into_inner();
+    let (name, path) = path_params.into_inner();
     user.check_permission(&fs, &path, Operation::Write)?;
 
     pool.set_x_attributes(&path, &name, &json.get()).await?;
@@ -338,64 +340,60 @@ async fn set_x_attributes(
 }
 
 #[get("/xattributes/{path}/names/{name}")]
-#[instrument(skip(pool), ret(level = Level::DEBUG))]
+#[instrument(skip(fs, pool), ret(level = Level::DEBUG))]
 async fn get_x_attributes(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
-    name: web::Path<String>,
-    path: web::Path<String>,
+    path_params: web::Path<(String, String)>,
 ) -> Result<impl Responder> {
-    let path = path.into_inner();
-    user.check_permission(&fs, &path, Operation::Read)?;
+    let (name, path) = path_params.into_inner();
 
-    let name = name.into_inner();
+    user.check_permission(&fs, &path, Operation::Read)?;
 
     let option = pool.get_x_attributes(&path, &name).await?;
     match option {
         Some(attr) => Ok(HttpResponse::Ok().json(attr)),
-        None => Err(ApiError::NotFound("Xattributes not found".into())),
+        None => Ok(HttpResponse::NoContent().finish()),
     }
 }
 
 #[get("/xattributes/{path}/names")]
-#[instrument(skip(pool), ret(level = Level::DEBUG))]
+#[instrument(skip(fs, pool), ret(level = Level::DEBUG))]
 async fn list_x_attributes(
     user: AuthenticatedUser,
-    fs: web::Data<FileSystem>, pool: web::Data<DB>,
+    fs: web::Data<FileSystem>,
+    pool: web::Data<DB>,
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
     user.check_permission(&fs, &path, Operation::Read)?;
 
-    let names = pool
-        .list_x_attributes(&path)
-        .await?
-        .unwrap_or_default();
+    // REVIEW: if list_x_attributes returns an empty vec, is already the correct behavior
+    // let names = pool.list_x_attributes(&path).await?;
+
+    let names = pool.list_x_attributes(&path).await?.unwrap_or_default();
 
     Ok(HttpResponse::Ok().json(names))
 }
 
 #[delete("/xattributes/{path}/names/{name}")]
-#[instrument(skip(pool), ret(level = Level::DEBUG))]
+#[instrument(skip(fs, pool), ret(level = Level::DEBUG))]
 async fn delete_x_attributes(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     pool: web::Data<DB>,
-    path: web::Path<String>,
-    name: web::Path<String>,
+    path_params: web::Path<(String, String)>,
 ) -> Result<impl Responder> {
-    let path = path.into_inner();
+    let (name, path) = path_params.into_inner();
     user.check_permission(&fs, &path, Operation::Write)?;
-
-    let name = name.into_inner();
 
     pool.remove_x_attributes(&path, &name).await?;
     Ok(HttpResponse::Ok().finish())
 }
 
 #[get("/health")]
-#[instrument(ret(level = Level::DEBUG))]
+#[instrument()]
 async fn health_check() -> Result<impl Responder> {
     Ok(HttpResponse::Ok().body("RemoteFS Server is running"))
 }
@@ -435,11 +433,14 @@ impl ResponseError for ApiError {
     }
 }
 
-impl AuthenticatedUser{
+impl AuthenticatedUser {
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn check_permission(&self, fs: &FileSystem, path: &str, op: Operation) -> Result<()> {
         match fs.is_allowed(self.user_id, self.group_id, Path::new(path), op) {
             Ok(true) => Ok(()),
-            Ok(false) => Err(ApiError::PermissionDenied(String::from("You do not have the needed permissions."))),
+            Ok(false) => Err(ApiError::PermissionDenied(String::from(
+                "You do not have the needed permissions.",
+            ))),
             Err(e) => Err(ApiError::InternalError(e.to_string())),
         }
     }

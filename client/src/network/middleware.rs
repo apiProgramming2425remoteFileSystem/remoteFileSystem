@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use http::Extensions;
 use reqwest::{Request, Response, header};
 use reqwest_middleware::{Error, Middleware, Next, Result};
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TokenStore(Arc<RwLock<Option<String>>>);
 
 pub struct TokenRefresher {
@@ -42,6 +42,12 @@ impl TokenStore {
         };
 
         Some(token.clone())
+    }
+}
+
+impl Debug for TokenStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("TokenStore").field(&"********").finish()
     }
 }
 

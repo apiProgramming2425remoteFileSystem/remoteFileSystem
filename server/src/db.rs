@@ -26,7 +26,9 @@ pub struct DB {
     pool: SqlitePool,
 }
 
-#[instrument(ret(level = Level::DEBUG))]
+// TODO: create error types for hashing and token generation
+
+#[instrument(skip(password), err(level = Level::ERROR))]
 async fn hash_password(password: &str) -> anyhow::Result<String> {
     let algorithm = Argon2::default();
 
@@ -40,7 +42,7 @@ async fn hash_password(password: &str) -> anyhow::Result<String> {
     Ok(password_hash)
 }
 
-#[instrument(ret(level = Level::DEBUG))]
+#[instrument(skip(password, hash), ret(level = Level::DEBUG))]
 async fn verify_password(password: &str, hash: &str) -> bool {
     match PasswordHash::new(hash) {
         Ok(parsed) => {
@@ -54,7 +56,7 @@ async fn verify_password(password: &str, hash: &str) -> bool {
     }
 }
 
-#[instrument(ret(level = Level::DEBUG))]
+#[instrument(err(level = Level::ERROR))]
 async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
     // 1. Compute expiration time
     let expiration_time = SystemTime::now()
@@ -81,7 +83,7 @@ async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
     Ok(token)
 }
 
-#[instrument(ret(level = Level::DEBUG))]
+#[instrument(skip(token), err(level = Level::ERROR), ret(level = Level::DEBUG))]
 pub fn get_expiration_time(token: &str) -> anyhow::Result<u64> {
     let decoding_key = DecodingKey::from_secret(JWT_KEY);
     let validation = Validation::new(Algorithm::HS256);
@@ -93,8 +95,10 @@ pub fn get_expiration_time(token: &str) -> anyhow::Result<u64> {
 }
 
 impl DB {
-    #[instrument(ret(level = Level::DEBUG))]
-    pub async fn open_connection() -> Result<DB> {
+    // TODO: if we want to allow custom DB path, config: &Config should be passed here
+
+    #[instrument(err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn open_connection() -> Result<Self> {
         // costruisce un path assoluto relativo alla root del crate
         let manifest = env!("CARGO_MANIFEST_DIR");
         let mut db_path = std::path::Path::new(manifest).join("db.db");
@@ -105,6 +109,9 @@ impl DB {
                 DatabaseError::CreationError(format!("Cannot create db directory: {}", e))
             })?;
         }
+
+        // REVIEW: is not necessary to use sqlite URI format
+        // let database_url = db_path.to_string_lossy();
 
         // prova a canonicalizzare; se fallisce usa il path così com'è
         db_path = db_path.canonicalize().unwrap_or(db_path);
@@ -132,7 +139,6 @@ impl DB {
         /* AGGIUNTA UTENTE */
         let db = DB { pool: pool };
 
-
         db.create_user("mirko", "password").await?;
         db.create_user("fabrizio", "password").await?;
         db.create_user("iulian", "password").await?;
@@ -141,7 +147,7 @@ impl DB {
     }
 
     /* -- REVOKED TOKEN MANAGEMENT */
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn insert_revoked_token(&self, user: &AuthenticatedUser) -> Result<()> {
         sqlx::query("INSERT INTO revoked_tokens VALUES(?, ?, ?)")
             .bind(user.user_id)
@@ -158,7 +164,7 @@ impl DB {
         Ok(())
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn clean_revoked_token(&self) -> Result<()> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -175,7 +181,7 @@ impl DB {
         Ok(())
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self, token_id), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn is_token_revoked(&self, user_id: i64, token_id: &str) -> Result<bool> {
         let result = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM revoked_tokens WHERE user_id = ? AND token_id = ?",
@@ -194,6 +200,7 @@ impl DB {
         if result == 1 { Ok(true) } else { Ok(false) }
     }
 
+    #[instrument(skip(self, token), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn verify_token(&self, token: &str) -> Result<AuthenticatedUser> {
         // 3. Validation and decode key configuration
         let decoding_key = DecodingKey::from_secret(JWT_KEY);
@@ -245,7 +252,7 @@ impl DB {
     }
 
     // -- AUTHENTICATION MANAGEMENT --
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn authenticate_user(
         &self,
         username: &str,
@@ -275,7 +282,7 @@ impl DB {
         }
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn create_user(&self, username: &str, password: &str) -> Result<()> {
         let pass = hash_password(password)
             .await
@@ -301,7 +308,7 @@ impl DB {
 
     // -- XATTRIBUTES MANAGEMENT --
     /* GESTIRE PERMESSI */
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn set_x_attributes(&self, path: &str, name: &str, xattributes: &[u8]) -> Result<()> {
         let result = sqlx::query_scalar::<_, u8>(
             "SELECT COUNT(*) FROM xattributes WHERE path = ? AND name = ?",
@@ -333,7 +340,7 @@ impl DB {
         Ok(())
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn remove_x_attributes(&self, path: &str, name: &str) -> Result<()> {
         sqlx::query("DELETE FROM xattributes WHERE path = ? AND name = ?")
             .bind(path)
@@ -349,13 +356,16 @@ impl DB {
         Ok(())
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn list_x_attributes(&self, path: &str) -> Result<Option<ListXattributes>> {
         let result = sqlx::query_scalar::<_, String>("SELECT name FROM xattributes WHERE path = ?")
             .bind(path)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
+        // REVIEW: is not necessary to return None if empty, because then use unwrap_or_default where default is empty list
+        // Ok(ListXattributes { names: result }) // change the return type to Result<ListXattributes>
 
         if result.is_empty() {
             Ok(None)
@@ -364,7 +374,7 @@ impl DB {
         }
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_x_attributes(&self, path: &str, name: &str) -> Result<Option<Xattributes>> {
         let result = sqlx::query_as::<_, Xattributes>(
             "SELECT xattributes FROM xattributes WHERE path = ? AND name = ?",

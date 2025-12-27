@@ -85,6 +85,9 @@ pub enum FsModelError {
     #[error("Writers error")]
     WriterError,
 
+    #[error("No data: {0}")]
+    NoData(String),
+
     #[error("Remote Server error: {0}")]
     ServerError(#[from] NetworkError),
 

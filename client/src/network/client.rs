@@ -1,10 +1,9 @@
-use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::io::Read;
+use http::StatusCode;
 use reqwest::{Client, Response, Result as ReqwestResult};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
+use std::fmt::Debug;
 use tracing::{Level, instrument};
 use urlencoding;
 
@@ -142,7 +141,7 @@ impl RemoteClient {
         handle_response(resp, |r| r.json()).await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn rename<S: AsRef<str> + Debug>(&self, old_path: S, new_path: S) -> Result<()> {
         let url = self.set_short_url("rename");
         let rename_req = RenameRequest::new(
@@ -155,7 +154,7 @@ impl RemoteClient {
         handle_response(resp, |_| async { Ok(()) }).await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn remove<S: AsRef<str> + Debug>(&self, path: S) -> Result<()> {
         let url = self.set_url("files", path.as_ref());
         let resp = self.http_client.delete(url).send().await?;
@@ -197,18 +196,17 @@ impl RemoteClient {
         handle_response(resp, |r| r.json()).await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn get_permissions<S: AsRef<str> + Debug>(&self, path: S, mask: u32) -> Result<()> {
         let url = self.set_url("permissions", path.as_ref());
-        let resp = self.http_client
-                                .get(url)
-                                .query(&[("mask", &mask.to_string())])
-                                .send()
-                                .await?;
+        let resp = self
+            .http_client
+            .get(url)
+            .query(&[("mask", &mask.to_string())])
+            .send()
+            .await?;
 
-        handle_response(resp, |_| async {
-            Ok(())
-        }).await
+        handle_response(resp, |_| async { Ok(()) }).await
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -242,7 +240,7 @@ impl RemoteClient {
     }
 
     /* AUTHENTICATION MANAGEMENT */
-    #[instrument(skip(self, password), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn login(&self, username: String, password: String) -> Result<String> {
         let url = self.set_short_url("auth/login");
 
@@ -262,7 +260,7 @@ impl RemoteClient {
         Ok(body.token)
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn logout(&self) -> Result<()> {
         let url = self.set_short_url("auth/logout");
 
@@ -281,12 +279,19 @@ impl RemoteClient {
         &self,
         path: S,
         name: &str,
-    ) -> Result<Xattributes> {
+    ) -> Result<Option<Xattributes>> {
         let url = self.set_long_url("xattributes", path.as_ref(), "names", Some(name));
 
         let resp = self.http_client.get(url).send().await?;
 
-        handle_response(resp, |r| r.json()).await
+        handle_response(resp, |r| async {
+            if r.status() == StatusCode::NO_CONTENT {
+                Ok(None)
+            } else {
+                r.json().await.map(Some)
+            }
+        })
+        .await
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -331,7 +336,7 @@ impl RemoteClient {
         handle_response(resp, |_| async { Ok(()) }).await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn health_check(&self) -> Result<()> {
         let url = self.set_short_url("health");
         let resp = self.http_client.get(&url).send().await?;

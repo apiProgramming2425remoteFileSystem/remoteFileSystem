@@ -1,8 +1,12 @@
+use std::time::Instant;
+
 use clap::ValueEnum;
+use tracing::{Id, Subscriber, span};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::Rotation;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{EnvFilter, Layer, Registry, fmt};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{EnvFilter, Layer, Registry, fmt, layer};
 
 use crate::config::Config;
 use crate::error::LoggingError;
@@ -143,6 +147,7 @@ impl Logging {
             // Build subscriber and initialize tracing system with formatting layer and env filter
             tracing_subscriber::registry()
                 .with(layer)
+                .with(TimerLayer)
                 .with(env_filter)
                 .try_init()
                 .map_err(|err| LoggingError::InitFailed(err.to_string()))?;
@@ -244,5 +249,44 @@ where
             .with_writer(writer)
             .with_ansi(ansi)
             .boxed(),
+    }
+}
+
+struct StartTime(Instant);
+struct TimerLayer;
+
+impl<S> Layer<S> for TimerLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    // When a span is created, we save the current time in its extensions
+    fn on_new_span(&self, _attrs: &span::Attributes<'_>, id: &Id, ctx: layer::Context<'_, S>) {
+        if let Some(span) = ctx.span(id) {
+            // BEST PRACTICE: Use a wrapper struct instead of a raw Instant
+            // to avoid conflicts with other libraries that might also store an Instant.
+            span.extensions_mut().insert(StartTime(Instant::now()));
+        }
+    }
+
+    // When the span closes, we retrieve the time, calculate the duration, and log it in DEBUG
+    fn on_close(&self, id: tracing::Id, ctx: layer::Context<'_, S>) {
+        let Some(log_span) = ctx.span(&id) else {
+            return;
+        };
+        let metadata = log_span.metadata();
+        let extensions = log_span.extensions();
+
+        let Some(start_time) = extensions.get::<StartTime>() else {
+            return;
+        };
+
+        let elapsed = start_time.0.elapsed();
+
+        tracing::debug!(
+            "{}::{} total_time: {:?}",
+            metadata.target(),
+            metadata.name(),
+            elapsed,
+        );
     }
 }

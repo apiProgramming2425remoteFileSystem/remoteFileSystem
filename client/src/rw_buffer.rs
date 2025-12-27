@@ -1,7 +1,8 @@
-use std::fmt::Debug;
-use std::path::{self, Path, PathBuf};
+use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::path::{Path, PathBuf};
 
-#[derive(Debug)]
+use tracing::{Level, instrument};
+
 pub struct ReadBuffer {
     path: PathBuf,
     offset: usize,
@@ -11,6 +12,7 @@ pub struct ReadBuffer {
 }
 
 impl ReadBuffer {
+    #[instrument(ret(level = Level::DEBUG))]
     pub fn new(capacity: usize) -> Self {
         ReadBuffer {
             path: PathBuf::new(),
@@ -21,6 +23,7 @@ impl ReadBuffer {
         }
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn fill<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) {
         self.path = path.as_ref().to_path_buf();
         self.offset = offset;
@@ -29,6 +32,7 @@ impl ReadBuffer {
         self.valid_up_to = to_copy;
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn read<P: AsRef<Path> + Debug>(&self, path: P, offset: usize, len: usize) -> Vec<u8> {
         if path.as_ref() != self.path {
             Vec::new()
@@ -42,7 +46,18 @@ impl ReadBuffer {
     }
 }
 
-#[derive(Debug)]
+impl Debug for ReadBuffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("ReadBuffer")
+            .field("path", &self.path)
+            .field("offset", &self.offset)
+            .field("valid_up_to", &self.valid_up_to)
+            .field("buffer", &"&[u8; ..]")
+            .field("capacity", &self.capacity)
+            .finish()
+    }
+}
+
 pub struct WriteBuffer {
     path: PathBuf,
     offset: usize,
@@ -52,6 +67,7 @@ pub struct WriteBuffer {
 }
 
 impl WriteBuffer {
+    #[instrument(ret(level = Level::DEBUG))]
     pub fn new(capacity: usize) -> Self {
         WriteBuffer {
             path: PathBuf::new(),
@@ -62,10 +78,12 @@ impl WriteBuffer {
         }
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn is_appending<P: AsRef<Path> + Debug>(&self, path: P, offset: usize) -> bool {
         self.path == path.as_ref() && self.offset + self.valid_up_to == offset
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn write<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) -> usize {
         let path = path.as_ref();
 
@@ -87,17 +105,32 @@ impl WriteBuffer {
         }
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn is_full(&self) -> bool {
         self.valid_up_to >= self.capacity
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn clean(&mut self) {
         self.path = PathBuf::new();
         self.offset = 0;
         self.valid_up_to = 0
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn get_content(&self) -> (&Path, usize, &[u8]) {
         (&self.path, self.offset, &self.buffer[..self.valid_up_to])
+    }
+}
+
+impl Debug for WriteBuffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("WriteBuffer")
+            .field("path", &self.path)
+            .field("offset", &self.offset)
+            .field("valid_up_to", &self.valid_up_to)
+            .field("buffer", &"&[u8; ..]")
+            .field("capacity", &self.capacity)
+            .finish()
     }
 }

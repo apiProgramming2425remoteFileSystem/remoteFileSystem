@@ -44,7 +44,7 @@ impl Daemon {
     }
 
     /// Initialize and start the daemon
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn initialize(&self) -> Result<()> {
         println!("Initializing RemoteFS Daemon...");
 
@@ -56,7 +56,7 @@ impl Daemon {
 
     /// Run the daemon with the provided future
     /// **IMPORTANT**: This function needs to be called after daemonizing the process
-    #[instrument(skip(self, future), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, future), err(level = Level::ERROR))]
     pub fn create_runtime<F>(&self, future: F) -> Result<()>
     where
         F: Future<Output = std::result::Result<(), ClientError>> + Send + 'static,

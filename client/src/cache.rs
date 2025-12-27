@@ -12,6 +12,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use tracing::{Level, instrument};
+
+// REVIEW: add a trait for Cacheable items in fs_model?
+// like CacheableItem with methods like merge, get_attributes, invalidate_attributes, rename
+// then implement it for File, SymLink, Directory and CacheItem can just delegate to those methods
+
 #[derive(Clone, Debug)]
 pub enum CacheItem {
     File(File),
@@ -128,14 +134,17 @@ fn parent_paths<P: AsRef<Path> + Debug>(path: P) -> Vec<PathBuf> {
 }
 
 impl Cache {
+    #[instrument(ret(level = Level::DEBUG))]
     pub fn from_config(cfg: &CacheConfig) -> Option<Arc<Self>> {
         if !cfg.enabled {
             return None;
         }
 
+        // REVIEW: move this to a fs_model configurator?
         MAX_PAGES
             .set(cfg.max_size / PAGE_SIZE)
             .expect("MAX_PAGES already set");
+
         Some(Arc::new(Cache {
             entries: RwLock::new(HashMap::new()),
             capacity: cfg.capacity,
@@ -157,7 +166,8 @@ impl Cache {
         }
     }
 
-    pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<CacheItem> {
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    pub fn get<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
         let Ok(mut map) = self.entries.write() else {
             return None;
         };
@@ -176,7 +186,13 @@ impl Cache {
         Some(entry.item.clone())
     }
 
-    pub fn put<P: AsRef<Path>>(&self, path: P, item: CacheItem, invalidate_attributes: bool) {
+    #[instrument(skip(self))]
+    pub fn put<P: AsRef<Path> + Debug>(
+        &self,
+        path: P,
+        item: CacheItem,
+        invalidate_attributes: bool,
+    ) {
         let Ok(mut map) = self.entries.write() else {
             return;
         };
@@ -206,7 +222,8 @@ impl Cache {
         map.insert(key.to_path_buf(), CacheEntry::new(item));
     }
 
-    pub fn put_new<P: AsRef<Path>>(&self, path: P, item: CacheItem) {
+    #[instrument(skip(self))]
+    pub fn put_new<P: AsRef<Path> + Debug>(&self, path: P, item: CacheItem) {
         self.invalidate_parents(&path);
 
         let Ok(mut map) = self.entries.write() else {
@@ -223,7 +240,8 @@ impl Cache {
         map.insert(key, CacheEntry::new(item));
     }
 
-    pub fn remove<P: AsRef<Path>>(&self, path: P) -> Option<CacheItem> {
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    pub fn remove<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
         let removed = {
             let Ok(mut map) = self.entries.write() else {
                 return None;
@@ -234,13 +252,15 @@ impl Cache {
         removed
     }
 
-    pub fn invalidate<P: AsRef<Path>>(&self, path: P) {
+    #[instrument(skip(self))]
+    pub fn invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
         let Ok(mut map) = self.entries.write() else {
             return;
         };
         map.remove(path.as_ref()).map(|e| e.item);
     }
 
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {
         match self.policy {
             CachePolicy::Lru => map

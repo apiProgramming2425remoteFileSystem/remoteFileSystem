@@ -34,7 +34,6 @@ pub struct MountOptions {
 pub trait MountFs: Send + Sync {
     /// Mounts the filesystem at the specified mountpoint.
     #[allow(unused_variables)]
-    #[instrument(skip(self, fs), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn mount(&mut self, fs: Fs, mountpoint: &Path, options: &MountOptions) -> Result<()> {
         Err(MountError::UnsupportedPlatform(
             "Mounting not supported on this platform".into(),
@@ -42,7 +41,6 @@ pub trait MountFs: Send + Sync {
     }
 
     /// Waits for the mount session to end.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn wait(&mut self) -> Result<()> {
         Err(MountError::UnsupportedPlatform(
             "Waiting for mount session not supported on this platform".into(),
@@ -50,7 +48,6 @@ pub trait MountFs: Send + Sync {
     }
 
     /// Unmounts the filesystem from the mountpoint.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn unmount(&mut self) -> Result<()> {
         Err(MountError::UnsupportedPlatform(
             "Unmounting not supported on this platform".into(),
@@ -80,7 +77,7 @@ impl MountPoint {
     }
 
     // Execute the mount operation. Requires a mutable reference to self to manage the session state.
-    #[instrument(skip(self, fs), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, fs), err(level = Level::ERROR))]
     pub async fn mount(&mut self, fs: Fs) -> Result<()> {
         tracing::info!("Mounting FS at {:?}", self.mountpoint);
 
@@ -92,7 +89,7 @@ impl MountPoint {
         Ok(())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn wait(&mut self) -> Result<()> {
         tracing::info!("Waiting for FS unmount or session end...");
         self.session.wait().await?;
@@ -100,7 +97,7 @@ impl MountPoint {
         Ok(())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn unmount(&mut self) -> Result<()> {
         tracing::info!("Unmounting FS from {:?}", self.mountpoint);
         self.session.unmount().await?;

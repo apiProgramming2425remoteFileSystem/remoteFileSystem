@@ -202,12 +202,8 @@ pub struct Stats {
 trait Conversion<T>: Sized {
     type Error;
 
-    fn from_target(&self) -> T {
-        todo!()
-    }
-    fn try_to_target(value: T) -> Result<Self, Self::Error> {
-        todo!()
-    }
+    fn from_target(&self) -> T;
+    fn try_to_target(value: T) -> Result<Self, Self::Error>;
 }
 
 #[cfg(any(unix /* , windows */))]

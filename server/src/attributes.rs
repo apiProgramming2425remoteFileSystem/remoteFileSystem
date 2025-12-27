@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::ApiError;
 
@@ -79,7 +79,7 @@ pub struct Permission {
 }
 
 #[derive(Debug)]
-pub enum Operation{
+pub enum Operation {
     Read,
     Write,
     Execute,
@@ -100,15 +100,16 @@ impl TryFrom<u32> for Operation {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct OperationQuery{
-    mask: String
+pub struct OperationQuery {
+    mask: String,
 }
 
-impl OperationQuery{
-    pub fn get_mask(&self) -> Result<u32, ApiError>{
-        let mask: u32 = self.mask.parse().map_err(|_| {
-            ApiError::InvalidInput(String::from("Invalid mask"))
-        })?;
+impl OperationQuery {
+    pub fn get_mask(&self) -> Result<u32, ApiError> {
+        let mask: u32 = self
+            .mask
+            .parse()
+            .map_err(|_| ApiError::InvalidInput(String::from("Invalid mask")))?;
         Ok(mask)
     }
 }
@@ -257,7 +258,7 @@ macro_rules! impl_conversion {
             $source: Conversion<$cv>,
         {
             // TODO: change to an appropriate error type
-            type Error = ();
+            type Error = ApiError;
 
             fn try_from(value: $target) -> Result<Self, Self::Error> {
                 Self::try_to_target(value as $cv)
@@ -280,7 +281,7 @@ impl_conversion!(Permission, u16, i32);
 // Implement Conversion trait for FileType using numeric tags.
 impl Conversion<u32> for FileType {
     // TODO: change to an appropriate error type
-    type Error = ();
+    type Error = ApiError;
 
     fn from_target(&self) -> u32 {
         match self {
@@ -303,17 +304,14 @@ impl Conversion<u32> for FileType {
             4 => Ok(FileType::RegularFile),
             5 => Ok(FileType::Symlink),
             6 => Ok(FileType::Socket),
-            _ => Err(()),
-            // _ => Err(FsModelError::ConversionFailed(String::from(
-            //     "Error during convertion.",
-            // ))),
+            _ => Err(ApiError::InvalidInput(String::from("Invalid FileType"))),
         }
     }
 }
 
 impl Conversion<i32> for PermissionType {
     // TODO: change to an appropriate error type
-    type Error = ();
+    type Error = ApiError;
 
     fn from_target(&self) -> i32 {
         let mut v = 0;
@@ -342,7 +340,7 @@ impl Conversion<i32> for PermissionType {
 // user << 6 | group << 3 | other
 impl Conversion<i32> for Permission {
     // TODO: change to an appropriate error type
-    type Error = ();
+    type Error = ApiError;
 
     fn from_target(&self) -> i32 {
         let user = self.user.from_target();
