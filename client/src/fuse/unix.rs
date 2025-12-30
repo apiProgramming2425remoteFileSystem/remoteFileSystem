@@ -250,9 +250,6 @@ impl PathFilesystem for Fs {
         //Err(FuseError::NotImplemented.into())
 
         let path = PathBuf::from(path);
-
-        let path = PathBuf::from(path);
-
         let stats = self.fs.get_fs_stats(&path).await?;
 
         Ok(ReplyStatFs {

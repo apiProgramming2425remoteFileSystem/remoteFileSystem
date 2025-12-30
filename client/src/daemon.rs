@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::error::{ClientError, DaemonError};
+use crate::error::{DaemonError, RfsClientError};
 
 use anyhow;
 use async_trait::async_trait;
@@ -59,7 +59,7 @@ impl Daemon {
     #[instrument(skip(self, future), err(level = Level::ERROR))]
     pub fn create_runtime<F>(&self, future: F) -> Result<()>
     where
-        F: Future<Output = std::result::Result<(), ClientError>> + Send + 'static,
+        F: Future<Output = std::result::Result<(), RfsClientError>> + Send + 'static,
     {
         // Spawn the future in the tokio runtime
         // Important: we build the runtime here to ensure it's created after demonizing

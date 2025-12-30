@@ -1,171 +1,189 @@
-use crate::cache::{CacheConfig, CachePolicy};
-use crate::error::ConfigError;
-use crate::logging::{LogFormat, LogLevel, LogRotation, LogTargets};
-use std::collections::HashSet;
-use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
+pub mod cache;
+pub mod logging;
 
+pub use cache::*;
+pub use logging::*;
+
+use anyhow;
 use clap::Parser;
-use dotenvy;
+use config::{Config, Environment, File};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
-pub const DEFAULT_LOG_DIR: &'static str = "./logs";
-pub const DEFAULT_LOG_FILE_NAME: &'static str = "remote_fs_client";
-pub const DEFAULT_LOG_FILE_EXT: &'static str = "log";
-pub const DEFAULT_LOG_FILE_ROT: &'static str = "never";
+use crate::error::ConfigError;
+
+pub const ENV_PREFIX: &str = "RFS";
+pub const ENV_SEPARATOR: &str = "__";
+pub const DEFAULT_CONFIG_FILE: &str = "default_config.toml";
+pub const DEFAULT_MOUNTPOINT: &str = "/mnt/remote-fs";
+pub const DEFAULT_SERVER_URL: &str = "http://localhost:8080";
+pub const DEFAULT_LOG_DIR: &str = "./logs";
+pub const DEFAULT_LOG_FILE_NAME: &str = "remote_fs_client";
+pub const DEFAULT_LOG_FILE_EXT: &str = "log";
 
 type Result<T> = std::result::Result<T, ConfigError>;
 
-/// Application configuration that includes logging settings.
-#[derive(Parser, Debug, Clone)]
-#[command(author, version, about = "Remote Filesystem Client")]
-pub struct Config {
-    /// Mountpoint path (e.g /mnt/remote-fs)
-    #[arg(short, long, env = "MOUNT_POINT")]
+/// App configuration
+///
+/// This structure holds the complete application configuration
+/// including settings loaded from the configuration file.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RfsConfig {
     pub mountpoint: PathBuf,
-
-    /// Remote server base URL (e.g. http://localhost:8080/)
-    #[arg(short, long, env = "SERVER_URL")]
     pub server_url: String,
-
-    /// Enable local caching
-    #[arg(short, long, default_value_t = true)]
-    pub cache_enabled: bool,
-
-    /// Maximum number of entries in cache
-    #[arg(long, default_value_t = 50)]
-    pub cache_capacity: usize,
-
-    /// Enable TTL eviction in cache
-    #[arg(long, default_value_t = true)]
-    pub cache_use_ttl: bool,
-
-    /// TTL duration in seconds (only used if --cache-use-ttl is true)
-    #[arg(long, default_value_t = 300)]
-    pub cache_ttl_seconds: u64,
-
-    /// Cache eviction policy
-    #[arg(long, value_enum, default_value_t = CachePolicy::Lru)]
-    pub cache_policy: CachePolicy,
-
-    /// Maximum allowed cached file size in bytes
-    #[arg(long, default_value_t = 1_048_576)]
-    pub cache_max_size: usize,
-
-    /// Enable xattributes
-    #[arg(short, long, default_value_t = false)]
+    pub foreground: bool,
     pub xattributes_enabled: bool,
 
-    /// Log targets as comma separated list
-    #[arg(short, long, value_enum, value_delimiter = ',', default_values_t = [LogTargets::All], env = "LOG_TARGETS")]
-    pub log_targets: Vec<LogTargets>,
+    pub cache: CacheConfig,
+    pub logging: LoggingConfig,
+}
 
-    /// Log format
-    #[arg(long, value_enum, default_value_t = LogFormat::Full, env = "LOG_FORMAT")]
-    pub log_format: LogFormat,
+impl Default for RfsConfig {
+    fn default() -> Self {
+        Self {
+            mountpoint: PathBuf::from(DEFAULT_MOUNTPOINT),
+            server_url: DEFAULT_SERVER_URL.to_string(),
+            foreground: false,
+            xattributes_enabled: false,
+            cache: CacheConfig::default(),
+            logging: LoggingConfig::default(),
+        }
+    }
+}
 
-    /// Log level filter
-    #[arg(long, value_enum, default_value_t = LogLevel::Info, env = "LOG_LEVEL")]
-    pub log_level: LogLevel,
+/// CLI configuration
+///
+/// This structure holds the CLI arguments for the application,
+/// including the path to the configuration file and other flattened modules.
+#[derive(Debug, Clone, Parser, Serialize)]
+// #[command(author, version, about = "Remote Filesystem Client")]
+pub struct RfsCliArgs {
+    /// Path to the configuration file
+    #[arg(short, long, default_value = DEFAULT_CONFIG_FILE, env = "RFS_CONFIG_FILE")]
+    #[serde(skip)]
+    pub config_file: PathBuf,
 
-    /// Optional path for log directory. Defaults to [`DEFAULT_LOG_DIR`] if needed.
-    #[arg(
-        long,
-        default_value_ifs([
-            ("log_targets", "all", Some(DEFAULT_LOG_DIR)),
-            ("log_targets", "file", Some(DEFAULT_LOG_DIR))
-        ]),
-        env = "LOG_DIR"
-    )]
-    pub log_dir: Option<PathBuf>,
+    /// Mountpoint path (e.g /mnt/remote-fs)
+    #[arg(short, long, env = "RFS_MOUNTPOINT")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mountpoint: Option<PathBuf>,
 
-    /// Optional log file name. Defaults to [`DEFAULT_LOG_FILE_NAME`] if needed.
-    #[arg(
-        long,
-        default_value_ifs([
-            ("log_targets", "all", Some(DEFAULT_LOG_FILE_NAME)),
-            ("log_targets", "file", Some(DEFAULT_LOG_FILE_NAME))
-        ]), env = "LOG_FILE")]
-    pub log_file: Option<PathBuf>,
-
-    /// Optional log rotation policy. Defaults to [`DEFAULT_LOG_FILE_ROT`] if needed
-    #[arg(
-        long,
-        default_value_ifs([
-            ("log_targets", "all", Some(DEFAULT_LOG_FILE_ROT)),
-            ("log_targets", "file", Some(DEFAULT_LOG_FILE_ROT))
-        ]), env = "LOG_ROTATION")]
-    pub log_rotation: Option<LogRotation>,
+    /// Remote server base URL (e.g. http://localhost:8080/)
+    #[arg(short, long, env = "RFS_SERVER_URL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_url: Option<String>,
 
     /// Run in foreground (do not daemonize).
     /// When set, the application will run in the foreground and not daemonize.
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long)]
     pub foreground: bool,
+
+    /// Enable xattributes
+    #[arg(short, long)]
+    pub xattributes_enabled: bool,
+
+    /// Cache configuration
+    #[command(flatten)]
+    #[command(next_help_heading = "Cache Configuration")]
+    pub cache: CacheCliArgs,
+
+    /// Logging configuration
+    #[command(flatten)]
+    #[command(next_help_heading = "Logging Configuration")]
+    pub logging: LoggingCliArgs,
 }
 
-impl Config {
-    /// Parse config from CLI and environment variables
-    pub fn from_args() -> Result<Self> {
-        // Load .env variables
-        // dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()))?;
-        let _ = dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()));
+pub trait ConfigModule {
+    /// Post-processing: compute conditional defaults, normalize paths, etc.
+    /// Called AFTER merging all sources.
+    fn finalize(&mut self) {
+        // Default: do nothing
+    }
 
-        let mut config = Config::parse();
-        config.normalize();
+    /// Validation: check that values are consistent.
+    /// Returns a simple error string. The caller will wrap it in a specific error.
+    fn validate(&self) -> std::result::Result<(), String> {
+        // Default: All good
+        Ok(())
+    }
+}
+
+pub trait Formatter {
+    fn format<T: Serialize>(&self, value: &T) -> std::result::Result<String, String>;
+}
+
+impl RfsConfig {
+    /// Load configuration from the specified file path, environment variables, and CLI arguments.
+    ///
+    /// The order of precedence (highest to lowest) is:
+    /// 1. CLI arguments
+    /// 2. Environment variables (with prefix [`ENV_PREFIX`] and separator [`ENV_SEPARATOR`])
+    /// 3. Configuration file
+    /// 4. Default values
+    /// Returns the loaded configuration or an error.
+    pub fn load(args: &RfsCliArgs) -> Result<Self> {
+        // Build the configuration by merging sources
+        let builder = Config::builder()
+            // Load default values from the modules to pass to the builder
+            .add_source(Config::try_from(&RfsConfig::default()).map_err(|err| {
+                ConfigError::Other(anyhow::format_err!(
+                    "Failed to convert default config: {}",
+                    err
+                ))
+            })?)
+            // Load configuration from the specified file
+            .add_source(File::from(args.config_file.as_path()).required(false))
+            // Load environment variables (with prefix "RFS" to limit scope)
+            .add_source(Environment::with_prefix(ENV_PREFIX).separator(ENV_SEPARATOR))
+            // Override with CLI arguments, done automatically via Serialize
+            .add_source(Config::try_from(&args).map_err(|err| {
+                ConfigError::Other(anyhow::format_err!("Failed to convert CLI args: {}", err))
+            })?);
+
+        let mut config: RfsConfig = builder
+            .build()
+            .map_err(|err| {
+                ConfigError::Other(anyhow::format_err!(
+                    "Failed to build configuration: {}",
+                    err
+                ))
+            })?
+            .try_deserialize()
+            .map_err(|err| {
+                ConfigError::InvalidConfig(format!("Failed to deserialize configuration: {}", err))
+            })?;
+
+        // Post-process: finalize and validate
+        config.finalize();
+        config
+            .validate()
+            .map_err(|err| ConfigError::InvalidConfig(err))?;
 
         Ok(config)
     }
+}
 
-    /// Normalize log_targets in place by deduplicating, handling special cases, and canonicalizing paths
-    fn normalize(&mut self) {
-        // Canonicalize mountpoint and log_dir if present
-        self.mountpoint = normalize_path(&self.mountpoint);
-        self.log_dir = normalize_optional_path(&self.log_dir);
-        self.log_file = normalize_optional_path(&self.log_file);
-
-        // Deduplicate log_targets and handle special cases
-        let mut set: HashSet<LogTargets> = self.log_targets.drain(..).collect();
-
-        if set.contains(&LogTargets::None) {
-            set.clear();
-        }
-        if set.contains(&LogTargets::All) {
-            set.remove(&LogTargets::Console);
-            set.remove(&LogTargets::File);
-        }
-        self.log_targets = set.into_iter().collect();
+impl ConfigModule for RfsConfig {
+    fn finalize(&mut self) {
+        self.cache.finalize();
+        self.logging.finalize();
     }
 
-    pub fn cache_config(&self) -> CacheConfig {
-        CacheConfig {
-            enabled: self.cache_enabled,
-            use_ttl: self.cache_use_ttl,
-            ttl: Duration::from_secs(self.cache_ttl_seconds),
-            policy: self.cache_policy,
-            max_size: self.cache_max_size,
-            capacity: self.cache_capacity,
-        }
+    fn validate(&self) -> std::result::Result<(), String> {
+        self.cache
+            .validate()
+            .map_err(|err| format!("[Cache] {}", err))?;
+        self.logging
+            .validate()
+            .map_err(|err| format!("[Logging] {}", err))?;
+        Ok(())
     }
 }
 
-// This is used to ensure consistent path representations.
-pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
-    let mut ret = PathBuf::new();
+pub struct TomlFormatter;
 
-    for component in path.as_ref().components() {
-        match component {
-            Component::Prefix(prefix) => ret.push(prefix.as_os_str()),
-            Component::RootDir => ret.push(Component::RootDir.as_os_str()),
-            Component::CurDir => {} // Ignore "."
-            Component::ParentDir => {
-                ret.pop(); // Handle ".." by removing the previous component
-            }
-            Component::Normal(c) => ret.push(c),
-        }
+impl Formatter for TomlFormatter {
+    fn format<T: Serialize>(&self, value: &T) -> std::result::Result<String, String> {
+        toml::to_string_pretty(value).map_err(|err| format!("Failed to serialize to TOML: {}", err))
     }
-    ret
-}
-
-/// Normalize an optional path
-fn normalize_optional_path<P: AsRef<Path>>(path: &Option<P>) -> Option<PathBuf> {
-    path.as_ref().map(|p| normalize_path(p))
 }

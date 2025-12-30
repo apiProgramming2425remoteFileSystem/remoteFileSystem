@@ -5,7 +5,7 @@ mod windows;
 
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
+use crate::config::RfsConfig;
 use crate::error::MountError;
 use crate::fuse::Fs;
 
@@ -119,7 +119,7 @@ impl MountOptions {
 
     // TODO: add config-driven options
     /// Create MountOptions from Config using builder
-    pub fn from(config: &Config) -> Self {
+    pub fn from(config: &RfsConfig) -> Self {
         MountOptionsBuilder::new()
             // Add config-driven options here if needed
             .build()

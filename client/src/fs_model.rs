@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 use tracing::{Level, instrument};
 
 use crate::cache::*;
+use crate::config::CacheConfig;
 use crate::error::FsModelError;
 use crate::network::RemoteClient;
 use crate::network::models::{ItemType, SerializableFSItem, Xattributes};
@@ -112,7 +113,7 @@ impl FileSystem {
     // REVIEW: create a fs_model configurator?
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new(rc: RemoteClient, cache_config: CacheConfig, xattributes_enabled: bool) -> Self {
+    pub fn new(rc: RemoteClient, cache_config: &CacheConfig, xattributes_enabled: bool) -> Self {
         Self {
             remote_client: rc,
             file_handlers: RwLock::new(HashMap::new()),
