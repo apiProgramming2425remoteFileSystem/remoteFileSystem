@@ -152,9 +152,9 @@ async fn run_async(config: RfsConfig, rc: RemoteClient, daemon: Daemon) -> Resul
     */
 
     // Create Filesystem
-    let fs = Fs::new(rc, &config.cache, config.xattributes_enabled);
+    let fs = Fs::new(rc, &config);
 
-    let mount_options = MountOptions::from(&config);
+    let mount_options = MountOptions::from(&config.mount);
 
     let mut mountpoint = MountPoint::new(&config.mountpoint, mount_options);
 

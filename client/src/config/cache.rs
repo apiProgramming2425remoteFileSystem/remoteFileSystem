@@ -1,7 +1,9 @@
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
-use super::ConfigModule;
+use crate::config::DEFAULT_CACHE_CAPACITY;
+
+use super::{ConfigModule, DEFAULT_CACHE_MAX_SIZE, DEFAULT_CACHE_TTL};
 
 /// Cache configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,10 +21,10 @@ impl Default for CacheConfig {
         Self {
             enabled: true,
             use_ttl: true,
-            ttl: 300,
+            ttl: DEFAULT_CACHE_TTL,
             policy: CachePolicy::default(),
-            max_size: 1_048_576, // 1 MB
-            capacity: 50,
+            max_size: DEFAULT_CACHE_MAX_SIZE,
+            capacity: DEFAULT_CACHE_CAPACITY,
         }
     }
 }
@@ -32,18 +34,20 @@ impl ConfigModule for CacheConfig {}
 /// Cache CLI arguments
 #[derive(Debug, Clone, Parser, Serialize)]
 pub struct CacheCliArgs {
-    /// Enable local caching
-    #[arg(long = "cache-enabled")]
-    pub enabled: bool,
+    /// Disable local caching
+    #[arg(long = "no-cache", num_args = 0, default_missing_value = "false")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 
     /// Maximum number of entries in cache
     #[arg(long = "cache-capacity")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capacity: Option<usize>,
 
-    /// Enable TTL eviction in cache
-    #[arg(long = "cache-use-ttl")]
-    pub use_ttl: bool,
+    /// Disable TTL eviction in cache
+    #[arg(long = "cache-no-ttl", num_args = 0, default_missing_value = "false")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_ttl: Option<bool>,
 
     /// TTL duration in seconds (only used if --cache-use-ttl is true)
     #[arg(long = "cache-ttl")]
@@ -61,6 +65,7 @@ pub struct CacheCliArgs {
     pub max_size: Option<usize>,
 }
 
+// REVIEW: add ttl here ans set it as default. Remove no_ttl from CLI args?
 #[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CachePolicy {

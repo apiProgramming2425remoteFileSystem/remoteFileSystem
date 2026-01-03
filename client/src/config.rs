@@ -1,8 +1,12 @@
 pub mod cache;
+pub mod file_system;
 pub mod logging;
+pub mod mount;
 
 pub use cache::*;
+pub use file_system::*;
 pub use logging::*;
+pub use mount::*;
 
 use anyhow;
 use clap::Parser;
@@ -17,6 +21,12 @@ pub const ENV_SEPARATOR: &str = "__";
 pub const DEFAULT_CONFIG_FILE: &str = "default_config.toml";
 pub const DEFAULT_MOUNTPOINT: &str = "/mnt/remote-fs";
 pub const DEFAULT_SERVER_URL: &str = "http://localhost:8080";
+pub const DEFAULT_PAGE_SIZE: usize = 4096;
+pub const DEFAULT_MAX_PAGES: usize = 256;
+pub const DEFAULT_BUFFER_SIZE: usize = 2 * 1024 * 1024;
+pub const DEFAULT_CACHE_TTL: u64 = 300; // in seconds
+pub const DEFAULT_CACHE_MAX_SIZE: usize = 1_048_576; // 1 MB
+pub const DEFAULT_CACHE_CAPACITY: usize = 50;
 pub const DEFAULT_LOG_DIR: &str = "./logs";
 pub const DEFAULT_LOG_FILE_NAME: &str = "remote_fs_client";
 pub const DEFAULT_LOG_FILE_EXT: &str = "log";
@@ -32,8 +42,8 @@ pub struct RfsConfig {
     pub mountpoint: PathBuf,
     pub server_url: String,
     pub foreground: bool,
-    pub xattributes_enabled: bool,
-
+    pub mount: MountConfig,
+    pub file_system: FsConfig,
     pub cache: CacheConfig,
     pub logging: LoggingConfig,
 }
@@ -44,7 +54,8 @@ impl Default for RfsConfig {
             mountpoint: PathBuf::from(DEFAULT_MOUNTPOINT),
             server_url: DEFAULT_SERVER_URL.to_string(),
             foreground: false,
-            xattributes_enabled: false,
+            mount: MountConfig::default(),
+            file_system: FsConfig::default(),
             cache: CacheConfig::default(),
             logging: LoggingConfig::default(),
         }
@@ -73,14 +84,20 @@ pub struct RfsCliArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_url: Option<String>,
 
-    /// Run in foreground (do not daemonize).
-    /// When set, the application will run in the foreground and not daemonize.
-    #[arg(short, long)]
-    pub foreground: bool,
+    /// Run the application in the foreground without daemonizing.
+    #[arg(short, long, num_args = 0, default_missing_value = "false")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub foreground: Option<bool>,
 
-    /// Enable xattributes
-    #[arg(short, long)]
-    pub xattributes_enabled: bool,
+    /// Mount configuration
+    #[command(flatten)]
+    #[command(next_help_heading = "Mount Configuration")]
+    pub mount: MountCliArgs,
+
+    /// Filesystem configuration
+    #[command(flatten)]
+    #[command(next_help_heading = "Filesystem Configuration")]
+    pub file_system: FsCliArgs,
 
     /// Cache configuration
     #[command(flatten)]
@@ -165,11 +182,19 @@ impl RfsConfig {
 
 impl ConfigModule for RfsConfig {
     fn finalize(&mut self) {
+        self.mount.finalize();
+        self.file_system.finalize();
         self.cache.finalize();
         self.logging.finalize();
     }
 
     fn validate(&self) -> std::result::Result<(), String> {
+        self.mount
+            .validate()
+            .map_err(|err| format!("[Mount] {}", err))?;
+        self.file_system
+            .validate()
+            .map_err(|err| format!("[Filesystem] {}", err))?;
         self.cache
             .validate()
             .map_err(|err| format!("[Cache] {}", err))?;

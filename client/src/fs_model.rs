@@ -3,15 +3,15 @@ use std::convert::TryFrom;
 use std::ffi::OsString;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use tokio::sync::RwLock;
 use tracing::{Level, instrument};
 
 use crate::cache::*;
-use crate::config::CacheConfig;
+use crate::config::RfsConfig;
 use crate::error::FsModelError;
 use crate::network::RemoteClient;
 use crate::network::models::{ItemType, SerializableFSItem, Xattributes};
@@ -30,7 +30,8 @@ pub use sym_link::*;
 type Result<T> = std::result::Result<T, FsModelError>;
 
 static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
-const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
+pub static PAGE_SIZE: OnceLock<usize> = OnceLock::new();
+pub static MAX_PAGES: OnceLock<usize> = OnceLock::new();
 
 #[derive(Debug)]
 pub struct FileSystem {
@@ -110,17 +111,24 @@ fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attribute
 /// }
 //
 impl FileSystem {
-    // REVIEW: create a fs_model configurator?
-
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new(rc: RemoteClient, cache_config: &CacheConfig, xattributes_enabled: bool) -> Self {
+    pub fn new(rc: RemoteClient, config: &RfsConfig) -> Self {
+        let buffer_capacity = config.file_system.buffer_size;
+        let page_size = config.file_system.page_size;
+
+        PAGE_SIZE.set(page_size).expect("PAGE_SIZE already set");
+
+        MAX_PAGES
+            .set(config.cache.max_size / page_size)
+            .expect("MAX_PAGES already set");
+
         Self {
             remote_client: rc,
             file_handlers: RwLock::new(HashMap::new()),
-            xattributes_enabled,
-            read_buffer: RwLock::new(ReadBuffer::new(BUFFER_CAPACITY)),
-            write_buffer: RwLock::new(WriteBuffer::new(BUFFER_CAPACITY)),
-            cache: Cache::from_config(&cache_config),
+            xattributes_enabled: config.file_system.xattr_enable,
+            read_buffer: RwLock::new(ReadBuffer::new(buffer_capacity)),
+            write_buffer: RwLock::new(WriteBuffer::new(buffer_capacity)),
+            cache: Cache::from_config(&config.cache),
         }
     }
     pub fn get_ttl(&self) -> Duration {
@@ -331,7 +339,7 @@ impl FileSystem {
 
         let data = self
             .remote_client
-            .read_file(&path_str, offset, BUFFER_CAPACITY)
+            .read_file(&path_str, offset, self.read_buffer.read().await.capacity())
             .await?;
 
         // Fill buffer

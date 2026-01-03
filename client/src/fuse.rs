@@ -3,7 +3,7 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
-use crate::config::CacheConfig;
+use crate::config::RfsConfig;
 use crate::fs_model::FileSystem;
 use crate::network::RemoteClient;
 
@@ -12,9 +12,9 @@ pub struct Fs {
 }
 
 impl Fs {
-    pub fn new(rc: RemoteClient, cache_config: &CacheConfig, xattributes_enabled: bool) -> Self {
+    pub fn new(rc: RemoteClient, config: &RfsConfig) -> Self {
         Self {
-            fs: FileSystem::new(rc, cache_config, xattributes_enabled),
+            fs: FileSystem::new(rc, &config),
         }
     }
 }

@@ -1,8 +1,5 @@
-use crate::config::{CacheConfig, CachePolicy};
-use crate::fs_model::Attributes;
-use crate::fs_model::directory::Directory;
-use crate::fs_model::file::{File, MAX_PAGES, PAGE_SIZE};
-use crate::fs_model::sym_link::SymLink;
+use crate::config::cache::{CacheConfig, CachePolicy};
+use crate::fs_model::{Attributes, Directory, File, SymLink};
 use crate::network::models::{ItemType, SerializableFSItem};
 
 use std::collections::HashMap;
@@ -141,11 +138,6 @@ impl Cache {
             return None;
         }
 
-        // REVIEW: move this to a fs_model configurator?
-        MAX_PAGES
-            .set(cfg.max_size / PAGE_SIZE)
-            .expect("MAX_PAGES already set");
-
         Some(Arc::new(Cache {
             entries: RwLock::new(HashMap::new()),
             capacity: cfg.capacity,
@@ -261,7 +253,6 @@ impl Cache {
         map.remove(path.as_ref()).map(|e| e.item);
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {
         match self.policy {
             CachePolicy::Lru => map
