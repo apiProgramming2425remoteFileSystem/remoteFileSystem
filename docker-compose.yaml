@@ -43,6 +43,7 @@ services:
         remote_fs_client: client # the name of the package
     container_name: remote_fs-client
     # privileged: true
+    # network: host # in case X11 does not work properly
     networks:
       - remote-fs-net
     devices:
@@ -60,33 +61,42 @@ services:
       LOG_PATH: *log_path
       LOG_FILE: *log_file
       LOG_ROTATION: *log_rotation
+      DISPLAY: ${DISPLAY}
+      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}
+      SLINT_BACKEND: software
+      WINIT_UNIX_BACKEND: x11
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}:${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}
     # command: >
     #   --mountpoint ${MOUNT_POINT} --server-url http://server:8080/api
     tty: true # Keep the terminal open
     entrypoint: [ "/bin/bash" ]
 
   develop:
+    develop:
     image: rust:slim
     container_name: remote_fs-develop
-    # privileged: true
+    network_mode: host      # <--- Aggiunto per vedere WSLg (:0)
+    ipc: host               # <--- Aggiunto per la memoria condivisa X11
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+      - SLINT_BACKEND=software
+      - WINIT_UNIX_BACKEND=x11
     devices:
       - /dev/fuse:/dev/fuse
     cap_add:
       - SYS_ADMIN
-    networks:
-      - remote-fs-net
     volumes:
-      # - ./server:${APP_PATH}/server/
-      # - ./client:${APP_PATH}/client/
       - .:${APP_PATH}/
-      - ./mount_dir:${FS_ROOT} # Server FS root for testing purposes
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}:${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}
     working_dir: *app_path
-    tty: true # Keep the terminal open
-    restart: unless-stopped # Automatically restart unless stopped manually
+    tty: true
 
 volumes:
   remote_fs_data:
-
 
 networks:
   remote-fs-net:

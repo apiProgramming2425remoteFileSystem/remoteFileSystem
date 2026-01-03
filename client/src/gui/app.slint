@@ -1,0 +1,283 @@
+import { Button, VerticalBox, LineEdit, Spinner } from "std-widgets.slint";
+
+export enum ViewState {
+    Welcome,
+    Home, 
+    Cache,
+    MountPoint,
+}
+
+export enum Status {
+    LoggedIn,
+    NotLoggedIn,
+}
+
+export component MyButton inherits Rectangle {
+    in property <string> text;
+    callback clicked;
+    
+    background: ta.pressed ? #2050aa : (ta.has-hover ? #4080ff : #3070ff);
+    border-radius: 20px;
+    animate background { duration: 150ms; }
+
+    Text {
+        text: root.text;
+        color: white;
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Error inherits Rectangle {
+    in property <string> error;
+
+    // Callback per comunicare al genitore di chiudersi
+    callback close;
+
+    // Sfondo semi-trasparente che copre tutto
+    background: #fffdfd37; 
+
+    // Questa TouchArea cattura i click fuori dal box dell'errore
+    TouchArea {
+        clicked => { root.close(); }
+    }
+
+    Rectangle {
+        width: 300px;
+        height: 100px;
+        border-radius: 8px;
+        background: #ffffff;
+
+        Text {
+            width: 200px;
+            height: 100px;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            text: error; 
+            color: red; 
+            wrap: TextWrap.word-wrap;
+        }
+    }
+    
+}
+
+export component Loading inherits Rectangle {
+    width: 800px;
+    height: 480px;
+    background: white;
+    opacity: 60%;
+
+    TouchArea {}
+
+    Spinner {
+        indeterminate: true;
+    }
+}
+
+
+export component WelcomePage inherits VerticalBox {
+    padding: 20px;
+    spacing: 10px;
+    
+    Text {
+        text: "Welcome to RemoteFileSystem!";
+        color: black;
+        font-size: 20px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component LoginForm inherits Rectangle {
+    in-out property <string> username;
+    in-out property <string> password;
+    
+    callback login_attempted(string, string);
+
+    VerticalBox {
+        spacing: 20px;
+        padding: 40px;
+        alignment: center;
+
+        // Contenitore del Form con ombra (Rectangle bianco)
+        Rectangle {
+            background: rgb(0, 128, 255, 0.8);
+            border-radius: 8px;
+            drop-shadow-blur: 15px;
+            drop-shadow-color: #ffffff3b;
+            width: 350px;
+            height: layout.preferred-height + 40px;
+            
+
+            layout := VerticalBox {
+                padding: 20px;
+                spacing: 15px;
+
+                Text {
+                    text: "LOGIN";
+                    font-size: 22px;
+                    font-weight: 800;
+                    horizontal-alignment: center;
+                    color: white;
+                }
+
+                // Campo Username
+                VerticalBox {
+                    padding: 0; spacing: 5px;
+                    Text { text: "Username"; color: white; font-size: 14px; }
+                    LineEdit {
+                        placeholder-text: "username";
+                        input-type: InputType.text;
+                        text <=> root.username;
+                    }
+                }
+
+                // Campo Password
+                VerticalBox {
+                    padding: 0; spacing: 5px;
+                    Text { text: "Password"; color: white; font-size: 14px; }
+                    LineEdit {
+                        placeholder-text: "••••••••";
+                        input-type: InputType.password;
+                        text <=> root.password;
+                    }
+                }
+
+                // Spazio vuoto tattico
+                Rectangle { height: 10px; }
+
+                // Pulsante di Login
+                Button {
+                    text: "Login";
+                    primary: true;
+                    // Disabilita se i campi sono vuoti
+                    enabled: root.username != "" && root.password != "";
+                    clicked => {
+                        root.login_attempted(root.username, root.password);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component Home inherits Rectangle {
+    in property <Status> status;
+    callback login_attempted(string, string);
+
+    height: 600px;
+    width: 800px;
+
+    VerticalBox {
+        padding: 0;
+        spacing: 0;
+
+        // --- HEADER ---
+        Rectangle {
+            height: 60px;
+            background: rgba(0, 128, 255, 1);
+            
+            // Titolo centrato
+            Text {
+                text: "Remote FS";
+                color: white;
+                font-size: 18px;
+                font-weight: 700;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+
+            // Bottone a destra
+            HorizontalLayout {
+                padding-right: 15px;
+                height: 40px;
+                alignment: end;
+
+                if (status == Status.LoggedIn):
+                    Button {
+                        text: "LOGOUT";
+                        width: 80px;
+                    }
+            }
+        }
+
+        // --- CONTENT ---
+        Rectangle {
+            background: #ecf0f1;
+            // 'vertical-stretch: 1' dice a Slint di occupare tutto lo spazio disponibile
+            vertical-stretch: 1; 
+
+            HorizontalLayout {
+                alignment: center;
+
+                if (status == Status.NotLoggedIn):
+                    LoginForm{ login_attempted(u, p) => {root.login_attempted(u, p);} }
+                if (status == Status.LoggedIn): 
+                    Text {
+                        text: "DASHBOARD";
+                        color: #333;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+            }
+            
+        }
+
+        // --- FOOTER ---
+        Rectangle {
+            height: 60px;
+            background: rgba(0, 128, 255, 0.5);
+            
+            Text {
+                text: "Politecnico di Torino";
+                font-size: 12px;
+                color: #ffffff;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
+
+export component App inherits Window {
+    background: #ffffff;
+    height: 600px;
+    width: 800px;
+    title: "RemoteFileSystem";
+
+    callback login_attempted(string, string);
+
+    in property <ViewState> active_view: ViewState.Welcome;
+    in property <Status> status: Status.NotLoggedIn;
+    in-out property <bool> is_loading: false;
+    in-out property <string> error_message: "";
+
+    if (active_view == ViewState.Welcome): 
+        WelcomePage{
+            opacity: active_view == ViewState.Welcome ? 1 : 0;
+            animate opacity { duration: 1000ms; easing: ease-in-out; }
+        }
+
+    if (active_view == ViewState.Home): 
+        Home {
+            opacity: active_view == ViewState.Home ? 1 : 0;
+            animate opacity { duration: 1000ms; easing: ease-in-out; }
+
+            status: status;
+            login_attempted(u, p) => { 
+                is_loading = true;
+                root.login_attempted(u, p); 
+            }
+        }
+
+    if (error_message != ""):
+        Error { 
+            error: error_message; 
+            close => {error_message = ""};
+        }
+
+    if (is_loading):
+        Loading {}
+}

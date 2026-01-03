@@ -183,6 +183,14 @@ pub enum NetworkError {
     Other(#[from] anyhow::Error),
 }
 
+#[derive(Error, Debug)]
+pub enum GUIError{
+    #[error("Initial rendering failed: {0}")]
+    RenderingIssue(String),
+    #[error("Initial run failed: {0}")]
+    RunningIssue(String),
+}
+
 /* cache uses Option for now, can't generate errors
 /// Cache related errors
 #[derive(Error, Debug)]
@@ -218,6 +226,9 @@ pub enum ClientError {
 
     #[error("Network error: {0}")]
     Network(#[from] NetworkError),
+
+    #[error("GUI error: {0}")]
+    GUI(#[from] GUIError),
 
     //#[error("Cache error: {0}")]
     //Cache(#[from] CacheError),

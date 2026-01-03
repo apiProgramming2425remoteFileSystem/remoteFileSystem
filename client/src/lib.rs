@@ -7,11 +7,13 @@ pub mod fuse;
 pub mod logging;
 pub mod mount;
 pub mod network;
+pub mod gui;
 
 pub mod rw_buffer;
 
 use std::fs;
 use std::io::{self, Write};
+use gui::start_gui;
 
 use anyhow;
 use rpassword::read_password;
@@ -40,103 +42,109 @@ type Result<T> = std::result::Result<T, ClientError>;
 pub fn start(config: &Config) -> Result<()> {
     println!("Starting RemoteFS...");
 
-    // Create mountpoint directory if it doesn't exist
-    if !config.mountpoint.exists() {
-        println!(
-            "Mountpoint directory {:?} does not exist. Creating it.",
-            config.mountpoint
-        );
-        fs::create_dir_all(&config.mountpoint).map_err(|err| {
-            ClientError::Other(
-                anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
-            )
-        })?;
-    }
-
     let rc = RemoteClient::new(&config.server_url);
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| {
-            ClientError::Other(anyhow::format_err!(
-                "Failed to build Tokio runtime: {}",
-                err
-            ))
-        })?;
-
-    runtime.block_on(async {
-        println!("Checking connection to server at {}...", config.server_url);
-
-        rc.health_check().await.map_err(|err| {
-            println!("Connection to server failed: {}", err); // Write to log
-            err
-        })?;
-
-        rc.health_check().await?;
-
-        println!("Welcome to Remote File System. First you need to authenticate!");
-
-        let token_option = loop {
-            println!("username:");
-            let username = {
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-                input.trim().to_string()
-            };
-            println!("Password: ");
-            io::stdout().flush().unwrap();
-            // Hide password
-            let password = read_password().unwrap();
-
-            match rc.login(username, password).await {
-                Ok(t) => break Some(t),
-                Err(e) => {
-                    eprintln!("Login failed: {}", e);
-                    println!("Invalid credentials. Do you want to try again? [y n]");
-                    let mut answer = String::new();
-                    io::stdin().read_line(&mut answer).unwrap();
-                    if !answer.trim().to_string().starts_with("y") {
-                        break None;
-                    }
-                }
-            };
-        };
-
-        if token_option.is_none() {
-            return Err(ClientError::Other(anyhow::anyhow!(
-                "Impossible to login: Invalid credentials!"
-            )));
+    if config.no_gui {
+        // Create mountpoint directory if it doesn't exist
+        if !config.mountpoint.exists() {
+            println!(
+                "Mountpoint directory {:?} does not exist. Creating it.",
+                config.mountpoint
+            );
+            fs::create_dir_all(&config.mountpoint).map_err(|err| {
+                ClientError::Other(
+                    anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
+                )
+            })?;
         }
 
-        // let token = token_option.unwrap();
-        println!("Login successful");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| {
+                ClientError::Other(anyhow::format_err!(
+                    "Failed to build Tokio runtime: {}",
+                    err
+                ))
+            })?;
+
+        // Check on server health and user login
+        runtime.block_on(async {
+            println!("Checking connection to server at {}...", config.server_url);
+
+            rc.health_check().await.map_err(|err| {
+                println!("Connection to server failed: {}", err); // Write to log
+                err
+            })?;
+
+            rc.health_check().await?;
+
+            println!("Welcome to Remote File System. First you need to authenticate!");
+
+            let token_option = loop {
+                println!("username:");
+                let username = {
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input).unwrap();
+                    input.trim().to_string()
+                };
+                println!("Password: ");
+                io::stdout().flush().unwrap();
+                // Hide password
+                let password = read_password().unwrap();
+
+                match rc.login(username, password).await {
+                    Ok(t) => break Some(t),
+                    Err(e) => {
+                        eprintln!("Login failed: {}", e);
+                        println!("Invalid credentials. Do you want to try again? [y n]");
+                        let mut answer = String::new();
+                        io::stdin().read_line(&mut answer).unwrap();
+                        if !answer.trim().to_string().starts_with("y") {
+                            break None;
+                        }
+                    }
+                };
+            };
+
+            if token_option.is_none() {
+                return Err(ClientError::Other(anyhow::anyhow!(
+                    "Impossible to login: Invalid credentials!"
+                )));
+            }
+
+            // let token = token_option.unwrap();
+            println!("Login successful");
+            Ok(())
+        })?;
+
+        drop(runtime);
+
+        // Instantiate the daemon
+        let daemon = Daemon::new().foreground(config.foreground);
+        // Initialize the daemon
+        daemon.initialize()?;
+
+        // Initialize logging based on config
+        let _log = logging::Logging::from(&config)?;
+
+        tracing::trace!("[TRACE]");
+        tracing::debug!("[DEBUG]");
+        tracing::info!("[INFO]");
+        tracing::warn!("[WARN]");
+        tracing::error!("[ERROR]");
+
+        tracing::debug!("Background process started. PID: {}", std::process::id());
+
+        // Start the daemon
+        daemon.create_runtime(run_async(config.clone(), rc, daemon.clone()))?;
+
+        tracing::info!("RemoteFS execution finished.");
         Ok(())
-    })?;
-
-    drop(runtime);
-
-    // Instantiate the daemon
-    let daemon = Daemon::new().foreground(config.foreground);
-    // Initialize the daemon
-    daemon.initialize()?;
-
-    // Initialize logging based on config
-    let _log = logging::Logging::from(&config)?;
-
-    tracing::trace!("[TRACE]");
-    tracing::debug!("[DEBUG]");
-    tracing::info!("[INFO]");
-    tracing::warn!("[WARN]");
-    tracing::error!("[ERROR]");
-
-    tracing::debug!("Background process started. PID: {}", std::process::id());
-
-    // Start the daemon
-    daemon.create_runtime(run_async(config.clone(), rc, daemon.clone()))?;
-
-    tracing::info!("RemoteFS execution finished.");
-    Ok(())
+    } else {
+        start_gui(rc, config)?;
+        Ok(())
+    }
 }
 
 async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<()> {

@@ -32,6 +32,8 @@ reqwest-middleware = { version = "0.4", features = ["json"] }
 http = "1.4.0"
 reqwest-retry = "0.8.0"
 async-trait = "0.1"
+slint = "1.14.1"
+slint-build = "1.14.1"
 
 [target.'cfg(unix)'.dependencies]
 fuse3 = { version = "0.8", features = [

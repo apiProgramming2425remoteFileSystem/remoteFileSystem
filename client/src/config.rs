@@ -100,6 +100,10 @@ pub struct Config {
     /// When set, the application will run in the foreground and not daemonize.
     #[arg(short, long, default_value_t = false)]
     pub foreground: bool,
+
+    // GUI availability
+    #[arg(short, long, default_value_t = false)]
+    pub no_gui: bool,
 }
 
 impl Config {
