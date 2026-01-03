@@ -1,4 +1,6 @@
+pub mod app;
 pub mod cache;
+pub mod commands;
 pub mod config;
 pub mod daemon;
 pub mod error;
@@ -10,6 +12,7 @@ pub mod network;
 pub mod gui;
 
 pub mod rw_buffer;
+mod util;
 
 use std::fs;
 use std::io::{self, Write};
@@ -19,14 +22,14 @@ use anyhow;
 use rpassword::read_password;
 use tracing;
 
-use crate::config::Config;
+use crate::config::RfsConfig;
 use crate::daemon::Daemon;
-use crate::error::ClientError;
+use crate::error::RfsClientError;
 use crate::fuse::Fs;
 use crate::mount::{MountOptions, MountPoint};
 use crate::network::RemoteClient;
 
-type Result<T> = std::result::Result<T, ClientError>;
+type Result<T> = std::result::Result<T, RfsClientError>;
 
 /// Runs the program with the given configuration (`config`).<br>
 /// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.
@@ -39,7 +42,7 @@ type Result<T> = std::result::Result<T, ClientError>;
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
-pub fn start(config: &Config) -> Result<()> {
+pub fn start(config: &RfsConfig) -> Result<()> {
     println!("Starting RemoteFS...");
 
     let rc = RemoteClient::new(&config.server_url);
@@ -52,7 +55,7 @@ pub fn start(config: &Config) -> Result<()> {
                 config.mountpoint
             );
             fs::create_dir_all(&config.mountpoint).map_err(|err| {
-                ClientError::Other(
+                RfsClientError::Other(
                     anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
                 )
             })?;
@@ -62,7 +65,7 @@ pub fn start(config: &Config) -> Result<()> {
             .enable_all()
             .build()
             .map_err(|err| {
-                ClientError::Other(anyhow::format_err!(
+                RfsClientError::Other(anyhow::format_err!(
                     "Failed to build Tokio runtime: {}",
                     err
                 ))
@@ -107,11 +110,11 @@ pub fn start(config: &Config) -> Result<()> {
                 };
             };
 
-            if token_option.is_none() {
-                return Err(ClientError::Other(anyhow::anyhow!(
-                    "Impossible to login: Invalid credentials!"
-                )));
-            }
+        if token_option.is_none() {
+            return Err(RfsClientError::Other(anyhow::anyhow!(
+                "Impossible to login: Invalid credentials!"
+            )));
+        }
 
             // let token = token_option.unwrap();
             println!("Login successful");
@@ -125,8 +128,8 @@ pub fn start(config: &Config) -> Result<()> {
         // Initialize the daemon
         daemon.initialize()?;
 
-        // Initialize logging based on config
-        let _log = logging::Logging::from(&config)?;
+    // Initialize logging based on config
+    let _log = logging::Logging::from(&config.logging)?;
 
         tracing::trace!("[TRACE]");
         tracing::debug!("[DEBUG]");
@@ -147,7 +150,7 @@ pub fn start(config: &Config) -> Result<()> {
     }
 }
 
-async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<()> {
+async fn run_async(config: RfsConfig, rc: RemoteClient, daemon: Daemon) -> Result<()> {
     /*
     tracing::info!("Checking connection to server at {}...", config.server_url);
 
@@ -157,13 +160,10 @@ async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<(
     })?;
     */
 
-    let cache_config = config.cache_config();
-    let xattributes_enabled = config.xattributes_enabled;
-
     // Create Filesystem
-    let fs = Fs::new(rc, cache_config, xattributes_enabled);
+    let fs = Fs::new(rc, &config);
 
-    let mount_options = MountOptions::from(&config);
+    let mount_options = MountOptions::from(&config.mount);
 
     let mut mountpoint = MountPoint::new(&config.mountpoint, mount_options);
 
@@ -181,7 +181,7 @@ async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<(
                 Ok(_) => tracing::info!("Mount session ended normally"),
                 Err(e) => {
                     tracing::error!("Mount session ended with error: {}", e);
-                    return Err(ClientError::Daemon(error::DaemonError::SignalError(format!("mount session error: {}", e))));
+                    return Err(RfsClientError::Daemon(error::DaemonError::SignalError(format!("mount session error: {}", e))));
                 }
             }
         }

@@ -1,6 +1,7 @@
 use super::*;
 
 use anyhow;
+use async_trait::async_trait;
 use fuse3::MountOptions as MountOptionsFuse;
 use fuse3::path::prelude::*;
 use fuse3::raw::MountHandle;
@@ -19,16 +20,16 @@ impl MountFs for UnixSession {
 
         let mount_handle: MountHandle;
 
-        if options.unprivileged {
-            tracing::info!("Mounting with unprivileged user FUSE.");
-            mount_handle = session
-                .mount_with_unprivileged(fs, mountpoint)
-                .await
-                .map_err(|err| MountError::MountFailed(err.to_string()))?;
-        } else {
+        if options.privileged {
             tracing::info!("Mounting with privileged user FUSE.");
             mount_handle = session
                 .mount(fs, mountpoint)
+                .await
+                .map_err(|err| MountError::MountFailed(err.to_string()))?;
+        } else {
+            tracing::info!("Mounting with unprivileged user FUSE.");
+            mount_handle = session
+                .mount_with_unprivileged(fs, mountpoint)
                 .await
                 .map_err(|err| MountError::MountFailed(err.to_string()))?;
         }
@@ -70,6 +71,9 @@ impl MountFs for UnixSession {
 impl From<&MountOptions> for MountOptionsFuse {
     fn from(options: &MountOptions) -> Self {
         let mut mount_options = MountOptionsFuse::default();
+        if options.allow_root {
+            mount_options.allow_root(true);
+        }
         if options.allow_other {
             mount_options.allow_other(true);
         }

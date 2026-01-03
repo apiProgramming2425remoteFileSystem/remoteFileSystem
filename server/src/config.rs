@@ -1,132 +1,172 @@
-use std::collections::HashSet;
-use std::path::{Component, Path, PathBuf};
+pub mod logging;
+pub use logging::*;
 
 use crate::error::ConfigError;
-use crate::logging::{LogFormat, LogLevel, LogRotation, LogTargets};
 
+use anyhow;
 use clap::Parser;
-use dotenvy;
+use config::{Config, Environment, File};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
-pub const DEFAULT_LOG_DIR: &'static str = "./logs";
-pub const DEFAULT_LOG_FILE_NAME: &'static str = "remote_fs_server";
-pub const DEFAULT_LOG_FILE_EXT: &'static str = "log";
-pub const DEFAULT_LOG_FILE_ROT: &'static str = "never";
+pub const ENV_PREFIX: &str = "RFS";
+pub const ENV_SEPARATOR: &str = "__";
+pub const DEFAULT_DATABASE_PATH: &str = "database/db.sqlite";
+pub const DEFAULT_CONFIG_FILE: &str = "server_config.toml";
+pub const DEFAULT_SERVER_HOST: &str = "localhost";
+pub const DEFAULT_PORT: u16 = 8080;
+pub const DEFAULT_FILESYSTEM_ROOT: &str = "/remote_fs";
+pub const DEFAULT_LOG_DIR: &str = "./logs";
+pub const DEFAULT_LOG_FILE_NAME: &str = "remote_fs_server";
+pub const DEFAULT_LOG_FILE_EXT: &str = "log";
+pub const DEFAULT_LOG_FILE_ROT: &str = "never";
 
 type Result<T> = std::result::Result<T, ConfigError>;
 
-/// Application configuration that includes logging settings.
-#[derive(Parser, Debug)]
-#[command(author, version, about = "Remote Filesystem Server")]
-pub struct Config {
+/// App configuration
+///
+/// This structure holds the complete application configuration
+/// including settings loaded from the configuration file.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RfsConfig {
     /// Server hostname or IP to bind to
-    #[arg(short, long, env = "SERVER_HOST")]
+    pub server_host: String,
+    /// Server port to listen on
+    pub port: u16,
+    /// Root directory for the remote filesystem
+    pub filesystem_root: PathBuf,
+    /// Logging configuration
+    pub logging: LoggingConfig,
+}
+
+impl Default for RfsConfig {
+    fn default() -> Self {
+        Self {
+            server_host: DEFAULT_SERVER_HOST.to_string(),
+            port: DEFAULT_PORT,
+            filesystem_root: PathBuf::from(DEFAULT_FILESYSTEM_ROOT),
+            logging: LoggingConfig::default(),
+        }
+    }
+}
+
+/// CLI configuration
+///
+/// This structure holds the CLI arguments for the application,
+/// including the path to the configuration file and other flattened modules.
+#[derive(Debug, Clone, Parser, Serialize)]
+#[command(author, version, about = "Remote Filesystem Server")]
+pub struct RfsCliArgs {
+    /// Path to the configuration file
+    #[arg(short, long, default_value = DEFAULT_CONFIG_FILE, env = "RFS__CONFIG_FILE")]
+    #[serde(skip)]
+    pub config_file: PathBuf,
+
+    /// Server hostname or IP to bind to
+    #[arg(short, long, env = "RFS__SERVER_HOST")]
     pub server_host: String,
 
     /// Server port to listen on
-    #[arg(short, long, env = "SERVER_PORT")]
-    pub port: u16,
+    #[arg(short = 'p', long, env = "RFS__SERVER_PORT")]
+    pub server_port: u16,
 
     /// Root directory for the remote filesystem
-    #[arg(short, long, env = "FS_ROOT")]
+    #[arg(short, long, env = "RFS__FILESYSTEM_ROOT")]
     pub filesystem_root: PathBuf,
 
-    /// Log targets as comma separated list
-    #[arg(short, long, value_enum, value_delimiter = ',', default_values_t = [LogTargets::All],  env = "LOG_TARGETS")]
-    pub log_targets: Vec<LogTargets>,
-
-    /// Log format
-    #[arg(long, value_enum, default_value_t = LogFormat::Full, env = "LOG_FORMAT")]
-    pub log_format: LogFormat,
-
-    /// Log level filter
-    #[arg(long, value_enum, default_value_t = LogLevel::Info, env = "LOG_LEVEL")]
-    pub log_level: LogLevel,
-
-    /// Optional path for log directory. Defaults to [`DEFAULT_LOG_DIR`] if needed.
-    #[arg(
-        long,
-        default_value_ifs([
-            ("log_targets", "all", Some(DEFAULT_LOG_DIR)),
-            ("log_targets", "file", Some(DEFAULT_LOG_DIR))
-        ]),
-        env = "LOG_DIR"
-    )]
-    pub log_dir: Option<PathBuf>,
-
-    /// Optional log file name. Defaults to [`DEFAULT_LOG_FILE_NAME`] if needed.
-    #[arg(
-        long,
-        default_value_ifs([
-            ("log_targets", "all", Some(DEFAULT_LOG_FILE_NAME)),
-            ("log_targets", "file", Some(DEFAULT_LOG_FILE_NAME))
-        ]), env = "LOG_FILE")]
-    pub log_file: Option<PathBuf>,
-
-    /// Optional log rotation policy. Defaults to [`DEFAULT_LOG_FILE_ROT`] if needed
-    #[arg(
-        long,
-        default_value_ifs([
-            ("log_targets", "all", Some(DEFAULT_LOG_FILE_ROT)),
-            ("log_targets", "file", Some(DEFAULT_LOG_FILE_ROT))
-        ]), env = "LOG_ROTATION")]
-    pub log_rotation: Option<LogRotation>,
+    /// Logging configuration
+    #[command(flatten)]
+    #[command(next_help_heading = "Logging Configuration")]
+    pub logging: LoggingCliArgs,
 }
 
-impl Config {
-    /// Parse config from CLI and environment variables
-    pub fn from_args() -> Result<Self> {
-        // Load .env variables
-        // dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()))?;
-        let _ = dotenvy::dotenv().map_err(|err| ConfigError::EnvVar(err.to_string()));
+pub trait ConfigModule {
+    /// Post-processing: compute conditional defaults, normalize paths, etc.
+    /// Called AFTER merging all sources.
+    fn finalize(&mut self) {
+        // Default: do nothing
+    }
 
-        let mut config = Config::parse();
-        config.normalize();
+    /// Validation: check that values are consistent.
+    /// Returns a simple error string. The caller will wrap it in a specific error.
+    fn validate(&self) -> std::result::Result<(), String> {
+        // Default: All good
+        Ok(())
+    }
+}
+
+pub trait Formatter {
+    fn format<T: Serialize>(&self, value: &T) -> std::result::Result<String, String>;
+}
+
+impl RfsConfig {
+    /// Load configuration from the specified file path, environment variables, and CLI arguments.
+    ///
+    /// The order of precedence (highest to lowest) is:
+    /// 1. CLI arguments
+    /// 2. Environment variables (with prefix [`ENV_PREFIX`] and separator [`ENV_SEPARATOR`])
+    /// 3. Configuration file
+    /// 4. Default values
+    /// Returns the loaded configuration or an error.
+    pub fn load(args: &RfsCliArgs) -> Result<Self> {
+        // Build the configuration by merging sources
+        let builder = Config::builder()
+            // Load default values from the modules to pass to the builder
+            .add_source(Config::try_from(&RfsConfig::default()).map_err(|err| {
+                ConfigError::Other(anyhow::format_err!(
+                    "Failed to convert default config: {}",
+                    err
+                ))
+            })?)
+            // Load configuration from the specified file
+            .add_source(File::from(args.config_file.as_path()).required(false))
+            // Load environment variables (with prefix "RFS" to limit scope)
+            .add_source(Environment::with_prefix(ENV_PREFIX).separator(ENV_SEPARATOR))
+            // Override with CLI arguments, done automatically via Serialize
+            .add_source(Config::try_from(&args).map_err(|err| {
+                ConfigError::Other(anyhow::format_err!("Failed to convert CLI args: {}", err))
+            })?);
+
+        let mut config: RfsConfig = builder
+            .build()
+            .map_err(|err| {
+                ConfigError::Other(anyhow::format_err!(
+                    "Failed to build configuration: {}",
+                    err
+                ))
+            })?
+            .try_deserialize()
+            .map_err(|err| {
+                ConfigError::InvalidConfig(format!("Failed to deserialize configuration: {}", err))
+            })?;
+
+        // Post-process: finalize and validate
+        config.finalize();
+        config
+            .validate()
+            .map_err(|err| ConfigError::InvalidConfig(err))?;
 
         Ok(config)
     }
+}
 
-    /// Normalize log_targets in place by deduplicating, handling special cases, and canonicalizing paths
-    fn normalize(&mut self) {
-        // Canonicalize mountpoint and log_dir if present
-        self.filesystem_root = normalize_path(&self.filesystem_root);
-        self.log_dir = normalize_optional_path(&self.log_dir);
-        self.log_file = normalize_optional_path(&self.log_file);
+impl ConfigModule for RfsConfig {
+    fn finalize(&mut self) {
+        self.logging.finalize();
+    }
 
-        // Deduplicate log_targets and handle special cases
-        let mut set: HashSet<LogTargets> = self.log_targets.drain(..).collect();
-
-        if set.contains(&LogTargets::None) {
-            set.clear();
-        }
-
-        if set.contains(&LogTargets::All) {
-            set.remove(&LogTargets::Console);
-            set.remove(&LogTargets::File);
-        }
-
-        self.log_targets = set.into_iter().collect();
+    fn validate(&self) -> std::result::Result<(), String> {
+        self.logging
+            .validate()
+            .map_err(|err| format!("[Logging] {}", err))?;
+        Ok(())
     }
 }
 
-// This is used to ensure consistent path representations.
-pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
-    let mut ret = PathBuf::new();
+pub struct TomlFormatter;
 
-    for component in path.as_ref().components() {
-        match component {
-            Component::Prefix(prefix) => ret.push(prefix.as_os_str()),
-            Component::RootDir => ret.push(Component::RootDir.as_os_str()),
-            Component::CurDir => {} // Ignore "."
-            Component::ParentDir => {
-                ret.pop(); // Handle ".." by removing the previous component
-            }
-            Component::Normal(c) => ret.push(c),
-        }
+impl Formatter for TomlFormatter {
+    fn format<T: Serialize>(&self, value: &T) -> std::result::Result<String, String> {
+        toml::to_string_pretty(value).map_err(|err| format!("Failed to serialize to TOML: {}", err))
     }
-    ret
-}
-
-/// Normalize an optional path
-fn normalize_optional_path<P: AsRef<Path>>(path: &Option<P>) -> Option<PathBuf> {
-    path.as_ref().map(|p| normalize_path(p))
 }

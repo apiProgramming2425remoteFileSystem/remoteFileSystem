@@ -5,7 +5,7 @@ mod windows;
 
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
+use crate::config::mount::MountConfig;
 use crate::error::MountError;
 use crate::fuse::Fs;
 
@@ -26,7 +26,8 @@ pub struct MountPoint {
 pub struct MountOptions {
     read_only: bool,
     allow_other: bool,
-    unprivileged: bool,
+    allow_root: bool,
+    privileged: bool,
 }
 
 /// Trait for mounting and unmounting the filesystem.
@@ -119,9 +120,12 @@ impl MountOptions {
 
     // TODO: add config-driven options
     /// Create MountOptions from Config using builder
-    pub fn from(config: &Config) -> Self {
+    pub fn from(config: &MountConfig) -> Self {
         MountOptionsBuilder::new()
-            // Add config-driven options here if needed
+            .read_only(config.read_only)
+            .allow_other(config.allow_other)
+            .allow_root(config.allow_root)
+            .privileged(config.privileged)
             .build()
     }
 }
@@ -148,7 +152,8 @@ fn create_driver() -> Box<dyn MountFs> {
 pub struct MountOptionsBuilder {
     read_only: Option<bool>,
     allow_other: Option<bool>,
-    unprivileged: Option<bool>,
+    allow_root: Option<bool>,
+    privileged: Option<bool>,
 }
 
 impl MountOptionsBuilder {
@@ -164,8 +169,12 @@ impl MountOptionsBuilder {
         self.allow_other = Some(allow_other);
         self
     }
-    pub fn unprivileged(mut self, unprivileged: bool) -> Self {
-        self.unprivileged = Some(unprivileged);
+    pub fn allow_root(mut self, allow_root: bool) -> Self {
+        self.allow_root = Some(allow_root);
+        self
+    }
+    pub fn privileged(mut self, privileged: bool) -> Self {
+        self.privileged = Some(privileged);
         self
     }
 
@@ -173,7 +182,8 @@ impl MountOptionsBuilder {
         MountOptions {
             read_only: self.read_only.unwrap_or_default(),
             allow_other: self.allow_other.unwrap_or_default(),
-            unprivileged: self.unprivileged.unwrap_or_default(),
+            allow_root: self.allow_root.unwrap_or_default(),
+            privileged: self.privileged.unwrap_or_default(),
         }
     }
 }

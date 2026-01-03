@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
-use crate::{config, logging};
+use super::{LogWriter, console};
+use crate::config;
+use crate::config::logging::{LogRotation, LoggingConfig};
 
 /// File logging configuration
 #[derive(Debug)]
@@ -10,7 +12,7 @@ pub struct FileLog {
     directory: PathBuf,
     file_name: PathBuf,
     file_ext: String,
-    rotation: Rotation,
+    rotation: LogRotation,
 }
 
 impl FileLog {
@@ -23,7 +25,7 @@ impl FileLog {
         FileLogBuilder::default()
     }
 
-    pub fn from_config(config: &config::Config) -> Self {
+    pub fn from_config(config: &LoggingConfig) -> Self {
         Self::builder()
             .directory(config.log_dir.clone())
             .file_name(config.log_file.clone())
@@ -33,11 +35,11 @@ impl FileLog {
     }
 }
 
-impl logging::LogWriter for FileLog {
+impl LogWriter for FileLog {
     fn create_writer(&self) -> Box<dyn std::io::Write + Send + Sync> {
         // Setup rolling file appender
         let file_appender = RollingFileAppender::builder()
-            .rotation(self.rotation.clone())
+            .rotation(Rotation::from(self.rotation.clone()))
             .filename_prefix(self.file_name.to_string_lossy().to_string())
             .filename_suffix(&self.file_ext)
             .build(&self.directory);
@@ -45,7 +47,7 @@ impl logging::LogWriter for FileLog {
         if let Ok(writer) = file_appender {
             Box::new(writer)
         } else {
-            logging::console::ConsoleLog::new()
+            console::ConsoleLog::new()
                 .with_ansi_enabled()
                 .create_writer()
         }
@@ -61,7 +63,7 @@ pub struct FileLogBuilder {
     directory: Option<PathBuf>,
     file_name: Option<PathBuf>,
     file_ext: Option<String>,
-    rotation: Option<Rotation>,
+    rotation: Option<LogRotation>,
 }
 
 impl FileLogBuilder {
@@ -77,12 +79,8 @@ impl FileLogBuilder {
         self.file_ext = file_ext;
         self
     }
-    pub fn rotation(mut self, rotation: Option<logging::LogRotation>) -> Self {
-        self.rotation = if let Some(rot) = rotation {
-            Some(Rotation::from(rot))
-        } else {
-            None
-        };
+    pub fn rotation(mut self, rotation: Option<LogRotation>) -> Self {
+        self.rotation = rotation;
         self
     }
 
@@ -97,9 +95,7 @@ impl FileLogBuilder {
             file_ext: self
                 .file_ext
                 .unwrap_or_else(|| config::DEFAULT_LOG_FILE_EXT.to_string()),
-            rotation: self.rotation.unwrap_or_else(|| {
-                Rotation::from(logging::LogRotation::from(config::DEFAULT_LOG_FILE_ROT))
-            }),
+            rotation: self.rotation.unwrap_or_default(),
         }
     }
 }

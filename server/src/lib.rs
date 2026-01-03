@@ -6,6 +6,8 @@ use actix_web::{App, HttpServer, web};
 use anyhow;
 use tracing_actix_web::TracingLogger;
 
+pub mod app;
+pub mod commands;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -17,40 +19,25 @@ pub mod routes;
 mod attributes;
 mod middleware;
 mod storage;
+mod util;
 
 use db::DB;
-use error::ServerError;
+use error::RfsServerError;
 use storage::FileSystem;
 
-type Result<T> = std::result::Result<T, ServerError>;
-
-/*
-fn create_file_system_with_structure() -> FileSystem {
-    let mut fs = FileSystem::new(".", false);
-
-    fs.make_dir("/", "home").unwrap();
-    fs.change_dir("/home").unwrap();
-    fs.make_dir(".", "user").unwrap();
-    fs.change_dir("./user").unwrap();
-    fs.make_file(".", "file.txt").unwrap();
-    fs.make_file(".", "file1.txt").unwrap();
-    fs.make_dir("..", "user1").unwrap();
-    fs.change_dir("../user1").unwrap();
-    fs.make_file(".", "file.txt").unwrap();
-    fs
-}
-*/
+type Result<T> = std::result::Result<T, RfsServerError>;
 
 pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
     host: H,
     port: u16,
     fs_root: F,
+    db: DB,
 ) -> Result<()> {
     let host = host.as_ref();
     let fs_root = fs_root.as_ref();
-    let pool = DB::open_connection()
-        .await
-        .map_err(|err| ServerError::Other(err.into()))?;
+    // let pool = DB::open_connection()
+    //     .await
+    //     .map_err(|err| RfsServerError::Other(err.into()))?;
 
     // Create root filesystem directory if it doesn't exist
     if !fs_root.exists() {
@@ -59,7 +46,7 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
             fs_root
         );
         fs::create_dir_all(&fs_root).map_err(|err| {
-            ServerError::Other(anyhow::format_err!(
+            RfsServerError::Other(anyhow::format_err!(
                 "Could not create root directory: {}",
                 err
             ))
@@ -69,7 +56,7 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
     tracing::info!("Starting server at {}:{}", host, port);
 
     let fs = web::Data::new(FileSystem::new(fs_root));
-    let db = web::Data::new(pool);
+    let db = web::Data::new(db);
 
     HttpServer::new(move || {
         App::new()
@@ -81,8 +68,8 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
             .configure(routes::configure)
     })
     .bind((host, port))
-    .map_err(|err| ServerError::Other(anyhow::format_err!("Could not bind server: {}", err)))?
+    .map_err(|err| RfsServerError::Other(anyhow::format_err!("Could not bind server: {}", err)))?
     .run()
     .await
-    .map_err(|err| ServerError::Other(anyhow::format_err!("Server runtime error: {}", err)))
+    .map_err(|err| RfsServerError::Other(anyhow::format_err!("Server runtime error: {}", err)))
 }

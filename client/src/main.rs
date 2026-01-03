@@ -1,13 +1,15 @@
-use client::{config, error};
+use clap::Parser;
+use client::app::{Executable, RfsClient};
+use client::error::RfsClientError;
 
-type Result<T> = std::result::Result<T, error::ClientError>;
+type Result<T> = std::result::Result<T, RfsClientError>;
 
 fn main() -> Result<()> {
-    // load configuration from args/env
-    let config = config::Config::from_args()?;
+    // Load .env variables
+    let _ = dotenvy::dotenv();
 
-    // Run the client with the provided configuration
-    client::start(&config)?;
+    let app = RfsClient::parse();
+    app.command.execute()?;
 
     Ok(())
 }

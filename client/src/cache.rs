@@ -1,7 +1,5 @@
-use crate::fs_model::Attributes;
-use crate::fs_model::directory::Directory;
-use crate::fs_model::file::{File, MAX_PAGES, PAGE_SIZE};
-use crate::fs_model::sym_link::SymLink;
+use crate::config::cache::{CacheConfig, CachePolicy};
+use crate::fs_model::{Attributes, Directory, File, SymLink};
 use crate::network::models::{ItemType, SerializableFSItem};
 
 use std::collections::HashMap;
@@ -140,15 +138,10 @@ impl Cache {
             return None;
         }
 
-        // REVIEW: move this to a fs_model configurator?
-        MAX_PAGES
-            .set(cfg.max_size / PAGE_SIZE)
-            .expect("MAX_PAGES already set");
-
         Some(Arc::new(Cache {
             entries: RwLock::new(HashMap::new()),
             capacity: cfg.capacity,
-            ttl: cfg.ttl,
+            ttl: Duration::from_secs(cfg.ttl),
             use_ttl: cfg.use_ttl,
             policy: cfg.policy,
             max_file_size: cfg.max_size,
@@ -260,7 +253,6 @@ impl Cache {
         map.remove(path.as_ref()).map(|e| e.item);
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {
         match self.policy {
             CachePolicy::Lru => map
@@ -291,20 +283,4 @@ impl Debug for Cache {
         }
         write!(f, "{}", result)
     }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum CachePolicy {
-    Lru,
-    Lfu,
-}
-
-#[derive(Debug, Clone)]
-pub struct CacheConfig {
-    pub enabled: bool,
-    pub use_ttl: bool,
-    pub ttl: Duration,
-    pub policy: CachePolicy,
-    pub max_size: usize,
-    pub capacity: usize,
 }
