@@ -18,7 +18,7 @@ use crate::error::ConfigError;
 
 pub const ENV_PREFIX: &str = "RFS";
 pub const ENV_SEPARATOR: &str = "__";
-pub const DEFAULT_CONFIG_FILE: &str = "default_config.toml";
+pub const DEFAULT_CONFIG_FILE: &str = "client_config.toml";
 pub const DEFAULT_MOUNTPOINT: &str = "/mnt/remote-fs";
 pub const DEFAULT_SERVER_URL: &str = "http://localhost:8080";
 pub const DEFAULT_PAGE_SIZE: usize = 4096;
@@ -39,12 +39,19 @@ type Result<T> = std::result::Result<T, ConfigError>;
 /// including settings loaded from the configuration file.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RfsConfig {
+    /// Path to the configuration file
     pub mountpoint: PathBuf,
+    /// Remote server base URL
     pub server_url: String,
+    /// Run in foreground without daemonizing
     pub foreground: bool,
+    /// Mount configuration
     pub mount: MountConfig,
+    /// Filesystem configuration
     pub file_system: FsConfig,
+    /// Cache configuration
     pub cache: CacheConfig,
+    /// Logging configuration
     pub logging: LoggingConfig,
 }
 
@@ -70,17 +77,17 @@ impl Default for RfsConfig {
 // #[command(author, version, about = "Remote Filesystem Client")]
 pub struct RfsCliArgs {
     /// Path to the configuration file
-    #[arg(short, long, default_value = DEFAULT_CONFIG_FILE, env = "RFS_CONFIG_FILE")]
+    #[arg(short, long, default_value = DEFAULT_CONFIG_FILE, env = "RFS__CONFIG_FILE")]
     #[serde(skip)]
     pub config_file: PathBuf,
 
     /// Mountpoint path (e.g /mnt/remote-fs)
-    #[arg(short, long, env = "RFS_MOUNTPOINT")]
+    #[arg(short, long, env = "RFS__MOUNTPOINT")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mountpoint: Option<PathBuf>,
 
     /// Remote server base URL (e.g. http://localhost:8080/)
-    #[arg(short, long, env = "RFS_SERVER_URL")]
+    #[arg(short, long, env = "RFS__SERVER_URL")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_url: Option<String>,
 

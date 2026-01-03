@@ -1,6 +1,7 @@
 use super::*;
 
 use anyhow;
+use async_trait::async_trait;
 use fuse3::MountOptions as MountOptionsFuse;
 use fuse3::path::prelude::*;
 use fuse3::raw::MountHandle;

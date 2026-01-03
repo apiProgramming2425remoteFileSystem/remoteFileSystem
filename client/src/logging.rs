@@ -12,6 +12,8 @@ use crate::error::LoggingError;
 mod console;
 mod file;
 
+type Result<T> = std::result::Result<T, LoggingError>;
+
 /// Main logging configuration owning all settings
 #[derive(Debug)]
 pub struct Logging {
@@ -20,8 +22,6 @@ pub struct Logging {
     _level: LogLevel,
     _layers: LogLayer,
 }
-
-type Result<T> = std::result::Result<T, LoggingError>;
 
 impl Logging {
     pub fn new(

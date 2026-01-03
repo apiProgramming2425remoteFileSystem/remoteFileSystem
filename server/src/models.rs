@@ -104,6 +104,13 @@ pub struct User {
     pub password: String,
 }
 
+#[derive(Debug, FromRow)]
+pub struct PartialUser {
+    pub user_id: i64,
+    pub group_id: i64,
+    pub username: String,
+}
+
 #[derive(Deserialize)]
 pub struct LoginBody {
     pub username: String,
