@@ -1,5 +1,7 @@
 pub mod cache;
 pub mod config;
+
+#[cfg(unix)]
 pub mod daemon;
 pub mod error;
 pub mod fs_model;
@@ -18,6 +20,7 @@ use rpassword::read_password;
 use tracing;
 
 use crate::config::Config;
+#[cfg(unix)]
 use crate::daemon::Daemon;
 use crate::error::ClientError;
 use crate::fuse::Fs;
@@ -26,18 +29,9 @@ use crate::network::RemoteClient;
 
 type Result<T> = std::result::Result<T, ClientError>;
 
-/// Runs the program with the given configuration (`config`).<br>
-/// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.
-///
-/// Starts the daemon in background, unless the option `--foreground` is set.
-///
-/// ## Arguments
-/// - `config`: Configuration for the daemon. For configuration options, see [`Config`][crate::config::Config].
-/// ### Returns
-/// - `Ok(())`: if the execution was successful.
-/// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
-///
-pub fn start(config: &Config) -> Result<()> {
+
+#[cfg(unix)]
+fn start_unix(config: &Config) -> Result<()> {
     println!("Starting RemoteFS...");
 
     // Create mountpoint directory if it doesn't exist
@@ -139,6 +133,41 @@ pub fn start(config: &Config) -> Result<()> {
     Ok(())
 }
 
+fn start_windows(config: &Config) -> Result<()> {
+    println!("Starting RemoteFS (Windows mock mode)");
+
+    // Qui inizializzi SOLO WinFSP mock
+    // crate::mount::mount_mock_windows()?;
+
+    println!("Mock filesystem mounted. Press Ctrl+C to exit.");
+
+    // Blocca il processo
+    std::thread::park();
+
+    Ok(())
+}
+
+/// Runs the program with the given configuration (`config`).<br>
+/// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.
+///
+/// Starts the daemon in background, unless the option `--foreground` is set.
+///
+/// ## Arguments
+/// - `config`: Configuration for the daemon. For configuration options, see [`Config`][crate::config::Config].
+/// ### Returns
+/// - `Ok(())`: if the execution was successful.
+/// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
+///
+pub fn start(config: &Config) -> Result<()> {
+    #[cfg(unix)]{
+        start_unix(config)
+    }
+    #[cfg(windows)]{
+        start_windows(config)
+    }
+}
+
+#[cfg(unix)]
 async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<()> {
     /*
     tracing::info!("Checking connection to server at {}...", config.server_url);

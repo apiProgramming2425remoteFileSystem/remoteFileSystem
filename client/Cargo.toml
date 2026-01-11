@@ -33,6 +33,9 @@ http = "1.4.0"
 reqwest-retry = "0.8.0"
 async-trait = "0.1"
 
+[target.'cfg(windows)'.dependencies]
+winfsp = "0.11"
+
 [target.'cfg(unix)'.dependencies]
 fuse3 = { version = "0.8", features = [
     "file-lock",
