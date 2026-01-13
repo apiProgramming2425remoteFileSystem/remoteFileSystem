@@ -3,16 +3,22 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+use std::fmt::Debug;
+
 use crate::cache::CacheConfig;
 use crate::fs_model::FileSystem;
-use crate::network::RemoteClient;
+use crate::network::RemoteStorage;
 
 pub struct Fs {
     fs: FileSystem,
 }
 
 impl Fs {
-    pub fn new(rc: RemoteClient, cache_config: CacheConfig, xattributes_enabled: bool) -> Self {
+    pub fn new<R: RemoteStorage + Debug + 'static>(
+        rc: R,
+        cache_config: CacheConfig,
+        xattributes_enabled: bool,
+    ) -> Self {
         Self {
             fs: FileSystem::new(rc, cache_config, xattributes_enabled),
         }

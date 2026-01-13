@@ -12,7 +12,7 @@ use tracing::{Level, instrument};
 
 use crate::cache::*;
 use crate::error::FsModelError;
-use crate::network::RemoteClient;
+use crate::network::RemoteStorage;
 use crate::network::models::{ItemType, SerializableFSItem, Xattributes};
 use crate::rw_buffer::{ReadBuffer, WriteBuffer};
 
@@ -33,7 +33,7 @@ const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct FileSystem {
-    remote_client: RemoteClient,
+    remote_client: Arc<dyn RemoteStorage>,
     xattributes_enabled: bool,
     file_handlers: RwLock<HashMap<u64, PathBuf>>,
     read_buffer: RwLock<ReadBuffer>,
@@ -112,9 +112,13 @@ impl FileSystem {
     // REVIEW: create a fs_model configurator?
 
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new(rc: RemoteClient, cache_config: CacheConfig, xattributes_enabled: bool) -> Self {
+    pub fn new<R: RemoteStorage + Debug + 'static>(
+        rc: R,
+        cache_config: CacheConfig,
+        xattributes_enabled: bool,
+    ) -> Self {
         Self {
-            remote_client: rc,
+            remote_client: Arc::new(rc),
             file_handlers: RwLock::new(HashMap::new()),
             xattributes_enabled,
             read_buffer: RwLock::new(ReadBuffer::new(BUFFER_CAPACITY)),

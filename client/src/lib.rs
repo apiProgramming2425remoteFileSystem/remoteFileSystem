@@ -10,21 +10,22 @@ pub mod network;
 
 pub mod rw_buffer;
 
+use std::fmt::Debug;
 use std::fs;
 use std::io::{self, Write};
 
-use anyhow;
 use rpassword::read_password;
-use tracing;
 
 use crate::config::Config;
 use crate::daemon::Daemon;
 use crate::error::ClientError;
 use crate::fuse::Fs;
 use crate::mount::{MountOptions, MountPoint};
-use crate::network::RemoteClient;
+use crate::network::RemoteStorage;
 
 type Result<T> = std::result::Result<T, ClientError>;
+
+const MAX_LOGIN_ATTEMPTS: u8 = 3;
 
 /// Runs the program with the given configuration (`config`).<br>
 /// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.
@@ -37,7 +38,7 @@ type Result<T> = std::result::Result<T, ClientError>;
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
-pub fn start(config: &Config) -> Result<()> {
+pub fn start<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> Result<()> {
     println!("Starting RemoteFS...");
 
     // Create mountpoint directory if it doesn't exist
@@ -47,13 +48,14 @@ pub fn start(config: &Config) -> Result<()> {
             config.mountpoint
         );
         fs::create_dir_all(&config.mountpoint).map_err(|err| {
-            ClientError::Other(
-                anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
-            )
+            ClientError::Other(anyhow::format_err!(
+                "Could not create mountpoint directory: {}",
+                err
+            ))
         })?;
     }
 
-    let rc = RemoteClient::new(&config.server_url);
+    // let rc = RemoteClient::new(&config.server_url);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -75,43 +77,7 @@ pub fn start(config: &Config) -> Result<()> {
 
         rc.health_check().await?;
 
-        println!("Welcome to Remote File System. First you need to authenticate!");
-
-        let token_option = loop {
-            println!("username:");
-            let username = {
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-                input.trim().to_string()
-            };
-            println!("Password: ");
-            io::stdout().flush().unwrap();
-            // Hide password
-            let password = read_password().unwrap();
-
-            match rc.login(username, password).await {
-                Ok(t) => break Some(t),
-                Err(e) => {
-                    eprintln!("Login failed: {}", e);
-                    println!("Invalid credentials. Do you want to try again? [y n]");
-                    let mut answer = String::new();
-                    io::stdin().read_line(&mut answer).unwrap();
-                    if !answer.trim().to_string().starts_with("y") {
-                        break None;
-                    }
-                }
-            };
-        };
-
-        if token_option.is_none() {
-            return Err(ClientError::Other(anyhow::anyhow!(
-                "Impossible to login: Invalid credentials!"
-            )));
-        }
-
-        // let token = token_option.unwrap();
-        println!("Login successful");
-        Ok(())
+        perform_login(&rc, config).await
     })?;
 
     drop(runtime);
@@ -122,7 +88,7 @@ pub fn start(config: &Config) -> Result<()> {
     daemon.initialize()?;
 
     // Initialize logging based on config
-    let _log = logging::Logging::from(&config)?;
+    let _log = logging::Logging::from(config)?;
 
     tracing::trace!("[TRACE]");
     tracing::debug!("[DEBUG]");
@@ -139,7 +105,56 @@ pub fn start(config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<()> {
+async fn perform_login<R: RemoteStorage + Debug + 'static>(
+    rc: &R,
+    config: &Config,
+) -> Result<String> {
+    println!("Welcome to Remote File System. First you need to authenticate!");
+
+    for i in 0..MAX_LOGIN_ATTEMPTS {
+        let username = if let Some(username) = &config.username {
+            println!("Using provided username: {}", username);
+            username.clone()
+        } else {
+            println!("Username:");
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            input.trim().to_string()
+        };
+
+        let password = match std::env::var("PASSWORD") {
+            Ok(pwd) => pwd,
+            Err(_) => {
+                println!("Password: ");
+                io::stdout().flush().unwrap();
+                // Hide password
+                read_password().unwrap()
+            }
+        };
+
+        match rc.login(username, password).await {
+            Ok(token) => {
+                println!("Login successful");
+                return Ok(token);
+            }
+            Err(e) => {
+                eprintln!("Login failed: {}", e);
+                println!("Invalid credentials");
+                println!("Attempt {}/{} to login.", i + 1, MAX_LOGIN_ATTEMPTS);
+            }
+        };
+    }
+
+    Err(ClientError::Other(anyhow::anyhow!(
+        "Impossible to login: Invalid credentials!"
+    )))
+}
+
+pub async fn run_async<R: RemoteStorage + Debug + 'static>(
+    config: Config,
+    rc: R,
+    daemon: Daemon,
+) -> Result<()> {
     /*
     tracing::info!("Checking connection to server at {}...", config.server_url);
 
@@ -180,7 +195,7 @@ async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<(
         // Ends when a shutdown signal is received
         _ = daemon.wait_for_shutdown() => {
             tracing::info!("Shutdown signal received via Daemon.");
-            // Procediamo all'unmount pulito
+            // Attempt graceful unmount
             if let Err(e) = mountpoint.unmount().await {
                 tracing::error!("Error during graceful unmount: {}", e);
             }
@@ -189,4 +204,12 @@ async fn run_async(config: Config, rc: RemoteClient, daemon: Daemon) -> Result<(
 
     tracing::info!("Cleanup complete. Exiting.");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_dummy() {
+        assert_eq!(1 + 1, 2);
+    }
 }

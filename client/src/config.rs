@@ -27,6 +27,10 @@ pub struct Config {
     #[arg(short, long, env = "SERVER_URL")]
     pub server_url: String,
 
+    /// Optional username for authentication
+    #[arg(short, long, env = "USERNAME")]
+    pub username: Option<String>,
+
     /// Enable local caching
     #[arg(short, long, default_value_t = true)]
     pub cache_enabled: bool,

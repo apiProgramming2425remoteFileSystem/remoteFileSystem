@@ -1,3 +1,4 @@
+use async_trait;
 use http::StatusCode;
 use reqwest::{Client, Response, Result as ReqwestResult};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -8,6 +9,7 @@ use tracing::{Level, instrument};
 use urlencoding;
 
 use super::APP_V1_BASE_URL;
+use super::RemoteStorage;
 use super::middleware::*;
 use super::models::*;
 use crate::error::{FuseError, NetworkError};
@@ -35,7 +37,11 @@ impl RemoteClient {
             .build();
 
         Self {
-            base_url: format!("{}{}", base_url.as_ref(), APP_V1_BASE_URL),
+            base_url: format!(
+                "{}/{}",
+                base_url.as_ref().trim_end_matches('/'),
+                APP_V1_BASE_URL.trim_start_matches('/')
+            ),
             http_client: middleware_client,
             token_store,
         }
@@ -82,166 +88,21 @@ impl RemoteClient {
         tracing::debug!("fetching {}", url);
         return url;
     }
+}
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_path<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-    ) -> Result<Vec<SerializableFSItem>> {
-        let url = self.set_url("list", path.as_ref());
-        let resp = self.http_client.get(url).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn read_file<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-        offset: usize,
-        size: usize,
-    ) -> Result<Vec<u8>> {
-        let url = self.set_url("files", path.as_ref());
-        let read_file = ReadFileRequest::new(offset, size);
-
-        let resp = self.http_client.get(url).json(&read_file).send().await?;
-
-        let bytes = handle_response(resp, |r| r.bytes()).await?;
-        Ok(bytes.to_vec())
-    }
-
-    #[instrument(skip(self, data), err(level = Level::ERROR))]
-    pub async fn write_file<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-        offset: usize,
-        data: &[u8],
-    ) -> Result<Attributes> {
-        use reqwest::header::CONTENT_TYPE;
-
-        let url = self.set_url("files", path.as_ref());
-
-        let resp = self
-            .http_client
-            .put(url)
-            .query(&[("offset", &offset.to_string())])
-            .header(CONTENT_TYPE, "application/octet-stream")
-            .body(data.to_vec())
-            .send()
-            .await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn mkdir<S: AsRef<str> + Debug>(&self, path: S) -> Result<Attributes> {
-        let url = self.set_url("mkdir", path.as_ref());
-        let resp = self.http_client.post(url).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
+#[async_trait::async_trait]
+impl RemoteStorage for RemoteClient {
     #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn rename<S: AsRef<str> + Debug>(&self, old_path: S, new_path: S) -> Result<()> {
-        let url = self.set_short_url("rename");
-        let rename_req = RenameRequest::new(
-            String::from(old_path.as_ref()),
-            String::from(new_path.as_ref()),
-        );
-
-        let resp = self.http_client.put(url).json(&rename_req).send().await?;
+    async fn health_check(&self) -> Result<()> {
+        let url = self.set_short_url("health");
+        let resp = self.http_client.get(&url).send().await?;
 
         handle_response(resp, |_| async { Ok(()) }).await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn remove<S: AsRef<str> + Debug>(&self, path: S) -> Result<()> {
-        let url = self.set_url("files", path.as_ref());
-        let resp = self.http_client.delete(url).send().await?;
-
-        handle_response(resp, |_| async { Ok(()) }).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn resolve_child<S: AsRef<str> + Debug>(&self, path: S) -> Result<Attributes> {
-        let url = self.set_url("attributes/directory", path.as_ref());
-        let resp = self.http_client.get(url).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_attributes<S: AsRef<str> + Debug>(&self, path: S) -> Result<Attributes> {
-        let url = self.set_url("attributes", path.as_ref());
-        let resp = self.http_client.get(url).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_attributes<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-        new_attributes: SetAttr,
-    ) -> Result<Attributes> {
-        let url = self.set_url("attributes", path.as_ref());
-
-        let resp = self
-            .http_client
-            .put(url)
-            .json(&SetAttrRequest::new(new_attributes))
-            .send()
-            .await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn get_permissions<S: AsRef<str> + Debug>(&self, path: S, mask: u32) -> Result<()> {
-        let url = self.set_url("permissions", path.as_ref());
-        let resp = self
-            .http_client
-            .get(url)
-            .query(&[("mask", &mask.to_string())])
-            .send()
-            .await?;
-
-        handle_response(resp, |_| async { Ok(()) }).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_stats<S: AsRef<str> + Debug>(&self, path: S) -> Result<Stats> {
-        let url = self.set_url("stats", path.as_ref());
-        let resp = self.http_client.get(url).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn create_symlink<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-        target: &str,
-    ) -> Result<Attributes> {
-        let url = self.set_url("symlink", path.as_ref());
-        let req = WriteSymlink::new(target);
-
-        let resp = self.http_client.post(url).json(&req).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn read_symlink<S: AsRef<str> + Debug>(&self, path: S) -> Result<String> {
-        let url = self.set_url("symlink", path.as_ref());
-        let resp = self.http_client.get(url).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }
-
-    /* AUTHENTICATION MANAGEMENT */
+    // AUTHENTICATION MANAGEMENT
     #[instrument(skip(self, password), err(level = Level::ERROR))]
-    pub async fn login(&self, username: String, password: String) -> Result<String> {
+    async fn login(&self, username: String, password: String) -> Result<String> {
         let url = self.set_short_url("auth/login");
 
         let resp = self
@@ -261,7 +122,7 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn logout(&self) -> Result<()> {
+    async fn logout(&self) -> Result<()> {
         let url = self.set_short_url("auth/logout");
 
         let resp = self.http_client.post(url).send().await?;
@@ -274,13 +135,33 @@ impl RemoteClient {
         .await
     }
 
+    // ATTRIBUTE
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn get_x_attributes<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-        name: &str,
-    ) -> Result<Option<Xattributes>> {
-        let url = self.set_long_url("xattributes", path.as_ref(), "names", Some(name));
+    async fn get_attributes(&self, path: &str) -> Result<Attributes> {
+        let url = self.set_url("attributes", path);
+        let resp = self.http_client.get(url).send().await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn set_attributes(&self, path: &str, new_attributes: SetAttr) -> Result<Attributes> {
+        let url = self.set_url("attributes", path);
+
+        let resp = self
+            .http_client
+            .put(url)
+            .json(&SetAttrRequest::new(new_attributes))
+            .send()
+            .await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    // XATTRIBUTES
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn get_x_attributes(&self, path: &str, name: &str) -> Result<Option<Xattributes>> {
+        let url = self.set_long_url("xattributes", path, "names", Some(name));
 
         let resp = self.http_client.get(url).send().await?;
 
@@ -295,13 +176,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn set_x_attributes<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-        name: &str,
-        xattributes: &[u8],
-    ) -> Result<()> {
-        let url = self.set_long_url("xattributes", path.as_ref(), "names", Some(name));
+    async fn set_x_attributes(&self, path: &str, name: &str, xattributes: &[u8]) -> Result<()> {
+        let url = self.set_long_url("xattributes", path, "names", Some(name));
 
         let resp = self
             .http_client
@@ -314,8 +190,8 @@ impl RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_x_attributes<S: AsRef<str> + Debug>(&self, path: S) -> Result<Vec<String>> {
-        let url = self.set_long_url("xattributes", path.as_ref(), "names", None);
+    async fn list_x_attributes(&self, path: &str) -> Result<Vec<String>> {
+        let url = self.set_long_url("xattributes", path, "names", None);
 
         let resp = self.http_client.get(url).send().await?;
 
@@ -323,25 +199,125 @@ impl RemoteClient {
         Ok(list_names.names)
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn remove_x_attributes<S: AsRef<str> + Debug>(
-        &self,
-        path: S,
-        name: &str,
-    ) -> Result<()> {
-        let url = self.set_long_url("xattributes", path.as_ref(), "names", Some(name));
+    #[instrument(skip(self), err(level = Level::ERROR))]
+    async fn remove_x_attributes(&self, path: &str, name: &str) -> Result<()> {
+        let url = self.set_long_url("xattributes", path, "names", Some(name));
 
         let resp = self.http_client.delete(url).send().await?;
 
         handle_response(resp, |_| async { Ok(()) }).await
     }
 
+    // PERMISSIONS AND STATS
     #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn health_check(&self) -> Result<()> {
-        let url = self.set_short_url("health");
-        let resp = self.http_client.get(&url).send().await?;
+    async fn get_permissions(&self, path: &str, mask: u32) -> Result<()> {
+        let url = self.set_url("permissions", path);
+        let resp = self
+            .http_client
+            .get(url)
+            .query(&[("mask", &mask.to_string())])
+            .send()
+            .await?;
 
         handle_response(resp, |_| async { Ok(()) }).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn get_stats(&self, path: &str) -> Result<Stats> {
+        let url = self.set_url("stats", path);
+        let resp = self.http_client.get(url).send().await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    // FILESYSTEM OPERATIONS
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn list_path(&self, path: &str) -> Result<Vec<SerializableFSItem>> {
+        let url = self.set_url("list", path);
+        let resp = self.http_client.get(url).send().await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn read_file(&self, path: &str, offset: usize, size: usize) -> Result<Vec<u8>> {
+        let url = self.set_url("files", path);
+        let read_file = ReadFileRequest::new(offset, size);
+
+        let resp = self.http_client.get(url).json(&read_file).send().await?;
+
+        let bytes = handle_response(resp, |r| r.bytes()).await?;
+        Ok(bytes.to_vec())
+    }
+
+    #[instrument(skip(self, data), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn write_file(&self, path: &str, offset: usize, data: &[u8]) -> Result<Attributes> {
+        use reqwest::header::CONTENT_TYPE;
+
+        let url = self.set_url("files", path);
+
+        let resp = self
+            .http_client
+            .put(url)
+            .query(&[("offset", &offset.to_string())])
+            .header(CONTENT_TYPE, "application/octet-stream")
+            .body(data.to_vec())
+            .send()
+            .await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn mkdir(&self, path: &str) -> Result<Attributes> {
+        let url = self.set_url("mkdir", path);
+        let resp = self.http_client.post(url).send().await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR))]
+    async fn rename(&self, old_path: &str, new_path: &str) -> Result<()> {
+        let url = self.set_short_url("rename");
+        let rename_req = RenameRequest::new(String::from(old_path), String::from(new_path));
+
+        let resp = self.http_client.put(url).json(&rename_req).send().await?;
+
+        handle_response(resp, |_| async { Ok(()) }).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR))]
+    async fn remove(&self, path: &str) -> Result<()> {
+        let url = self.set_url("files", path);
+        let resp = self.http_client.delete(url).send().await?;
+
+        handle_response(resp, |_| async { Ok(()) }).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn resolve_child(&self, path: &str) -> Result<Attributes> {
+        let url = self.set_url("attributes/directory", path);
+        let resp = self.http_client.get(url).send().await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn create_symlink(&self, path: &str, target: &str) -> Result<Attributes> {
+        let url = self.set_url("symlink", path);
+        let req = WriteSymlink::new(target);
+
+        let resp = self.http_client.post(url).json(&req).send().await?;
+
+        handle_response(resp, |r| r.json()).await
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    async fn read_symlink(&self, path: &str) -> Result<String> {
+        let url = self.set_url("symlink", path);
+        let resp = self.http_client.get(url).send().await?;
+
+        handle_response(resp, |r| r.json()).await
     }
 }
 

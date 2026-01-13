@@ -348,10 +348,12 @@ mod platform {
                 "flags contains FUSE_WRITE_CACHE: {}",
                 (value as u32) & fuse3::raw::flags::FUSE_WRITE_CACHE != 0
             );
+            let access_mode = value & libc::O_ACCMODE;
+
             Ok(Self {
-                readonly: value & libc::O_RDONLY != 0,
-                writeonly: value & libc::O_WRONLY != 0,
-                readwrite: value & libc::O_RDWR != 0,
+                readonly: access_mode == libc::O_RDONLY,
+                writeonly: access_mode == libc::O_WRONLY,
+                readwrite: access_mode == libc::O_RDWR,
                 create: value & libc::O_CREAT != 0,
                 excl: value & libc::O_EXCL != 0,
                 trunc: value & libc::O_TRUNC != 0,
