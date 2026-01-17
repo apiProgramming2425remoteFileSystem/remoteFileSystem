@@ -27,6 +27,7 @@ use crate::fuse::Fs;
 use crate::mount::{MountOptions, MountPoint};
 use crate::network::RemoteClient;
 
+
 type Result<T> = std::result::Result<T, ClientError>;
 
 
@@ -133,19 +134,20 @@ fn start_unix(config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn start_windows(config: &Config) -> Result<()> {
-    println!("Starting RemoteFS (Windows mock mode)");
+#[cfg(windows)]
+fn start_windows(_config: &Config) -> Result<()> {
+    use crate::fuse::mount_mock_fs;
 
-    // Qui inizializzi SOLO WinFSP mock
-    // crate::mount::mount_mock_windows()?;
+    println!("Starting RemoteFS (Windows WinFSP mode)");
 
-    println!("Mock filesystem mounted. Press Ctrl+C to exit.");
-
-    // Blocca il processo
-    std::thread::park();
+    mount_mock_fs().map_err(|e| {
+        ClientError::Other(anyhow::anyhow!("WinFSP mount failed: {}", e))
+    })?;
 
     Ok(())
 }
+
+
 
 /// Runs the program with the given configuration (`config`).<br>
 /// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.

@@ -3,6 +3,9 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(windows)]
+pub use windows::*;
+
 use crate::cache::CacheConfig;
 use crate::fs_model::FileSystem;
 use crate::network::RemoteClient;
