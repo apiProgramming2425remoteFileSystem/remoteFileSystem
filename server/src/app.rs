@@ -90,7 +90,7 @@ impl Commands {
         match &self {
             Commands::Run(cmd) => {
                 // Load configuration from args/env
-                let config = RfsConfig::load(&cmd)?;
+                let config = RfsConfig::load(cmd)?;
 
                 // Initialize logging based on config
                 let _log = Logging::from(&config.logging)?;
@@ -103,7 +103,7 @@ impl Commands {
 
                 crate::run_server(
                     &config.server_host,
-                    config.port,
+                    config.server_port,
                     &config.filesystem_root,
                     db,
                 )

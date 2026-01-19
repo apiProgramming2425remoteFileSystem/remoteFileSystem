@@ -5,7 +5,7 @@ use reqwest_middleware::{Error, Middleware, Next, Result};
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TokenStore(Arc<RwLock<Option<String>>>);
 
 pub struct TokenRefresher {
@@ -13,6 +13,7 @@ pub struct TokenRefresher {
     // This could be an Arc<dyn Fn() -> Future<Output=Result<String, Error>>> etc.
 }
 
+#[derive(Default)]
 pub struct AuthMiddleware {
     token_store: TokenStore,
     // optionally: a refresh callback to run on 401

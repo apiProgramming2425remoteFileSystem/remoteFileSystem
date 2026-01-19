@@ -26,7 +26,7 @@ pub struct RfsClient {
 #[derive(Debug, Clone, Subcommand)]
 pub enum Commands {
     /// Start the remote filesystem client
-    Run(RfsCliArgs),
+    Run(Box<RfsCliArgs>),
     /// Generate a default configuration file
     TomlGen(TomlConfigGenerator),
     /// Generate environment variable template
@@ -53,7 +53,7 @@ impl Executable for Commands {
         match &self {
             Commands::Run(cmd) => {
                 // Load configuration from args/env
-                let config = RfsConfig::load(&cmd)?;
+                let config = RfsConfig::load(cmd)?;
 
                 // Run the client with the provided configuration
                 crate::start(&config)?;

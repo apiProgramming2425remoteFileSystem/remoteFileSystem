@@ -19,7 +19,7 @@ use crate::error::ConfigError;
 pub const ENV_PREFIX: &str = "RFS";
 pub const ENV_SEPARATOR: &str = "__";
 pub const DEFAULT_CONFIG_FILE: &str = "client_config.toml";
-pub const DEFAULT_MOUNTPOINT: &str = "/mnt/remote-fs";
+pub const DEFAULT_MOUNT_POINT: &str = "/mnt/remote-fs";
 pub const DEFAULT_SERVER_URL: &str = "http://localhost:8080";
 pub const DEFAULT_PAGE_SIZE: usize = 4096;
 pub const DEFAULT_MAX_PAGES: usize = 256;
@@ -40,7 +40,7 @@ type Result<T> = std::result::Result<T, ConfigError>;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RfsConfig {
     /// Path to the configuration file
-    pub mountpoint: PathBuf,
+    pub mount_point: PathBuf,
     /// Remote server base URL
     pub server_url: String,
     /// Run in foreground without daemonizing
@@ -58,7 +58,7 @@ pub struct RfsConfig {
 impl Default for RfsConfig {
     fn default() -> Self {
         Self {
-            mountpoint: PathBuf::from(DEFAULT_MOUNTPOINT),
+            mount_point: PathBuf::from(DEFAULT_MOUNT_POINT),
             server_url: DEFAULT_SERVER_URL.to_string(),
             foreground: false,
             mount: MountConfig::default(),
@@ -81,10 +81,10 @@ pub struct RfsCliArgs {
     #[serde(skip)]
     pub config_file: PathBuf,
 
-    /// Mountpoint path (e.g /mnt/remote-fs)
-    #[arg(short, long, env = "RFS__MOUNTPOINT")]
+    /// Mount point path (e.g /mnt/remote-fs)
+    #[arg(short, long, env = "RFS__MOUNT_POINT")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mountpoint: Option<PathBuf>,
+    pub mount_point: Option<PathBuf>,
 
     /// Remote server base URL (e.g. http://localhost:8080/)
     #[arg(short, long, env = "RFS__SERVER_URL")]
@@ -144,6 +144,7 @@ impl RfsConfig {
     /// 2. Environment variables (with prefix [`ENV_PREFIX`] and separator [`ENV_SEPARATOR`])
     /// 3. Configuration file
     /// 4. Default values
+    ///
     /// Returns the loaded configuration or an error.
     pub fn load(args: &RfsCliArgs) -> Result<Self> {
         // Build the configuration by merging sources
@@ -179,9 +180,7 @@ impl RfsConfig {
 
         // Post-process: finalize and validate
         config.finalize();
-        config
-            .validate()
-            .map_err(|err| ConfigError::InvalidConfig(err))?;
+        config.validate().map_err(ConfigError::InvalidConfig)?;
 
         Ok(config)
     }

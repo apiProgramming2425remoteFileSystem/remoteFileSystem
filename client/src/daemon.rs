@@ -10,7 +10,7 @@ use tracing::{Level, instrument};
 type Result<T> = std::result::Result<T, DaemonError>;
 
 /// Daemon representation
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Daemon {
     shutdown_notify: Arc<Notify>,
     foreground: bool,

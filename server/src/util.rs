@@ -24,7 +24,7 @@ pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 
 /// Normalize an optional path
 pub fn normalize_optional_path<P: AsRef<Path>>(path: &Option<P>) -> Option<PathBuf> {
-    path.as_ref().map(|p| normalize_path(p))
+    path.as_ref().map(normalize_path)
 }
 
 /// Helper to deserialize a Vec<T> from:

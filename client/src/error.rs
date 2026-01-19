@@ -75,8 +75,8 @@ pub enum MountError {
     #[error("Unmount failed: {0}")]
     UnmountFailed(String),
 
-    #[error("Mountpoint not found: {0}")]
-    MountpointNotFound(String),
+    #[error("Mount point not found: {0}")]
+    MountPointNotFound(String),
 
     #[error("Unsupported platform: {0}")]
     UnsupportedPlatform(String),

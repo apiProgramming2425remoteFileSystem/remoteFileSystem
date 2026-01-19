@@ -40,9 +40,9 @@ impl CacheItem {
 
     pub fn get_attributes(&self) -> Option<Attributes> {
         match self {
-            CacheItem::File(file) => file.attributes.clone(),
-            CacheItem::SymLink(link) => link.attributes.clone(),
-            CacheItem::Directory(directory) => directory.attributes.clone(),
+            CacheItem::File(file) => file.attributes,
+            CacheItem::SymLink(link) => link.attributes,
+            CacheItem::Directory(directory) => directory.attributes,
         }
     }
 
@@ -207,10 +207,10 @@ impl Cache {
         }
 
         // insert new entry
-        if map.len() >= self.capacity {
-            if let Some(victim) = self.select_victim(&map) {
-                map.remove(&victim);
-            }
+        if map.len() >= self.capacity
+            && let Some(victim) = self.select_victim(&map)
+        {
+            map.remove(&victim);
         }
         map.insert(key.to_path_buf(), CacheEntry::new(item));
     }
@@ -224,10 +224,10 @@ impl Cache {
         };
         let key = path.as_ref().to_path_buf();
 
-        if map.len() >= self.capacity {
-            if let Some(victim) = self.select_victim(&map) {
-                map.remove(&victim);
-            }
+        if map.len() >= self.capacity
+            && let Some(victim) = self.select_victim(&map)
+        {
+            map.remove(&victim);
         }
 
         map.insert(key, CacheEntry::new(item));

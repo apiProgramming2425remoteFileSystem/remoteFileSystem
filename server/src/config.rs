@@ -32,7 +32,7 @@ pub struct RfsConfig {
     /// Server hostname or IP to bind to
     pub server_host: String,
     /// Server port to listen on
-    pub port: u16,
+    pub server_port: u16,
     /// Root directory for the remote filesystem
     pub filesystem_root: PathBuf,
     /// Logging configuration
@@ -43,7 +43,7 @@ impl Default for RfsConfig {
     fn default() -> Self {
         Self {
             server_host: DEFAULT_SERVER_HOST.to_string(),
-            port: DEFAULT_PORT,
+            server_port: DEFAULT_PORT,
             filesystem_root: PathBuf::from(DEFAULT_FILESYSTEM_ROOT),
             logging: LoggingConfig::default(),
         }
@@ -64,15 +64,18 @@ pub struct RfsCliArgs {
 
     /// Server hostname or IP to bind to
     #[arg(short, long, env = "RFS__SERVER_HOST")]
-    pub server_host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_host: Option<String>,
 
     /// Server port to listen on
     #[arg(short = 'p', long, env = "RFS__SERVER_PORT")]
-    pub server_port: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_port: Option<u16>,
 
     /// Root directory for the remote filesystem
     #[arg(short, long, env = "RFS__FILESYSTEM_ROOT")]
-    pub filesystem_root: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filesystem_root: Option<PathBuf>,
 
     /// Logging configuration
     #[command(flatten)]
@@ -107,6 +110,7 @@ impl RfsConfig {
     /// 2. Environment variables (with prefix [`ENV_PREFIX`] and separator [`ENV_SEPARATOR`])
     /// 3. Configuration file
     /// 4. Default values
+    ///
     /// Returns the loaded configuration or an error.
     pub fn load(args: &RfsCliArgs) -> Result<Self> {
         // Build the configuration by merging sources
@@ -142,9 +146,7 @@ impl RfsConfig {
 
         // Post-process: finalize and validate
         config.finalize();
-        config
-            .validate()
-            .map_err(|err| ConfigError::InvalidConfig(err))?;
+        config.validate().map_err(ConfigError::InvalidConfig)?;
 
         Ok(config)
     }

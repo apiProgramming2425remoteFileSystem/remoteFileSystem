@@ -15,9 +15,7 @@ mod util;
 use std::fs;
 use std::io::{self, Write};
 
-use anyhow;
 use rpassword::read_password;
-use tracing;
 
 use crate::config::RfsConfig;
 use crate::daemon::Daemon;
@@ -29,7 +27,7 @@ use crate::network::RemoteClient;
 type Result<T> = std::result::Result<T, RfsClientError>;
 
 /// Runs the program with the given configuration (`config`).<br>
-/// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.
+/// Mounts the FUSE filesystem at the given mount point and connects to the server URL.
 ///
 /// Starts the daemon in background, unless the option `--foreground` is set.
 ///
@@ -42,16 +40,17 @@ type Result<T> = std::result::Result<T, RfsClientError>;
 pub fn start(config: &RfsConfig) -> Result<()> {
     println!("Starting RemoteFS...");
 
-    // Create mountpoint directory if it doesn't exist
-    if !config.mountpoint.exists() {
+    // Create mount point directory if it doesn't exist
+    if !config.mount_point.exists() {
         println!(
-            "Mountpoint directory {:?} does not exist. Creating it.",
-            config.mountpoint
+            "Mount point directory {:?} does not exist. Creating it.",
+            config.mount_point
         );
-        fs::create_dir_all(&config.mountpoint).map_err(|err| {
-            RfsClientError::Other(
-                anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
-            )
+        fs::create_dir_all(&config.mount_point).map_err(|err| {
+            RfsClientError::Other(anyhow::format_err!(
+                "Could not create mount point directory: {}",
+                err
+            ))
         })?;
     }
 
@@ -156,10 +155,10 @@ async fn run_async(config: RfsConfig, rc: RemoteClient, daemon: Daemon) -> Resul
 
     let mount_options = MountOptions::from(&config.mount);
 
-    let mut mountpoint = MountPoint::new(&config.mountpoint, mount_options);
+    let mut mount_point = MountPoint::new(&config.mount_point, mount_options);
 
     // Mount fs
-    mountpoint.mount(fs).await.map_err(|err| {
+    mount_point.mount(fs).await.map_err(|err| {
         tracing::error!("MOUNT ERROR: {}", err); // Write to log
         eprintln!("MOUNT ERROR: {}", err); // Write to daemon.err
         err
@@ -167,7 +166,7 @@ async fn run_async(config: RfsConfig, rc: RemoteClient, daemon: Daemon) -> Resul
 
     tokio::select! {
         // Ends when the mount session ends
-        res = mountpoint.wait() => {
+        res = mount_point.wait() => {
             match res {
                 Ok(_) => tracing::info!("Mount session ended normally"),
                 Err(e) => {
@@ -180,7 +179,7 @@ async fn run_async(config: RfsConfig, rc: RemoteClient, daemon: Daemon) -> Resul
         _ = daemon.wait_for_shutdown() => {
             tracing::info!("Shutdown signal received via Daemon.");
             // Procediamo all'unmount pulito
-            if let Err(e) = mountpoint.unmount().await {
+            if let Err(e) = mount_point.unmount().await {
                 tracing::error!("Error during graceful unmount: {}", e);
             }
         }

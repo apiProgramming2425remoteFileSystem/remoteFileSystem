@@ -14,7 +14,7 @@ pub struct Fs {
 impl Fs {
     pub fn new(rc: RemoteClient, config: &RfsConfig) -> Self {
         Self {
-            fs: FileSystem::new(rc, &config),
+            fs: FileSystem::new(rc, config),
         }
     }
 }

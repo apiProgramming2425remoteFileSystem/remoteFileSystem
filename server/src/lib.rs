@@ -3,7 +3,6 @@ use std::path::Path;
 
 use actix_web::middleware::Logger;
 use actix_web::{App, HttpServer, web};
-use anyhow;
 use tracing_actix_web::TracingLogger;
 
 pub mod app;
@@ -45,7 +44,7 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
             "Filesystem root directory {:?} does not exist. Creating it.",
             fs_root
         );
-        fs::create_dir_all(&fs_root).map_err(|err| {
+        fs::create_dir_all(fs_root).map_err(|err| {
             RfsServerError::Other(anyhow::format_err!(
                 "Could not create root directory: {}",
                 err

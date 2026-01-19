@@ -58,20 +58,18 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
                 mtime: Timestamp::from(metadata.modified().unwrap()),
                 ctime: Timestamp::from(SystemTime::now()),
                 crtime: Timestamp::from(SystemTime::now()),
-                kind: kind,
+                kind,
                 perm: metadata.permissions().mode(),
-                nlink: nlink,
-                uid: uid,
-                gid: uid,
+                nlink,
+                uid,
+                gid,
                 rdev: 0, // device ID of a special file in Unix-like operating systems, indicating the device associated with a file
                 blksize: 0, // ? eventualmente modificare ?
                 flags: 0, // macOS only
             };
-            return Ok(attributes);
+            Ok(attributes)
         }
-        Err(e) => {
-            return Err(StorageError::NotFound(e.to_string()));
-        }
+        Err(e) => Err(StorageError::NotFound(e.to_string())),
     }
 }
 
@@ -432,7 +430,7 @@ impl FileSystem {
 
         // Allowed only if user is the owner or root
         if let Some(mode) = new_attributes.mode {
-            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
+            if self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {
                 let mut adjusted_mode = mode as u16;
 
                 if user_id == group_id {
@@ -455,7 +453,7 @@ impl FileSystem {
         }
 
         if let Some(client_gid) = new_attributes.gid {
-            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
+            if self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {
                 let new_uid = None;
 
                 // We accept client_gid >= 1001, so when converted to server_gid there is no confusion with root_id = 0
@@ -463,7 +461,7 @@ impl FileSystem {
                 if client_gid <= 1000 {
                     return Err(StorageError::PermissionDenied);
                 } else {
-                    server_gid = server_gid - 1000;
+                    server_gid -= 1000;
                 }
                 let new_gid = Some(Gid::from_raw(server_gid));
 
@@ -475,14 +473,14 @@ impl FileSystem {
 
         // Allowed only if user has write permissions
         if let Some(size) = new_attributes.size {
-            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)? {
+            if self.is_allowed(user_id, group_id, Path::new(path), Operation::Write)? {
                 file.set_len(size)?;
             } else {
                 return Err(StorageError::PermissionDenied);
             }
         }
         if let Some(mtime) = new_attributes.mtime {
-            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::Write)? {
+            if self.is_allowed(user_id, group_id, Path::new(path), Operation::Write)? {
                 times.set_accessed(mtime.into());
                 to_add = true;
             } else {

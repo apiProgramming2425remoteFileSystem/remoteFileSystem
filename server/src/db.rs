@@ -50,10 +50,9 @@ async fn verify_password(password: &str, hash: &str) -> bool {
     match PasswordHash::new(hash) {
         Ok(parsed) => {
             let algorithm = Argon2::default();
-            match algorithm.verify_password(password.as_bytes(), &parsed) {
-                Ok(_) => true,
-                Err(_) => false,
-            }
+            algorithm
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok()
         }
         Err(_) => false,
     }
@@ -74,8 +73,8 @@ async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
 
     // 3. create payload
     let claims = Claims {
-        user_id: user_id,
-        group_id: group_id,
+        user_id,
+        group_id,
         token_id: Uuid::new_v4().to_string(),
         exp: expiration_time as usize,
     };
@@ -380,7 +379,7 @@ impl DB {
         }
 
         let existing_user = self.get_user(username).await?;
-        if let Some(_) = existing_user {
+        if existing_user.is_some() {
             return Err(DatabaseError::QueryError(format!(
                 "Username '{}' is already taken!",
                 username

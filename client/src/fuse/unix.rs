@@ -236,8 +236,8 @@ impl PathFilesystem for Fs {
             let name = name.to_str().ok_or_else(|| {
                 FuseError::InvalidInput("Attributes name is not valid UTF-8".to_string())
             })?;
-            let result = self.fs.remove_x_attributes(path, name).await?;
-            Ok(result)
+            self.fs.remove_x_attributes(path, name).await?;
+            Ok(())
         } else {
             Err(FuseError::Unsupported("removexattr".to_string()).into())
         }
