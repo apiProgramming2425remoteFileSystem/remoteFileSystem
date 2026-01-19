@@ -227,9 +227,14 @@ async fn get_permissions(
     let query = query.into_inner();
 
     let mask = query.get_mask()?;
-    if mask != 0 {
-        let operation: Operation = mask.try_into()?;
-        user.check_permission(&fs, &path, operation)?;
+    if mask & 4 != 0 {
+        user.check_permission(&fs, &path, Operation::Read)?;
+    }
+    if mask & 2 != 0 {
+        user.check_permission(&fs, &path, Operation::Write)?;
+    }
+    if mask & 1 != 0 {
+        user.check_permission(&fs, &path, Operation::Execute)?;
     }
 
     Ok(HttpResponse::Ok().finish())

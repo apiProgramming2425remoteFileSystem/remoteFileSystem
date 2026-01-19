@@ -1181,6 +1181,7 @@ impl From<NetworkError> for Errno {
             NetworkError::Request(_) => libc::EIO.into(),
             NetworkError::ServerError(api_err) => Errno::from(api_err),
             NetworkError::UnexpectedResponse(_) => libc::EIO.into(),
+            NetworkError::InvalidCredentials => libc::EACCES.into(),
             NetworkError::Other(_) => libc::EIO.into(),
         }
     }
