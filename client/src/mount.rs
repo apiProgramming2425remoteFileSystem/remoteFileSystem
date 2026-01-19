@@ -1,7 +1,7 @@
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
-mod windows;
+pub mod windows;
 
 use std::path::{Path, PathBuf};
 
@@ -14,9 +14,9 @@ use tracing::{Level, instrument};
 
 type Result<T> = std::result::Result<T, MountError>;
 
-/// Mountpoint representation
+/// Mount point representation
 pub struct MountPoint {
-    mountpoint: PathBuf,
+    mount_point: PathBuf,
     options: MountOptions,
     session: Box<dyn MountFs>,
 }
@@ -33,9 +33,9 @@ pub struct MountOptions {
 /// Trait for mounting and unmounting the filesystem.
 #[async_trait]
 pub trait MountFs: Send + Sync {
-    /// Mounts the filesystem at the specified mountpoint.
+    /// Mounts the filesystem at the specified mount point.
     #[allow(unused_variables)]
-    async fn mount(&mut self, fs: Fs, mountpoint: &Path, options: &MountOptions) -> Result<()> {
+    async fn mount(&mut self, fs: Fs, mount_point: &Path, options: &MountOptions) -> Result<()> {
         Err(MountError::UnsupportedPlatform(
             "Mounting not supported on this platform".into(),
         ))
@@ -48,7 +48,7 @@ pub trait MountFs: Send + Sync {
         ))
     }
 
-    /// Unmounts the filesystem from the mountpoint.
+    /// Unmounts the filesystem from the mount point.
     async fn unmount(&mut self) -> Result<()> {
         Err(MountError::UnsupportedPlatform(
             "Unmounting not supported on this platform".into(),
@@ -57,36 +57,36 @@ pub trait MountFs: Send + Sync {
 }
 
 impl MountPoint {
-    pub fn new<P: AsRef<Path>>(mountpoint: P, options: MountOptions) -> Self {
+    pub fn new<P: AsRef<Path>>(mount_point: P, options: MountOptions) -> Self {
         let driver = create_driver();
 
         Self {
-            mountpoint: mountpoint.as_ref().to_path_buf(),
+            mount_point: mount_point.as_ref().to_path_buf(),
             options,
             session: driver,
         }
     }
 
-    pub fn mountpoint(&self) -> &Path {
-        &self.mountpoint
+    pub fn mount_point(&self) -> &Path {
+        &self.mount_point
     }
     pub fn options(&self) -> &MountOptions {
         &self.options
     }
-    pub fn session(&self) -> &Box<dyn MountFs> {
-        &self.session
+    pub fn session(&self) -> &dyn MountFs {
+        &*self.session
     }
 
     // Execute the mount operation. Requires a mutable reference to self to manage the session state.
     #[instrument(skip(self, fs), err(level = Level::ERROR))]
     pub async fn mount(&mut self, fs: Fs) -> Result<()> {
-        tracing::info!("Mounting FS at {:?}", self.mountpoint);
+        tracing::info!("Mounting FS at {:?}", self.mount_point);
 
         self.session
-            .mount(fs, &self.mountpoint, &self.options)
+            .mount(fs, &self.mount_point, &self.options)
             .await?;
 
-        tracing::info!("FS mounted at {:?}", self.mountpoint);
+        tracing::info!("FS mounted at {:?}", self.mount_point);
         Ok(())
     }
 
@@ -100,7 +100,7 @@ impl MountPoint {
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn unmount(&mut self) -> Result<()> {
-        tracing::info!("Unmounting FS from {:?}", self.mountpoint);
+        tracing::info!("Unmounting FS from {:?}", self.mount_point);
         self.session.unmount().await?;
 
         Ok(())

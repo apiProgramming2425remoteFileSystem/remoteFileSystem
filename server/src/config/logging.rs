@@ -1,4 +1,6 @@
-use std::{path::PathBuf, str::FromStr};
+use std::fmt::Display;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -108,19 +110,16 @@ pub struct LoggingCliArgs {
 }
 
 /// Logging output destinations configuration
-#[derive(ValueEnum, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    ValueEnum, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum LogTargets {
     None,
     Console,
     File,
+    #[default]
     All,
-}
-
-impl Default for LogTargets {
-    fn default() -> Self {
-        LogTargets::All
-    }
 }
 
 impl FromStr for LogTargets {
@@ -150,66 +149,53 @@ impl std::fmt::Display for LogTargets {
 }
 
 /// Log message format options
-#[derive(ValueEnum, Clone, Debug, Serialize, Deserialize)]
+#[derive(ValueEnum, Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogFormat {
+    #[default]
     Full,
     Compact,
     Pretty,
     Json,
 }
 
-impl Default for LogFormat {
-    fn default() -> Self {
-        LogFormat::Full
-    }
-}
-
 /// Log verbosity levels
-#[derive(ValueEnum, Clone, Debug, Serialize, Deserialize)]
+#[derive(ValueEnum, Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Trace = 0,
     Debug = 1,
+    #[default]
     Info = 2,
     Warn = 3,
     Error = 4,
 }
 
-impl Default for LogLevel {
-    fn default() -> Self {
-        LogLevel::Info
-    }
-}
-
-impl ToString for LogLevel {
-    fn to_string(&self) -> String {
+impl Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let current_crate = env!("CARGO_PKG_NAME");
 
-        match self {
-            LogLevel::Trace => format!("{current_crate}=trace"),
-            LogLevel::Debug => format!("{current_crate}=debug"),
-            LogLevel::Info => format!("{current_crate}=info"),
-            LogLevel::Warn => format!("{current_crate}=warn"),
-            LogLevel::Error => format!("{current_crate}=error"),
-        }
+        let s = match self {
+            LogLevel::Trace => "trace",
+            LogLevel::Debug => "debug",
+            LogLevel::Info => "info",
+            LogLevel::Warn => "warn",
+            LogLevel::Error => "error",
+        };
+
+        write!(f, "{current_crate}={s},actix_web=info")
     }
 }
 
 /// Log rotation for file
-#[derive(ValueEnum, Clone, Debug, Serialize, Deserialize)]
+#[derive(ValueEnum, Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogRotation {
     Minutely,
     Hourly,
     Daily,
+    #[default]
     Never,
-}
-
-impl Default for LogRotation {
-    fn default() -> Self {
-        LogRotation::Never
-    }
 }
 
 impl From<&str> for LogRotation {

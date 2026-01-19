@@ -346,7 +346,7 @@ impl Conversion<i32> for Permission {
         let user = self.user.from_target();
         let group = self.group.from_target();
         let other = self.other.from_target();
-        ((user << 6) | (group << 3) | other) as i32
+        (user << 6) | (group << 3) | other
     }
 
     fn try_to_target(value: i32) -> Result<Self, Self::Error> {

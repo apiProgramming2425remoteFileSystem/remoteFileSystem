@@ -90,7 +90,7 @@ impl Commands {
         match &self {
             Commands::Run(cmd) => {
                 // Load configuration from args/env
-                let config = RfsConfig::load(&cmd)?;
+                let config = RfsConfig::load(cmd)?;
 
                 // Initialize logging based on config
                 let _log = Logging::from(&config.logging)?;
@@ -101,13 +101,28 @@ impl Commands {
                 tracing::warn!("[WARN]");
                 tracing::error!("[ERROR]");
 
-                crate::run_server(
-                    &config.server_host,
-                    config.port,
-                    &config.filesystem_root,
-                    db,
-                )
-                .await?;
+                let listener =
+                    std::net::TcpListener::bind((config.server_host.as_str(), config.server_port))
+                        .map_err(|err| {
+                            RfsServerError::Other(anyhow::format_err!(
+                                "Failed to bind to address: {}",
+                                err
+                            ))
+                        })?;
+
+                let server = crate::run_server(listener, &config.filesystem_root, db).await?;
+
+                server.await.map_err(|err| {
+                    RfsServerError::Other(anyhow::format_err!("Server runtime error: {}", err))
+                })?;
+
+                // crate::run_server(
+                //     &config.server_host,
+                //     config.server_port,
+                //     &config.filesystem_root,
+                //     db,
+                // )
+                // .await?;
             }
             Commands::UserCreate(cmd) => cmd.execute_with_db(db).await?,
             Commands::UserChangeUsername(cmd) => cmd.execute_with_db(db).await?,

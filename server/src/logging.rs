@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use clap::ValueEnum;
 use tracing::{Id, Subscriber, span};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::prelude::*;
@@ -100,7 +99,7 @@ pub trait LogWriter: std::fmt::Debug + Send + Sync {
     fn ansi_enabled(&self) -> bool;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct LogLayer {
     builders: Vec<Box<dyn LogWriter>>,
     guards: Vec<WorkerGuard>, // holds guards alive

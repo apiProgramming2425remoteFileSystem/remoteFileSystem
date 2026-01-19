@@ -50,10 +50,9 @@ async fn verify_password(password: &str, hash: &str) -> bool {
     match PasswordHash::new(hash) {
         Ok(parsed) => {
             let algorithm = Argon2::default();
-            match algorithm.verify_password(password.as_bytes(), &parsed) {
-                Ok(_) => true,
-                Err(_) => false,
-            }
+            algorithm
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok()
         }
         Err(_) => false,
     }
@@ -74,8 +73,8 @@ async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
 
     // 3. create payload
     let claims = Claims {
-        user_id: user_id,
-        group_id: group_id,
+        user_id,
+        group_id,
         token_id: Uuid::new_v4().to_string(),
         exp: expiration_time as usize,
     };
@@ -150,6 +149,7 @@ impl DB {
         db.create_user(1, 1, "mirko", "password").await?;
         db.create_user(2, 2, "fabrizio", "password").await?;
         db.create_user(3, 3, "iulian", "password").await?;
+        db.create_user(4, 4, "test_user", "test_password").await?;
         Ok(db)
         */
 
@@ -384,7 +384,22 @@ impl DB {
         }
 
         let existing_user = self.get_user(username).await?;
-        if let Some(_) = existing_user {
+        if existing_user.is_some() {
+            return Err(DatabaseError::QueryError(format!(
+                "Username '{}' is already taken!",
+                username
+            )));
+        }
+
+        sqlx::query("UPDATE users SET username = ? WHERE user_id = ? ")
+            .bind(username)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
+        let existing_user = self.get_user(username).await?;
+        if existing_user.is_some() {
             return Err(DatabaseError::QueryError(format!(
                 "Username '{}' is already taken!",
                 username

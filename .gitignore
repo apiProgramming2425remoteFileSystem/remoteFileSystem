@@ -4,3 +4,4 @@ logs/
 .idea/
 *.lock
 *.db-*
+database/

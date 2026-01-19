@@ -53,6 +53,12 @@ impl FilePage {
     }
 }
 
+impl Default for FilePage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone)]
 pub struct File {
     pub name: OsString,
@@ -87,7 +93,7 @@ impl File {
             let page_index = (curr_offset / page_size) as u64;
             let page_offset = curr_offset % page_size;
 
-            let page = self.content.entry(page_index).or_insert_with(FilePage::new);
+            let page = self.content.entry(page_index).or_default();
 
             let writable = page_size - page_offset;
             let to_write = remaining.len().min(writable);

@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use crate::commands::*;
 use crate::config::*;
 use crate::error::RfsClientError;
+use crate::network::*;
 
 pub fn run() -> Result<(), RfsClientError> {
     // Load .env variables
@@ -26,7 +27,7 @@ pub struct RfsClient {
 #[derive(Debug, Clone, Subcommand)]
 pub enum Commands {
     /// Start the remote filesystem client
-    Run(RfsCliArgs),
+    Run(Box<RfsCliArgs>),
     /// Generate a default configuration file
     TomlGen(TomlConfigGenerator),
     /// Generate environment variable template
@@ -53,10 +54,12 @@ impl Executable for Commands {
         match &self {
             Commands::Run(cmd) => {
                 // Load configuration from args/env
-                let config = RfsConfig::load(&cmd)?;
+                let config = RfsConfig::load(cmd)?;
+
+                let rc = RemoteClient::new(&config.server_url);
 
                 // Run the client with the provided configuration
-                crate::start(&config)?;
+                crate::start(&config, rc)?;
             }
             Commands::TomlGen(cmd) => cmd.execute()?,
             Commands::EnvGen(cmd) => cmd.execute()?,

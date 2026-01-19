@@ -1,9 +1,10 @@
 use std::fs;
+use std::net::TcpListener;
 use std::path::Path;
 
+use actix_web::dev::Server;
 use actix_web::middleware::Logger;
 use actix_web::{App, HttpServer, web};
-use anyhow;
 use tracing_actix_web::TracingLogger;
 
 pub mod app;
@@ -27,17 +28,12 @@ use storage::FileSystem;
 
 type Result<T> = std::result::Result<T, RfsServerError>;
 
-pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
-    host: H,
-    port: u16,
+pub async fn run_server<F: AsRef<Path>>(
+    listener: TcpListener,
     fs_root: F,
     db: DB,
-) -> Result<()> {
-    let host = host.as_ref();
+) -> Result<Server> {
     let fs_root = fs_root.as_ref();
-    // let pool = DB::open_connection()
-    //     .await
-    //     .map_err(|err| RfsServerError::Other(err.into()))?;
 
     // Create root filesystem directory if it doesn't exist
     if !fs_root.exists() {
@@ -45,7 +41,7 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
             "Filesystem root directory {:?} does not exist. Creating it.",
             fs_root
         );
-        fs::create_dir_all(&fs_root).map_err(|err| {
+        fs::create_dir_all(fs_root).map_err(|err| {
             RfsServerError::Other(anyhow::format_err!(
                 "Could not create root directory: {}",
                 err
@@ -53,12 +49,20 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
         })?;
     }
 
-    tracing::info!("Starting server at {}:{}", host, port);
+    let local_address = listener.local_addr().map_err(|err| {
+        RfsServerError::Other(anyhow::format_err!("Could not get local address: {}", err))
+    })?;
+
+    tracing::info!(
+        "Starting RemoteFS server at {}:{}",
+        local_address.ip(),
+        local_address.port()
+    );
 
     let fs = web::Data::new(FileSystem::new(fs_root));
     let db = web::Data::new(db);
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         App::new()
             .app_data(fs.clone())
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
@@ -67,9 +71,22 @@ pub async fn run_server<H: AsRef<str>, F: AsRef<Path>>(
             .wrap(Logger::default()) // actix built-in logger
             .configure(routes::configure)
     })
-    .bind((host, port))
-    .map_err(|err| RfsServerError::Other(anyhow::format_err!("Could not bind server: {}", err)))?
-    .run()
-    .await
-    .map_err(|err| RfsServerError::Other(anyhow::format_err!("Server runtime error: {}", err)))
+    .listen(listener)
+    .map_err(|err| {
+        RfsServerError::Other(anyhow::format_err!(
+            "Could not listen on provided listener: {}",
+            err
+        ))
+    })?
+    .run();
+
+    Ok(server)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_dummy() {
+        assert_eq!(1 + 1, 2);
+    }
 }

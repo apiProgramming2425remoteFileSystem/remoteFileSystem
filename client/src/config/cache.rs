@@ -66,9 +66,10 @@ pub struct CacheCliArgs {
 }
 
 // REVIEW: add ttl here ans set it as default. Remove no_ttl from CLI args?
-#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CachePolicy {
+    #[default]
     Lru,
     Lfu,
 }
@@ -79,11 +80,5 @@ impl ToString for CachePolicy{
             CachePolicy::Lru => String::from("LRU"),
             CachePolicy::Lfu => String::from("LFU"),
         }
-    }
-}
-
-impl Default for CachePolicy {
-    fn default() -> Self {
-        CachePolicy::Lru
     }
 }

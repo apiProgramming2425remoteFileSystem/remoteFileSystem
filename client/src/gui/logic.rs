@@ -3,13 +3,14 @@ slint::slint! {
     export { App, ViewState }
 }
 
-use std::{path::PathBuf, sync::{Arc, Mutex}};
+use std::{path::PathBuf, sync::{Arc, Mutex}, fmt::Debug};
 
 use slint::{SharedString, Weak};
 use tokio::runtime::Runtime;
-use crate::{config::RfsConfig, daemon::Daemon, error::GUIError, logging, network::RemoteClient, run_async};
+use crate::{config::RfsConfig, daemon::Daemon, error::GUIError, logging, network::RemoteStorage, run_async};
 
-async fn health_check(rc: RemoteClient, ui_weak: Arc<Weak<App>>, rt: Arc<Runtime>) -> bool {
+
+async fn health_check<R: RemoteStorage + Debug + Clone + 'static>(rc: R, ui_weak: Arc<Weak<App>>, rt: Arc<Runtime>) -> bool {
 
     let rc_thread = rc.clone();
     let ui_thread = ui_weak.clone();
@@ -69,7 +70,7 @@ fn load_config(ui: &App, config: Arc<Mutex<RfsConfig>>) {
     };
     
     /* CONFIG MANAGEMENT */
-    ui.set_mount_settings(MountSettings { allow_other: cfg.mount.allow_other, allow_root: cfg.mount.allow_root, mount_point: SharedString::from(cfg.mountpoint.to_string_lossy().into_owned()), privileged: cfg.mount.privileged, read_only: cfg.mount.read_only });
+    ui.set_mount_settings(MountSettings { allow_other: cfg.mount.allow_other, allow_root: cfg.mount.allow_root, mount_point: SharedString::from(cfg.mount_point.to_string_lossy().into_owned()), privileged: cfg.mount.privileged, read_only: cfg.mount.read_only });
 
     /* CACHE MANAGEMENT */
     ui.set_cache_settings(CacheSettings { capacity: cfg.cache.capacity as i32, enabled: cfg.cache.enabled, max_size: cfg.cache.max_size as i32, policy: SharedString::from(cfg.cache.policy.to_string()), ttl: cfg.cache.ttl as i32, use_ttl: cfg.cache.use_ttl });
@@ -79,7 +80,7 @@ fn load_config(ui: &App, config: Arc<Mutex<RfsConfig>>) {
     ui.set_log_settings(LogSettings { dir: SharedString::from(log_dir), file: SharedString::from(log_file), format: SharedString::from(cfg.logging.log_format.to_string()), level: SharedString::from(cfg.logging.log_level.to_string_gui()), rotation: SharedString::from(log_rotation) });
 }
 
-pub fn start_gui(rc: RemoteClient, config: RfsConfig) -> Result<(), GUIError> {
+pub fn start_gui<R: RemoteStorage + Debug + Clone + 'static>(rc: R, config: RfsConfig) -> Result<(), GUIError> {
     let ui = App::new().map_err(|e| GUIError::RenderingIssue(e.to_string()))?;
     let rt = tokio::runtime::Builder::new_multi_thread()
                         .enable_all()
@@ -280,8 +281,8 @@ pub fn start_gui(rc: RemoteClient, config: RfsConfig) -> Result<(), GUIError> {
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_thread.upgrade() {
                     let mut cfg = config.lock().unwrap();
-                    cfg.mountpoint = PathBuf::from(path_str);
-                    ui.set_mount_settings(MountSettings { allow_other: cfg.mount.allow_other, allow_root: cfg.mount.allow_root, mount_point: SharedString::from(cfg.mountpoint.to_string_lossy().into_owned()), privileged: cfg.mount.privileged, read_only: cfg.mount.read_only });
+                    cfg.mount_point = PathBuf::from(path_str);
+                    ui.set_mount_settings(MountSettings { allow_other: cfg.mount.allow_other, allow_root: cfg.mount.allow_root, mount_point: SharedString::from(cfg.mount_point.to_string_lossy().into_owned()), privileged: cfg.mount.privileged, read_only: cfg.mount.read_only });
                 }
             });
         };

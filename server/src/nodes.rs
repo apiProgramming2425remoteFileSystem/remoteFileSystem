@@ -50,7 +50,7 @@ impl Directory {
     }
 
     pub fn get_children(&self) -> Vec<FSItem> {
-        self.children.iter().map(|(_, n)| n.clone()).collect()
+        self.children.values().map(|n| n.clone()).collect()
     }
 
     pub fn add(&mut self, item: FSItem) {
@@ -89,9 +89,9 @@ impl FSItem {
 
     pub fn attributes(&self) -> FileAttr {
         match self {
-            FSItem::File(f) => f.attributes.clone(),
-            FSItem::SymLink(l) => l.attributes.clone(),
-            FSItem::Directory(d) => d.attributes.clone(),
+            FSItem::File(f) => f.attributes,
+            FSItem::SymLink(l) => l.attributes,
+            FSItem::Directory(d) => d.attributes,
         }
     }
 

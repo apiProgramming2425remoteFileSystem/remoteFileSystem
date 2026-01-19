@@ -85,10 +85,8 @@ async fn list_path(
     let Some(children_nodes) = item.get_children() else {
         return Err(api_err!(NotADirectory, "Path isn't a directory"));
     };
-    let children: Vec<SerializableFSItem> = children_nodes
-        .iter()
-        .map(|child| SerializableFSItem::new(child))
-        .collect();
+    let children: Vec<SerializableFSItem> =
+        children_nodes.iter().map(SerializableFSItem::new).collect();
 
     Ok(HttpResponse::Ok().json(children))
 }
@@ -230,9 +228,14 @@ async fn get_permissions(
     let query = query.into_inner();
 
     let mask = query.get_mask()?;
-    if mask != 0 {
-        let operation: Operation = mask.try_into()?;
-        user.check_permission(&fs, &path, operation)?;
+    if mask & 4 != 0 {
+        user.check_permission(&fs, &path, Operation::Read)?;
+    }
+    if mask & 2 != 0 {
+        user.check_permission(&fs, &path, Operation::Write)?;
+    }
+    if mask & 1 != 0 {
+        user.check_permission(&fs, &path, Operation::Execute)?;
     }
 
     Ok(HttpResponse::Ok().finish())
@@ -337,7 +340,7 @@ async fn set_x_attributes(
     let (name, path) = path_params.into_inner();
     user.check_permission(&fs, &path, Operation::Write)?;
 
-    pool.set_x_attributes(&path, &name, &json.get()).await?;
+    pool.set_x_attributes(&path, &name, json.get()).await?;
 
     Ok(HttpResponse::Ok().finish())
 }

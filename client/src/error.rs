@@ -75,8 +75,8 @@ pub enum MountError {
     #[error("Unmount failed: {0}")]
     UnmountFailed(String),
 
-    #[error("Mountpoint not found: {0}")]
-    MountpointNotFound(String),
+    #[error("Mount point not found: {0}")]
+    MountPointNotFound(String),
 
     #[error("Unsupported platform: {0}")]
     UnsupportedPlatform(String),
@@ -188,6 +188,9 @@ pub enum NetworkError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
 
+    #[error("Invalid credentials")]
+    InvalidCredentials,
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
@@ -199,6 +202,7 @@ pub enum NetworkError {
 
     #[error("Unexpected Server Response: {0}")]
     UnexpectedResponse(String), // When the server does not send valid JSON
+
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -250,6 +254,11 @@ pub enum RfsClientError {
 
     #[error("Network error: {0}")]
     Network(#[from] NetworkError),
+
+    #[cfg(windows)]
+    #[error(transparent)]
+    WinFSPError(#[from] winfsp::FspError),
+
 
     #[error("GUI error: {0}")]
     GUI(#[from] GUIError),

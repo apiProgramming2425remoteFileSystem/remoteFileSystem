@@ -1,0 +1,69 @@
+[alias]
+
+# --- TEST COMMANDS (Requires cargo-nextest) ---
+
+# =========================================================
+#  ALL TESTS
+# =========================================================
+# Executes all tests in the workspace using the default profile
+# Usage: cargo test-all [-p package]
+test-all = "nextest run --features int-tests --no-fail-fast"
+
+# =========================================================
+#  UNIT TESTS (Fast logic tests)
+# =========================================================
+# Execute only library (lib) and binary (bin) tests
+# Usage: cargo test-unit [-p package]
+test-unit = "nextest run --features int-tests --profile unit"
+
+# =========================================================
+#  INTEGRATION TESTS (Component tests)
+# =========================================================
+# Execute integration tests in tests/ folder, excluding the heavy E2E suite
+# Usage: cargo test-int [-p package]
+test-int = "nextest run --features int-tests --profile integration"
+
+# =========================================================
+#  E2E TESTS (System tests)
+# =========================================================
+# Uses the [profile.e2e] defined in nextest.toml
+# Includes automatic retries and tuned timeouts
+test-e2e = "nextest run --profile e2e"
+
+# =========================================================
+#  DEBUGGING COMMANDS
+# =========================================================
+# These use [profile.debug]: 1 thread, immediate output, long timeouts.
+# Added --no-capture to see println! logs in real-time.
+test-unit-d = "nextest run --features int-tests --profile unit-debug --no-capture"
+test-int-d = "nextest run --features int-tests --profile integration-debug --no-capture"
+test-e2e-d = "nextest run --features int-tests --profile e2e-debug --no-capture"
+
+
+# =========================================================
+#  LIST TEST COMMANDS
+# =========================================================
+# These commands list the tests without executing them.
+# Useful for verifying which tests will be run.
+test-list-all = "nextest list --features int-tests"
+test-list-unit = "nextest list --features int-tests --profile unit"
+test-list-int = "nextest list --features int-tests --profile integration"
+test-list-e2e = "nextest list --features int-tests --profile e2e"
+
+
+# --- COVERAGE COMMANDS (Requires cargo-llvm-cov) ---
+
+# =========================================================
+#  COVERAGE (Standard)
+# =========================================================
+# Note: Coverage usually runs slower, so we stick to default or ci profile
+test-all-cov = "llvm-cov nextest --features int-tests --no-fail-fast"
+test-unit-cov = "llvm-cov nextest --features int-tests --profile unit --no-fail-fast"
+test-int-cov = "llvm-cov nextest --features int-tests --profile integration --no-fail-fast"
+test-e2e-cov = "llvm-cov nextest --features int-tests --profile e2e --no-fail-fast"
+
+# =========================================================
+#  COVERAGE REPORT (HTML)
+# =========================================================
+# Generates and opens the HTML report
+test-all-cov-html = "llvm-cov nextest --features int-tests --no-fail-fast --html --open"
