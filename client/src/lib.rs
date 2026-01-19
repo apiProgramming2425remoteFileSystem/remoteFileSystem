@@ -135,10 +135,9 @@ fn start_windows<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) 
     })?;
 
     drop(runtime);
+    
 
-    let cache_config = config.cache_config();
-
-    mount_windows(rc, cache_config)?;
+    mount_windows(rc, config)?;
 
     Ok(())
 }
