@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::error::FsModelError;
 
 /// File attributes
-#[derive(Debug, Copy, Clone, Deserialize /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq /*, Ord, PartialOrd, Hash */)]
 pub struct Attributes {
     /// Size in bytes
     pub size: u64,
@@ -37,7 +37,7 @@ pub struct Attributes {
 }
 
 /// File types
-#[derive(Debug, Copy, Clone, Deserialize /*, Ord, PartialOrd, Eq, PartialEq, Hash */)]
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq /*, Ord, PartialOrd, Hash */)]
 pub enum FileType {
     /// Named pipe [`libc::S_IFIFO`]
     NamedPipe,
@@ -124,6 +124,32 @@ pub struct Flags {
     pub path: bool,
 }
 
+impl Default for Flags{
+    fn default() -> Self {
+        Flags{
+            readonly : false,
+            writeonly: false,
+            readwrite: true,
+            create: true,
+            excl: false,
+            trunc: false,
+            append: true,
+            nonblock: false,
+            noctt: false,
+            sync: false,
+            dsync: false,
+            directory: false,
+            nofollow: false,
+            cloexec: false,
+            tmpfile: false,
+            async_io: false,
+            direct: false,
+            noatime: false,
+            path: false,
+        }
+    }
+}
+
 /// A file's timestamp, according to FUSE.
 #[derive(Debug, Clone, Serialize, Deserialize, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Timestamp {
@@ -137,6 +163,10 @@ impl Timestamp {
     /// `nsec` should be less than 1_000_000_000.
     pub fn new(sec: i64, nsec: u32) -> Self {
         Timestamp { sec, nsec }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.sec == 0 && self.nsec == 0
     }
 }
 

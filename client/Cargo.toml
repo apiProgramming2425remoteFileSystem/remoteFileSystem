@@ -33,6 +33,7 @@ http = "1.4.0"
 reqwest-retry = "0.8.0"
 async-trait = "0.1"
 windows-sys = "0.61.2"
+windows = "0.52.0"
 
 [target.'cfg(windows)'.dependencies]
 winfsp = "0.11"

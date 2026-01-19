@@ -27,9 +27,9 @@ pub struct Config {
     #[arg(short, long, env = "SERVER_URL")]
     pub server_url: String,
 
-    /// Enable local caching
-    #[arg(short, long, default_value_t = true)]
-    pub cache_enabled: bool,
+    /// Disable local caching
+    #[arg(short, long, default_value_t = false)]
+    pub cache_disabled: bool,
 
     /// Maximum number of entries in cache
     #[arg(long, default_value_t = 50)]
@@ -137,7 +137,7 @@ impl Config {
 
     pub fn cache_config(&self) -> CacheConfig {
         CacheConfig {
-            enabled: self.cache_enabled,
+            enabled: !self.cache_disabled,
             use_ttl: self.cache_use_ttl,
             ttl: Duration::from_secs(self.cache_ttl_seconds),
             policy: self.cache_policy,

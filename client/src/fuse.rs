@@ -9,15 +9,20 @@ pub use windows::*;
 use crate::cache::CacheConfig;
 use crate::fs_model::FileSystem;
 use crate::network::RemoteClient;
+use tokio::runtime::Runtime;
 
 pub struct Fs {
     fs: FileSystem,
+    #[cfg(windows)]
+    rt: Runtime,
 }
 
 impl Fs {
     pub fn new(rc: RemoteClient, cache_config: CacheConfig, xattributes_enabled: bool) -> Self {
         Self {
             fs: FileSystem::new(rc, cache_config, xattributes_enabled),
+            #[cfg(windows)]
+            rt: Runtime::new().unwrap(),
         }
     }
 }

@@ -4,13 +4,16 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
 use std::fmt::Debug;
+use std::io;
+use std::io::Write;
+use rpassword::read_password;
 use tracing::{Level, instrument};
 use urlencoding;
 
 use super::APP_V1_BASE_URL;
 use super::middleware::*;
 use super::models::*;
-use crate::error::{FuseError, NetworkError};
+use crate::error::{ClientError, FuseError, NetworkError};
 use crate::fs_model::{Attributes, Stats, attributes::SetAttr};
 
 type Result<T> = std::result::Result<T, NetworkError>;
@@ -342,6 +345,44 @@ impl RemoteClient {
         let resp = self.http_client.get(&url).send().await?;
 
         handle_response(resp, |_| async { Ok(()) }).await
+    }
+
+    pub async fn login_prompt(&self) -> Result<()>{
+        println!("Welcome to Remote File System. First you need to authenticate!");
+
+        let token_option = loop {
+            println!("username:");
+            let username = {
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).unwrap();
+                input.trim().to_string()
+            };
+            println!("Password: ");
+            io::stdout().flush().unwrap();
+            // Hide password
+            let password = read_password().unwrap();
+
+            match self.login(username, password).await {
+                Ok(t) => break Some(t),
+                Err(e) => {
+                    eprintln!("Login failed: {}", e);
+                    println!("Invalid credentials. Do you want to try again? [y n]");
+                    let mut answer = String::new();
+                    io::stdin().read_line(&mut answer).unwrap();
+                    if !answer.trim().to_string().starts_with("y") {
+                        break None;
+                    }
+                }
+            };
+        };
+
+        if token_option.is_none() {
+            return Err(NetworkError::InvalidCredentials);
+        }
+
+        // let token = token_option.unwrap();
+        println!("Login successful");
+        Ok(())
     }
 }
 

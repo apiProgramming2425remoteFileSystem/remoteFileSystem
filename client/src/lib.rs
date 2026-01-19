@@ -25,6 +25,8 @@ use crate::daemon::Daemon;
 use crate::error::ClientError;
 use crate::fuse::Fs;
 use crate::mount::{MountOptions, MountPoint};
+#[cfg(windows)]
+use crate::mount::windows::mount_windows;
 use crate::network::RemoteClient;
 
 
@@ -69,44 +71,7 @@ fn start_unix(config: &Config) -> Result<()> {
         })?;
 
         rc.health_check().await?;
-
-        println!("Welcome to Remote File System. First you need to authenticate!");
-
-        let token_option = loop {
-            println!("username:");
-            let username = {
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-                input.trim().to_string()
-            };
-            println!("Password: ");
-            io::stdout().flush().unwrap();
-            // Hide password
-            let password = read_password().unwrap();
-
-            match rc.login(username, password).await {
-                Ok(t) => break Some(t),
-                Err(e) => {
-                    eprintln!("Login failed: {}", e);
-                    println!("Invalid credentials. Do you want to try again? [y n]");
-                    let mut answer = String::new();
-                    io::stdin().read_line(&mut answer).unwrap();
-                    if !answer.trim().to_string().starts_with("y") {
-                        break None;
-                    }
-                }
-            };
-        };
-
-        if token_option.is_none() {
-            return Err(ClientError::Other(anyhow::anyhow!(
-                "Impossible to login: Invalid credentials!"
-            )));
-        }
-
-        // let token = token_option.unwrap();
-        println!("Login successful");
-        Ok(())
+        rc.login_prompt().await?;
     })?;
 
     drop(runtime);
@@ -135,17 +100,39 @@ fn start_unix(config: &Config) -> Result<()> {
 }
 
 #[cfg(windows)]
-fn start_windows(_config: &Config) -> Result<()> {
-    use crate::fuse::mount_mock_fs;
+fn start_windows(config: &Config) -> Result<()> {
+    println!("Starting RemoteFS (Windows / WinFSP)");
 
-    println!("Starting RemoteFS (Windows WinFSP mode)");
 
-    mount_mock_fs().map_err(|e| {
-        ClientError::Other(anyhow::anyhow!("WinFSP mount failed: {}", e))
+    let _log = logging::Logging::from(config)?;
+
+    let rc = RemoteClient::new(&config.server_url);
+
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| {
+            ClientError::Other(anyhow::format_err!(
+                "Failed to build Tokio runtime: {}",
+                err
+            ))
+        })?;
+    runtime.block_on(async {
+        rc.health_check().await?;
+        rc.login_prompt().await?;
+        Ok::<_, ClientError>(())
     })?;
+
+    drop(runtime);
+
+    let cache_config = config.cache_config();
+
+    mount_windows(rc, cache_config)?;
 
     Ok(())
 }
+
 
 
 

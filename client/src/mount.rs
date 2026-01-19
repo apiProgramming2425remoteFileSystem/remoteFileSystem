@@ -1,7 +1,7 @@
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
-mod windows;
+pub mod windows;
 
 use std::path::{Path, PathBuf};
 

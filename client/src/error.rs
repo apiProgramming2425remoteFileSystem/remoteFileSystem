@@ -167,6 +167,9 @@ pub enum NetworkError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
 
+    #[error("Invalid credentials")]
+    InvalidCredentials,
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
@@ -178,6 +181,7 @@ pub enum NetworkError {
 
     #[error("Unexpected Server Response: {0}")]
     UnexpectedResponse(String), // When the server does not send valid JSON
+
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -218,6 +222,11 @@ pub enum ClientError {
 
     #[error("Network error: {0}")]
     Network(#[from] NetworkError),
+
+    #[cfg(windows)]
+    #[error(transparent)]
+    WinFSPError(#[from] winfsp::FspError),
+
 
     //#[error("Cache error: {0}")]
     //Cache(#[from] CacheError),
