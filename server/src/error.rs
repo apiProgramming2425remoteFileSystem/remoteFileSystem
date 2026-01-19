@@ -48,6 +48,21 @@ macro_rules! api_err {
     };
 }
 
+#[derive(Error, Debug)]
+pub enum CommandError {
+    #[error("Invalid command: {0}")]
+    InvalidCommand(String),
+
+    #[error("Missing argument: {0}")]
+    MissingArgument(String),
+
+    #[error("Execution failed: {0}")]
+    ExecutionFailed(String),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
 /// Configuration related errors
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -56,6 +71,15 @@ pub enum ConfigError {
 
     #[error("Failed parsing CLI arguments")]
     ArgsParse,
+
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
+
+    #[error("Invalid configuration: {0}")]
+    InvalidConfig(String),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 /// Logging related errors
@@ -130,7 +154,10 @@ pub enum DatabaseError {
 
 /// Top-level server error enum wrapping sub-errors
 #[derive(Error, Debug)]
-pub enum ServerError {
+pub enum RfsServerError {
+    #[error("Command error: {0}")]
+    Command(#[from] CommandError),
+
     #[error("Config error: {0}")]
     Config(#[from] ConfigError),
 
@@ -139,6 +166,9 @@ pub enum ServerError {
 
     #[error("Storage error: {0}")]
     Storage(#[from] StorageError),
+
+    #[error("Database error: {0}")]
+    Database(#[from] DatabaseError),
 
     #[error("Authentication error: {0}")]
     AuthenticationError(#[from] AuthenticationError),

@@ -1,6 +1,7 @@
 use super::*;
 
 use anyhow;
+use async_trait::async_trait;
 use fuse3::MountOptions as MountOptionsFuse;
 use fuse3::path::prelude::*;
 use fuse3::raw::MountHandle;
@@ -12,26 +13,19 @@ pub struct UnixSession {
 
 #[async_trait]
 impl MountFs for UnixSession {
-    async fn mount(&mut self, fs: Fs, mountpoint: &Path, options: &MountOptions) -> Result<()> {
+    async fn mount(&mut self, fs: Fs, mount_point: &Path, options: &MountOptions) -> Result<()> {
         // Mount fs
         let mount_options = MountOptionsFuse::from(options);
         let session = Session::new(mount_options);
 
-        let mount_handle: MountHandle;
-
-        if options.unprivileged {
-            tracing::info!("Mounting with unprivileged user FUSE.");
-            mount_handle = session
-                .mount_with_unprivileged(fs, mountpoint)
-                .await
-                .map_err(|err| MountError::MountFailed(err.to_string()))?;
-        } else {
+        let mount_handle = if options.privileged {
             tracing::info!("Mounting with privileged user FUSE.");
-            mount_handle = session
-                .mount(fs, mountpoint)
-                .await
-                .map_err(|err| MountError::MountFailed(err.to_string()))?;
+            session.mount(fs, mount_point).await
+        } else {
+            tracing::info!("Mounting with unprivileged user FUSE.");
+            session.mount_with_unprivileged(fs, mount_point).await
         }
+        .map_err(|err| MountError::MountFailed(err.to_string()))?;
 
         self.handle = Some(mount_handle);
         Ok(())
@@ -70,6 +64,9 @@ impl MountFs for UnixSession {
 impl From<&MountOptions> for MountOptionsFuse {
     fn from(options: &MountOptions) -> Self {
         let mut mount_options = MountOptionsFuse::default();
+        if options.allow_root {
+            mount_options.allow_root(true);
+        }
         if options.allow_other {
             mount_options.allow_other(true);
         }

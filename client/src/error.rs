@@ -3,6 +3,21 @@ use reqwest_middleware::Error as ReqwestError;
 use serde::Deserialize;
 use thiserror::Error;
 
+#[derive(Error, Debug)]
+pub enum CommandError {
+    #[error("Invalid command: {0}")]
+    InvalidCommand(String),
+
+    #[error("Missing argument: {0}")]
+    MissingArgument(String),
+
+    #[error("Execution failed: {0}")]
+    ExecutionFailed(String),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
 /// Configuration related errors
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -14,6 +29,12 @@ pub enum ConfigError {
 
     #[error("Invalid path: {0}")]
     InvalidPath(String),
+
+    #[error("Invalid configuration: {0}")]
+    InvalidConfig(String),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 /// Logging related errors
@@ -41,7 +62,7 @@ pub enum DaemonError {
     #[error("Unsupported platform: {0}")]
     UnsupportedPlatform(String),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
@@ -54,13 +75,13 @@ pub enum MountError {
     #[error("Unmount failed: {0}")]
     UnmountFailed(String),
 
-    #[error("Mountpoint not found: {0}")]
-    MountpointNotFound(String),
+    #[error("Mount point not found: {0}")]
+    MountPointNotFound(String),
 
     #[error("Unsupported platform: {0}")]
     UnsupportedPlatform(String),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
@@ -91,7 +112,7 @@ pub enum FsModelError {
     #[error("Remote Server error: {0}")]
     ServerError(#[from] NetworkError),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
@@ -201,7 +222,10 @@ pub enum CacheError {
 
 /// Top-level client error enum wrapping sub-errors
 #[derive(Error, Debug)]
-pub enum ClientError {
+pub enum RfsClientError {
+    #[error("Command error: {0}")]
+    Command(#[from] CommandError),
+
     #[error("Config error: {0}")]
     Config(#[from] ConfigError),
 

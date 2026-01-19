@@ -8,7 +8,10 @@ pub use windows::*;
 
 use std::fmt::Debug;
 
-use crate::cache::CacheConfig;
+#[cfg(windows)]
+pub use windows::*;
+
+use crate::config::RfsConfig;
 use crate::fs_model::FileSystem;
 use crate::network::RemoteStorage;
 use tokio::runtime::Runtime;
@@ -20,13 +23,9 @@ pub struct Fs {
 }
 
 impl Fs {
-    pub fn new<R: RemoteStorage + Debug + 'static>(
-        rc: R,
-        cache_config: CacheConfig,
-        xattributes_enabled: bool,
-    ) -> Self {
+    pub fn new<R: RemoteStorage + Debug + 'static>(rc: R, config: &RfsConfig) -> Self {
         Self {
-            fs: FileSystem::new(rc, cache_config, xattributes_enabled),
+            fs: FileSystem::new(rc, config),
             #[cfg(windows)]
             rt: Runtime::new().unwrap(),
         }

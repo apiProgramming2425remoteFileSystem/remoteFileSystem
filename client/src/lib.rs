@@ -1,4 +1,6 @@
+pub mod app;
 pub mod cache;
+pub mod commands;
 pub mod config;
 
 #[cfg(unix)]
@@ -9,8 +11,8 @@ pub mod fuse;
 pub mod logging;
 pub mod mount;
 pub mod network;
-
 pub mod rw_buffer;
+mod util;
 
 use std::fmt::Debug;
 use std::fs;
@@ -18,22 +20,22 @@ use std::io::{self, Write};
 
 use rpassword::read_password;
 
-use crate::config::Config;
+use crate::config::RfsConfig;
 #[cfg(unix)]
 use crate::daemon::Daemon;
-use crate::error::ClientError;
+use crate::error::RfsClientError;
 use crate::fuse::Fs;
 #[cfg(windows)]
 use crate::mount::windows::mount_windows;
 use crate::mount::{MountOptions, MountPoint};
 use crate::network::RemoteStorage;
 
-type Result<T> = std::result::Result<T, ClientError>;
+type Result<T> = std::result::Result<T, RfsClientError>;
 
 const MAX_LOGIN_ATTEMPTS: u8 = 3;
 
 /// Runs the program with the given configuration (`config`).<br>
-/// Mounts the FUSE filesystem at the given mountpoint and connects to the server URL.
+/// Mounts the FUSE filesystem at the given mount point and connects to the server URL.
 ///
 /// Starts the daemon in background, unless the option `--foreground` is set.
 ///
@@ -44,18 +46,18 @@ const MAX_LOGIN_ATTEMPTS: u8 = 3;
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
 #[cfg(unix)]
-pub fn start_unix<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> Result<()> {
+pub fn start_unix<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS...");
 
-    // Create mountpoint directory if it doesn't exist
-    if !config.mountpoint.exists() {
+    // Create mount point directory if it doesn't exist
+    if !config.mount_point.exists() {
         println!(
-            "Mountpoint directory {:?} does not exist. Creating it.",
-            config.mountpoint
+            "Mount point directory {:?} does not exist. Creating it.",
+            config.mount_point
         );
-        fs::create_dir_all(&config.mountpoint).map_err(|err| {
-            ClientError::Other(anyhow::format_err!(
-                "Could not create mountpoint directory: {}",
+        fs::create_dir_all(&config.mount_point).map_err(|err| {
+            RfsClientError::Other(anyhow::format_err!(
+                "Could not create mount point directory: {}",
                 err
             ))
         })?;
@@ -67,7 +69,7 @@ pub fn start_unix<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) ->
         .enable_all()
         .build()
         .map_err(|err| {
-            ClientError::Other(anyhow::format_err!(
+            RfsClientError::Other(anyhow::format_err!(
                 "Failed to build Tokio runtime: {}",
                 err
             ))
@@ -94,7 +96,7 @@ pub fn start_unix<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) ->
     daemon.initialize()?;
 
     // Initialize logging based on config
-    let _log = logging::Logging::from(config)?;
+    let _log = logging::Logging::from(&config.logging)?;
 
     tracing::trace!("[TRACE]");
     tracing::debug!("[DEBUG]");
@@ -112,16 +114,16 @@ pub fn start_unix<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) ->
 }
 
 #[cfg(windows)]
-fn start_windows<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> Result<()> {
+fn start_windows<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS (Windows / WinFSP)");
 
-    let _log = logging::Logging::from(config)?;
+    let _log = logging::Logging::from(&config.logging)?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|err| {
-            ClientError::Other(anyhow::format_err!(
+            RfsClientError::Other(anyhow::format_err!(
                 "Failed to build Tokio runtime: {}",
                 err
             ))
@@ -129,7 +131,7 @@ fn start_windows<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> 
     runtime.block_on(async {
         rc.health_check().await?;
         perform_login(&rc, config).await?;
-        Ok::<_, ClientError>(())
+        Ok::<_, RfsClientError>(())
     })?;
 
     drop(runtime);
@@ -152,7 +154,7 @@ fn start_windows<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> 
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
-pub fn start<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> Result<()> {
+pub fn start<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) -> Result<()> {
     #[cfg(unix)]
     {
         start_unix(config, rc)
@@ -163,10 +165,9 @@ pub fn start<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> Resu
     }
 }
 
-
 async fn perform_login<R: RemoteStorage + Debug + 'static>(
     rc: &R,
-    config: &Config,
+    config: &RfsConfig,
 ) -> Result<String> {
     println!("Welcome to Remote File System. First you need to authenticate!");
 
@@ -204,14 +205,14 @@ async fn perform_login<R: RemoteStorage + Debug + 'static>(
         };
     }
 
-    Err(ClientError::Other(anyhow::anyhow!(
+    Err(RfsClientError::Other(anyhow::anyhow!(
         "Impossible to login: Invalid credentials!"
     )))
 }
 
 #[cfg(unix)]
 pub async fn run_async<R: RemoteStorage + Debug + 'static>(
-    config: Config,
+    config: RfsConfig,
     rc: R,
     daemon: Daemon,
 ) -> Result<()> {
@@ -224,18 +225,15 @@ pub async fn run_async<R: RemoteStorage + Debug + 'static>(
     })?;
     */
 
-    let cache_config = config.cache_config();
-    let xattributes_enabled = config.xattributes_enabled;
-
     // Create Filesystem
-    let fs = Fs::new(rc, cache_config, xattributes_enabled);
+    let fs = Fs::new(rc, &config);
 
-    let mount_options = MountOptions::from(&config);
+    let mount_options = MountOptions::from(&config.mount);
 
-    let mut mountpoint = MountPoint::new(&config.mountpoint, mount_options);
+    let mut mount_point = MountPoint::new(&config.mount_point, mount_options);
 
     // Mount fs
-    mountpoint.mount(fs).await.map_err(|err| {
+    mount_point.mount(fs).await.map_err(|err| {
         tracing::error!("MOUNT ERROR: {}", err); // Write to log
         eprintln!("MOUNT ERROR: {}", err); // Write to daemon.err
         err
@@ -243,12 +241,12 @@ pub async fn run_async<R: RemoteStorage + Debug + 'static>(
 
     tokio::select! {
         // Ends when the mount session ends
-        res = mountpoint.wait() => {
+        res = mount_point.wait() => {
             match res {
                 Ok(_) => tracing::info!("Mount session ended normally"),
                 Err(e) => {
                     tracing::error!("Mount session ended with error: {}", e);
-                    return Err(ClientError::Daemon(error::DaemonError::SignalError(format!("mount session error: {}", e))));
+                    return Err(RfsClientError::Daemon(error::DaemonError::SignalError(format!("mount session error: {}", e))));
                 }
             }
         }
@@ -256,7 +254,7 @@ pub async fn run_async<R: RemoteStorage + Debug + 'static>(
         _ = daemon.wait_for_shutdown() => {
             tracing::info!("Shutdown signal received via Daemon.");
             // Attempt graceful unmount
-            if let Err(e) = mountpoint.unmount().await {
+            if let Err(e) = mount_point.unmount().await {
                 tracing::error!("Error during graceful unmount: {}", e);
             }
         }

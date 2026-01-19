@@ -7,6 +7,8 @@ use actix_web::middleware::Logger;
 use actix_web::{App, HttpServer, web};
 use tracing_actix_web::TracingLogger;
 
+pub mod app;
+pub mod commands;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -18,35 +20,20 @@ pub mod routes;
 mod attributes;
 mod middleware;
 mod storage;
+mod util;
 
 use db::DB;
-use error::ServerError;
+use error::RfsServerError;
 use storage::FileSystem;
 
-type Result<T> = std::result::Result<T, ServerError>;
+type Result<T> = std::result::Result<T, RfsServerError>;
 
-/*
-fn create_file_system_with_structure() -> FileSystem {
-    let mut fs = FileSystem::new(".", false);
-
-    fs.make_dir("/", "home").unwrap();
-    fs.change_dir("/home").unwrap();
-    fs.make_dir(".", "user").unwrap();
-    fs.change_dir("./user").unwrap();
-    fs.make_file(".", "file.txt").unwrap();
-    fs.make_file(".", "file1.txt").unwrap();
-    fs.make_dir("..", "user1").unwrap();
-    fs.change_dir("../user1").unwrap();
-    fs.make_file(".", "file.txt").unwrap();
-    fs
-}
-*/
-
-pub async fn run_server<F: AsRef<Path>>(listener: TcpListener, fs_root: F) -> Result<Server> {
+pub async fn run_server<F: AsRef<Path>>(
+    listener: TcpListener,
+    fs_root: F,
+    db: DB,
+) -> Result<Server> {
     let fs_root = fs_root.as_ref();
-    let pool = DB::open_connection()
-        .await
-        .map_err(|err| ServerError::Other(err.into()))?;
 
     // Create root filesystem directory if it doesn't exist
     if !fs_root.exists() {
@@ -54,8 +41,8 @@ pub async fn run_server<F: AsRef<Path>>(listener: TcpListener, fs_root: F) -> Re
             "Filesystem root directory {:?} does not exist. Creating it.",
             fs_root
         );
-        fs::create_dir_all(&fs_root).map_err(|err| {
-            ServerError::Other(anyhow::format_err!(
+        fs::create_dir_all(fs_root).map_err(|err| {
+            RfsServerError::Other(anyhow::format_err!(
                 "Could not create root directory: {}",
                 err
             ))
@@ -63,7 +50,7 @@ pub async fn run_server<F: AsRef<Path>>(listener: TcpListener, fs_root: F) -> Re
     }
 
     let local_address = listener.local_addr().map_err(|err| {
-        ServerError::Other(anyhow::format_err!("Could not get local address: {}", err))
+        RfsServerError::Other(anyhow::format_err!("Could not get local address: {}", err))
     })?;
 
     tracing::info!(
@@ -73,7 +60,7 @@ pub async fn run_server<F: AsRef<Path>>(listener: TcpListener, fs_root: F) -> Re
     );
 
     let fs = web::Data::new(FileSystem::new(fs_root));
-    let db = web::Data::new(pool);
+    let db = web::Data::new(db);
 
     let server = HttpServer::new(move || {
         App::new()
@@ -86,7 +73,7 @@ pub async fn run_server<F: AsRef<Path>>(listener: TcpListener, fs_root: F) -> Re
     })
     .listen(listener)
     .map_err(|err| {
-        ServerError::Other(anyhow::format_err!(
+        RfsServerError::Other(anyhow::format_err!(
             "Could not listen on provided listener: {}",
             err
         ))

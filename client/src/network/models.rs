@@ -110,7 +110,7 @@ pub struct SetAttrRequest {
 
 impl SetAttrRequest {
     pub fn new(setattr: SetAttr) -> Self {
-        Self { setattr: setattr }
+        Self { setattr }
     }
 }
 

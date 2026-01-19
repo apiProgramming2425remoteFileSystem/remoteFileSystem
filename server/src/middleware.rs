@@ -4,7 +4,6 @@ use actix_web::body::MessageBody;
 use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
 use actix_web::{Error, FromRequest, HttpMessage, HttpRequest};
 use actix_web::{http::header, middleware, web};
-use tracing;
 
 use crate::api_err;
 use crate::db::DB;
@@ -47,7 +46,7 @@ pub async fn auth_middleware(
         .app_data::<web::Data<DB>>()
         .ok_or_else(|| {
             tracing::error!("Database configuration error");
-            ApiError::InternalError(format!("Database configuration error"))
+            ApiError::InternalError("Database configuration error".to_string())
         })?
         .clone();
 

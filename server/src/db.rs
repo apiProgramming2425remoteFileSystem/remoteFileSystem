@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
@@ -15,7 +17,7 @@ use tracing::{Level, instrument};
 use uuid::Uuid;
 
 use crate::error::DatabaseError;
-use crate::models::{AuthenticatedUser, Claims, ListXattributes, User, Xattributes};
+use crate::models::{AuthenticatedUser, Claims, ListXattributes, PartialUser, User, Xattributes};
 
 type Result<T> = std::result::Result<T, DatabaseError>;
 
@@ -48,10 +50,9 @@ async fn verify_password(password: &str, hash: &str) -> bool {
     match PasswordHash::new(hash) {
         Ok(parsed) => {
             let algorithm = Argon2::default();
-            match algorithm.verify_password(password.as_bytes(), &parsed) {
-                Ok(_) => true,
-                Err(_) => false,
-            }
+            algorithm
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok()
         }
         Err(_) => false,
     }
@@ -72,8 +73,8 @@ async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
 
     // 3. create payload
     let claims = Claims {
-        user_id: user_id,
-        group_id: group_id,
+        user_id,
+        group_id,
         token_id: Uuid::new_v4().to_string(),
         exp: expiration_time as usize,
     };
@@ -98,11 +99,13 @@ pub fn get_expiration_time(token: &str) -> anyhow::Result<u64> {
 impl DB {
     // TODO: if we want to allow custom DB path, config: &Config should be passed here
 
+    /// Open a new database connection, applying migrations if necessary.
+    /// Returns the database connection or an error.
     #[instrument(err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn open_connection() -> Result<Self> {
-        // costruisce un path assoluto relativo alla root del crate
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let mut db_path = std::path::Path::new(manifest).join("db.db");
+    pub async fn open_connection<P: AsRef<Path> + Debug>(database_path: P) -> Result<Self> {
+        // // costruisce un path assoluto relativo alla root del crate
+        // let manifest = env!("CARGO_MANIFEST_DIR");
+        let mut db_path = database_path.as_ref().to_path_buf();
 
         // assicura che la cartella esista (utile alla prima esecuzione)
         if let Some(parent) = db_path.parent() {
@@ -111,18 +114,20 @@ impl DB {
             })?;
         }
 
-        // REVIEW: is not necessary to use sqlite URI format
-        // let database_url = db_path.to_string_lossy();
-
         // prova a canonicalizzare; se fallisce usa il path così com'è
         db_path = db_path.canonicalize().unwrap_or(db_path);
 
+        // REVIEW: is not necessary to use sqlite URI format
+        let database_url = db_path.to_string_lossy();
+
+        /*
         // sqlite URI richiede 'sqlite://<absolute-path>'; normalizziamo le backslash per Windows
         let mut database_url = format!("sqlite://{}", db_path.to_string_lossy());
 
         if cfg!(target_os = "windows") {
             database_url = database_url.replace("\\", "/");
         }
+        */
 
         Sqlite::create_database(&database_url)
             .await
@@ -137,15 +142,14 @@ impl DB {
             .await
             .map_err(|e| DatabaseError::MigrationError(e.to_string()))?;
 
-        /* AGGIUNTA UTENTE */
-        let db = DB { pool: pool };
-
+        // TODO: add them via CLI command or with a setup script
+        /*
         db.create_user(1, 1, "mirko", "password").await?;
         db.create_user(2, 2, "fabrizio", "password").await?;
         db.create_user(3, 3, "iulian", "password").await?;
         db.create_user(4, 4, "test_user", "test_password").await?;
-
-        Ok(db)
+        */
+        Ok(Self { pool })
     }
 
     /* -- REVOKED TOKEN MANAGEMENT */
@@ -293,7 +297,7 @@ impl DB {
         Ok(count)
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn create_user(
         &self,
         user_id: i64,
@@ -303,14 +307,18 @@ impl DB {
     ) -> Result<()> {
         let count_user_id = self.count_user_id(user_id).await?;
 
-        if count_user_id == 0 {
-            let pass = hash_password(password)
-                .await
-                .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
+        if count_user_id != 0 {
+            return Err(DatabaseError::QueryError(format!(
+                "User {} already exists!",
+                user_id
+            )));
+        }
 
-            sqlx::query(
-                "INSERT INTO users(user_id, group_id, username, password) VALUES(?, ?, ?, ?)",
-            )
+        let pass = hash_password(password)
+            .await
+            .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
+
+        sqlx::query("INSERT INTO users(user_id, group_id, username, password) VALUES(?, ?, ?, ?)")
             .bind(user_id)
             .bind(group_id)
             .bind(username)
@@ -318,57 +326,118 @@ impl DB {
             .execute(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
-            println!("User {} added successfully!", username);
-        } else {
-            println!("User {} already exists!", user_id);
-        }
 
         Ok(())
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn get_user(&self, username: &str) -> Result<Option<PartialUser>> {
+        let result = sqlx::query_as::<_, PartialUser>(
+            "SELECT user_id, group_id, username, password FROM users WHERE username = ?",
+        )
+        .bind(username.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            DatabaseError::QueryError(format!("Error retrieving user because of {}.", e))
+        })?;
+
+        match result {
+            Some(user) => Ok(Some(user)),
+            None => Ok(None),
+        }
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR))]
+    pub async fn delete_user(&self, user_id: i64) -> Result<()> {
+        let count_user_id = self.count_user_id(user_id).await?;
+
+        if count_user_id == 0 {
+            return Err(DatabaseError::QueryError(format!(
+                "User {} does not exist!",
+                user_id
+            )));
+        }
+
+        sqlx::query("DELETE FROM users WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn edit_username(&self, user_id: i64, username: &str) -> Result<()> {
         let count_user_id = self.count_user_id(user_id).await?;
 
         if count_user_id == 0 {
-            sqlx::query("UPDATE users WHERE user_id = ? SET username = ?")
-                .bind(user_id)
-                .bind(username)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
-            println!("User {} username modified successfully!", user_id);
-        } else {
-            println!("User {} does not exist!", user_id);
+            return Err(DatabaseError::QueryError(format!(
+                "User {} does not exist!",
+                user_id
+            )));
         }
+
+        let existing_user = self.get_user(username).await?;
+        if existing_user.is_some() {
+            return Err(DatabaseError::QueryError(format!(
+                "Username '{}' is already taken!",
+                username
+            )));
+        }
+
+        sqlx::query("UPDATE users SET username = ? WHERE user_id = ? ")
+            .bind(username)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
+        let existing_user = self.get_user(username).await?;
+        if existing_user.is_some() {
+            return Err(DatabaseError::QueryError(format!(
+                "Username '{}' is already taken!",
+                username
+            )));
+        }
+
+        sqlx::query("UPDATE users SET username = ? WHERE user_id = ? ")
+            .bind(username)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
         Ok(())
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn edit_password(&self, user_id: i64, password: &str) -> Result<()> {
         let count_user_id = self.count_user_id(user_id).await?;
 
         if count_user_id == 0 {
-            let pass = hash_password(password)
-                .await
-                .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
-
-            sqlx::query("UPDATE users WHERE user_id = ? SET password = ?")
-                .bind(user_id)
-                .bind(pass)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
-            println!("User {} password modified successfully!", user_id);
-        } else {
-            println!("User {} does not exist!", user_id);
+            return Err(DatabaseError::QueryError(format!(
+                "User {} does not exist!",
+                user_id
+            )));
         }
+
+        let pass = hash_password(password)
+            .await
+            .map_err(|e| anyhow!("Error while hashing the password: {}", e))?;
+
+        sqlx::query("UPDATE users SET password = ? WHERE user_id = ?")
+            .bind(pass)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
         Ok(())
     }
 
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn edit_group_id(&self, user_id: i64, group_id: i64) -> Result<()> {
         let count_user_id = self.count_user_id(user_id).await?;
 

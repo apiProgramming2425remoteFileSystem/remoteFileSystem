@@ -82,10 +82,8 @@ async fn list_path(
     let Some(children_nodes) = item.get_children() else {
         return Err(api_err!(NotADirectory, "Path isn't a directory"));
     };
-    let children: Vec<SerializableFSItem> = children_nodes
-        .iter()
-        .map(|child| SerializableFSItem::new(child))
-        .collect();
+    let children: Vec<SerializableFSItem> =
+        children_nodes.iter().map(SerializableFSItem::new).collect();
 
     Ok(HttpResponse::Ok().json(children))
 }
@@ -339,7 +337,7 @@ async fn set_x_attributes(
     let (name, path) = path_params.into_inner();
     user.check_permission(&fs, &path, Operation::Write)?;
 
-    pool.set_x_attributes(&path, &name, &json.get()).await?;
+    pool.set_x_attributes(&path, &name, json.get()).await?;
 
     Ok(HttpResponse::Ok().finish())
 }

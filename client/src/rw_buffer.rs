@@ -23,6 +23,10 @@ impl ReadBuffer {
         }
     }
 
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn fill<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) {
         self.path = path.as_ref().to_path_buf();

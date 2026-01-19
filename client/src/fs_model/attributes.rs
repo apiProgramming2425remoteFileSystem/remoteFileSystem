@@ -124,10 +124,10 @@ pub struct Flags {
     pub path: bool,
 }
 
-impl Default for Flags{
+impl Default for Flags {
     fn default() -> Self {
-        Flags{
-            readonly : false,
+        Flags {
+            readonly: false,
             writeonly: false,
             readwrite: true,
             create: true,
@@ -378,6 +378,7 @@ mod platform {
                 "flags contains FUSE_WRITE_CACHE: {}",
                 (value as u32) & fuse3::raw::flags::FUSE_WRITE_CACHE != 0
             );
+
             let access_mode = value & libc::O_ACCMODE;
 
             Ok(Self {

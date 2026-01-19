@@ -1,14 +1,9 @@
 x-constants:
   app_path: &app_path ${APP_PATH}
-  mount_point: &mount_point ${MOUNT_POINT}
-  fs_root: &fs_root ${FS_ROOT}
-  server_url: &server_url http://${SERVER_HOST:-server}:${SERVER_PORT}
-  log_targets: &log_targets ${LOG_TARGETS:-all}
-  log_format: &log_format ${LOG_FORMAT:-full}
-  log_level: &log_level ${LOG_LEVEL:-info}
-  log_path: &log_path ${LOG_PATH:-logs}
-  log_file: &log_file ${LOG_FILE:-remote_fs}
-  log_rotation: &log_rotation ${LOG_ROTATION:-never}
+  mount_point: &mount_point ${RFS__MOUNT_POINT}
+  fs_root: &fs_root ${RFS__FILESYSTEM_ROOT}
+  server_url: &server_url http://${RFS__SERVER_HOST:-server}:${RFS__SERVER_PORT:-8080}
+  database_path: &database_path ${DATABASE_PATH}
 
 services:
   server:
@@ -19,21 +14,18 @@ services:
         remote_fs_server: server # the name of the package
     container_name: remote_fs-server
     ports:
-      - "${SERVER_PORT}:8080"
+      - "${RFS__SERVER_PORT:-8080}:8080"
     volumes:
-      - remote_fs_data:${FS_ROOT}
+      - remote_fs_data:${RFS__FILESYSTEM_ROOT}
     environment:
-      SERVER_HOST: ${SERVER_HOST:-server}
-      SERVER_PORT: ${SERVER_PORT}
-      FS_ROOT: *fs_root
-      LOG_TARGETS: *log_targets
-      LOG_FORMAT: *log_format
-      LOG_LEVEL: *log_level
-      LOG_PATH: *log_path
-      LOG_FILE: *log_file
-      LOG_ROTATION: *log_rotation
+      RFS__SERVER_HOST: ${RFS__SERVER_HOST:-server}
+      RFS__SERVER_PORT: ${RFS__SERVER_PORT:-8080}
+      RFS__FILESYSTEM_ROOT: *fs_root
+      DATABASE_PATH: *database_path
     networks:
       - remote-fs-net
+    command: >
+      run
 
   client:
     build:
@@ -52,16 +44,10 @@ services:
     depends_on:
       - server
     environment:
-      MOUNT_POINT: *mount_point
-      SERVER_URL: *server_url
-      LOG_TARGETS: *log_targets
-      LOG_FORMAT: *log_format
-      LOG_LEVEL: *log_level
-      LOG_PATH: *log_path
-      LOG_FILE: *log_file
-      LOG_ROTATION: *log_rotation
+      RFS__MOUNT_POINT: *mount_point
+      RFS__SERVER_URL: *server_url
     # command: >
-    #   --mountpoint ${MOUNT_POINT} --server-url http://server:8080/api
+    #   run --mount-point ${RFS__MOUNT_POINT} --server-url ${RFS__SERVER_URL}
     tty: true # Keep the terminal open
     entrypoint: [ "/bin/bash" ]
 
@@ -76,10 +62,8 @@ services:
     networks:
       - remote-fs-net
     volumes:
-      # - ./server:${APP_PATH}/server/
-      # - ./client:${APP_PATH}/client/
       - .:${APP_PATH}/
-      - ./mount_dir:${FS_ROOT} # Server FS root for testing purposes
+      - ./mount_dir:${RFS__FILESYSTEM_ROOT} # Server FS root for testing purposes
     working_dir: *app_path
     tty: true # Keep the terminal open
     restart: unless-stopped # Automatically restart unless stopped manually

@@ -15,7 +15,7 @@ use super::APP_V1_BASE_URL;
 use super::RemoteStorage;
 use super::middleware::*;
 use super::models::*;
-use crate::error::{ClientError, FuseError, NetworkError};
+use crate::error::{FuseError, NetworkError, RfsClientError};
 use crate::fs_model::{Attributes, Stats, attributes::SetAttr};
 
 type Result<T> = std::result::Result<T, NetworkError>;
@@ -58,13 +58,13 @@ impl RemoteClient {
             urlencoding::encode(path.as_ref())
         );
         tracing::debug!("fetching {}", url);
-        return url;
+        url
     }
 
     fn set_short_url<S: AsRef<str>>(&self, api: S) -> String {
         let url = format!("{}/{}", self.base_url, api.as_ref());
         tracing::debug!("fetching {}", url);
-        return url;
+        url
     }
 
     fn set_long_url<S: AsRef<str>>(&self, api: S, path: S, group: S, obj: Option<S>) -> String {
@@ -89,7 +89,7 @@ impl RemoteClient {
         }
 
         tracing::debug!("fetching {}", url);
-        return url;
+        url
     }
 }
 

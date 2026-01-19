@@ -1,15 +1,18 @@
-use client::{config, error, network};
+use clap::Parser;
+use client::app::{Executable, RfsClient};
+use client::error::RfsClientError;
+use client::network;
 
-type Result<T> = std::result::Result<T, error::ClientError>;
+type Result<T> = std::result::Result<T, RfsClientError>;
 
 fn main() -> Result<()> {
-    // load configuration from args/env
-    let config = config::Config::from_args()?;
+    // Load .env variables
+    let _ = dotenvy::dotenv();
 
-    let rc = network::RemoteClient::new(&config.server_url);
+    // let rc = network::RemoteClient::new(&config.server_url);
 
-    // Run the client with the provided configuration
-    client::start(&config, rc)?;
+    let app = RfsClient::parse();
+    app.command.execute()?;
 
     Ok(())
 }
