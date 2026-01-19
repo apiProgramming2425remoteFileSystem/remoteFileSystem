@@ -42,10 +42,14 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
             };
 
             let mut uid = metadata.uid();
-            if uid < 1000 {uid += 1000;};
+            if uid < 1000 {
+                uid += 1000;
+            };
 
             let mut gid = metadata.gid();
-            if gid < 1000 {gid += 1000;};
+            if gid < 1000 {
+                gid += 1000;
+            };
 
             let attributes = FileAttr {
                 size: metadata.len(),
@@ -74,19 +78,20 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
 fn set_owner(user_id: i64, group_id: i64, path: &PathBuf) -> Result<()> {
     let new_uid = Some(Uid::from_raw(user_id as u32));
     let new_gid = Some(Gid::from_raw(group_id as u32));
-    chown(path, new_uid, new_gid).map_err(|e|StorageError::Other(e.into()))?;
+    chown(path, new_uid, new_gid).map_err(|e| StorageError::Other(e.into()))?;
 
     // We set group_permissions = user_permissions, if user_id = group_id
     if user_id == group_id {
-        let item = fs::metadata(path).map_err(|e|StorageError::Other(e.into()))?;
+        let item = fs::metadata(path).map_err(|e| StorageError::Other(e.into()))?;
         let original_perm = item.permissions().mode();
 
-        let mut permission = Permission::try_from(original_perm as u16).map_err(|_| StorageError::MetadataError("Error during convertion.".to_string()))?;
+        let mut permission = Permission::try_from(original_perm as u16)
+            .map_err(|_| StorageError::MetadataError("Error during convertion.".to_string()))?;
         permission.group = permission.user;
         let adjusted_perm: u16 = permission.into();
 
         let perms: Permissions = Permissions::from_mode(adjusted_perm as u32);
-        fs::set_permissions(path,perms)?;
+        fs::set_permissions(path, perms)?;
     }
 
     Ok(())
@@ -427,11 +432,13 @@ impl FileSystem {
 
         // Allowed only if user is the owner or root
         if let Some(mode) = new_attributes.mode {
-            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)?{
+            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
                 let mut adjusted_mode = mode as u16;
 
                 if user_id == group_id {
-                    let mut permission = Permission::try_from(mode as u16).map_err(|_| StorageError::MetadataError("Error during convertion.".to_string()))?;
+                    let mut permission = Permission::try_from(mode as u16).map_err(|_| {
+                        StorageError::MetadataError("Error during convertion.".to_string())
+                    })?;
                     permission.group = permission.user;
                     adjusted_mode = permission.into();
                 }
@@ -454,8 +461,8 @@ impl FileSystem {
                 // We accept client_gid >= 1001, so when converted to server_gid there is no confusion with root_id = 0
                 let mut server_gid = client_gid;
                 if client_gid <= 1000 {
-                    return Err(StorageError::PermissionDenied)
-                }else{
+                    return Err(StorageError::PermissionDenied);
+                } else {
                     server_gid = server_gid - 1000;
                 }
                 let new_gid = Some(Gid::from_raw(server_gid));

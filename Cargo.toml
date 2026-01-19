@@ -1,3 +1,20 @@
+[package]
+name = "remote_fs_core"
+version = "0.1.0"
+edition = "2024"
+
 [workspace]
 members = ["client", "server"]
 resolver = "3"
+default-members = ["client", "server", "."]
+
+[dependencies]
+# client = { path = "client" }
+# server = { path = "server" }
+
+anyhow = "1.0"
+escargot = "0.5"
+tempfile = "3"
+walkdir = "2.3"
+
+# [dev-dependencies]

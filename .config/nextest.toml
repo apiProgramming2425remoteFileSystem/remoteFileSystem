@@ -1,0 +1,114 @@
+# Enable the experimental setup-scripts feature
+experimental = ["setup-scripts"]
+
+[scripts.setup.build-bins]
+# Build all binaries before tests
+command = "cargo build --bins --workspace"
+
+[[profile.default.scripts]]
+# Build all binaries before running tests
+setup = "build-bins"
+filter = "package(remote_fs_core) and kind(test)"
+
+[store]
+dir = "target/nextest"
+
+# ==============================================================================
+#  1. TEST GROUPS (The Magic Fix)
+# ==============================================================================
+# Define a group named 'serial_fuse' that forces serial execution (1 thread).
+# Even if the global profile uses 16 threads, tests in this group run 1-by-1.
+[test-groups]
+serial_fuse = { max-threads = 1 }
+
+
+# ==============================================================================
+#  DEFAULT PROFILE (Used by standard commands like `cargo test-unit`)
+# ==============================================================================
+[profile.default]
+# Fail fast on the first error to save time during local dev
+fail-fast = true
+# Use all available cores
+threads-required = "num-cpus"
+# Report status: show immediate output for failures, stick to final report for pass
+status-level = "fail"
+# Show all test results in the final report
+final-status-level = "all"
+# Warn if a test takes longer than 5s, kill it after 15s
+slow-timeout = { period = "5s", terminate-after = 3, on-timeout = "fail" }
+
+
+# --- OVERRIDES FOR E2E IN DEFAULT PROFILE ---
+# This applies when you run `cargo test-all` (which uses default profile).
+# We inject the serial limit AND retries specifically for E2E.
+[[profile.default.overrides]]
+filter = "package(remote_fs_core) and kind(test)"
+test-group = "serial_fuse"
+slow-timeout = { period = "30s", terminate-after = 3, on-timeout = "fail" }
+
+
+# ==============================================================================
+#  DEBUG PROFILE (Used by `cargo test-*-d`)
+# ==============================================================================
+[profile.debug]
+# Serial execution is mandatory for debugging to avoid log interleaving
+threads-required = 1
+# Do not stop on failure, show everything
+# Stop on failure, show everything
+fail-fast = true
+# Retry 0 times. We want to see the error immediately.
+retries = 0
+# Show output immediately as tests run (useful with --no-capture)
+failure-output = "immediate"
+success-output = "immediate"
+status-level = "pass"
+slow-timeout = { period = "30s", terminate-after = 3, on-timeout = "fail" }
+
+
+# ==============================================================================
+#  UNIT PROFILE (Used by `cargo test-unit`)
+# ==============================================================================
+[profile.unit]
+default-filter = "kind(lib) | kind(bin)"
+
+# ==============================================================================
+#  INTEGRATION PROFILE (Used by `cargo test-int`)
+# ==============================================================================
+[profile.integration]
+default-filter = "kind(test) and not package(remote_fs_core)"
+
+
+# Very long timeout to allow manual inspection or attaching debuggers
+# ==============================================================================
+#  E2E PROFILE (Used by `cargo test-e2e`)
+# ==============================================================================
+[profile.e2e]
+default-filter = "package(remote_fs_core) and kind(test)"
+# E2E tests are heavy. Limiting concurrency helps stability with FUSE mounts.
+# Adjust this based on your CI machine (e.g., 2 or 4).
+threads-required = 2
+# Vital for E2E: If a network flake happens, retry.
+# This creates a backoff: 0s wait, then 1s wait, up to 2 retries total.
+retries = { backoff = "fixed", count = 2, delay = "1s" }
+# E2E tests involve mounting/unmounting which is slow.
+slow-timeout = { period = "30s", terminate-after = 3, on-timeout = "fail" }
+# If a test leaks handles/threads, warn after 1 minute
+leak-timeout = "1m"
+# Always show the output of failed E2E tests immediately
+failure-output = "immediate"
+
+
+# Debug version of Unit tests
+[profile.unit-debug]
+inherits = "debug"
+default-filter = "kind(lib) | kind(bin)"
+
+# Debug version of Integration tests
+[profile.integration-debug]
+inherits = "debug"
+default-filter = "kind(test) and not package(remote_fs_core)"
+
+# Debug version of E2E tests
+[profile.e2e-debug]
+inherits = "debug"
+default-filter = "package(remote_fs_core) and kind(test)"

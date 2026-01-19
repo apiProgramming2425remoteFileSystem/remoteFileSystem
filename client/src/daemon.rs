@@ -89,9 +89,15 @@ impl Daemon {
         Ok(())
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    #[instrument(skip(self))]
     pub async fn wait_for_shutdown(&self) {
         self.shutdown_notify.notified().await;
+    }
+
+    #[instrument(skip(self))]
+    pub fn trigger_shutdown(&self) {
+        self.shutdown_notify.notify_one();
+        tracing::info!("Manual shutdown triggered, notifying daemon...");
     }
 
     fn spawn_signal_handler(&self) {
@@ -122,8 +128,12 @@ mod platform {
                 return Ok(());
             }
 
-            let stdout = fs::File::create("/tmp/remote-fs.out").unwrap();
-            let stderr = fs::File::create("/tmp/remote-fs.err").unwrap();
+            let stdout = fs::File::create("/tmp/remote-fs.out").map_err(|err| {
+                DaemonError::StartFailed(format!("Failed to create stdout log file: {}", err))
+            })?;
+            let stderr = fs::File::create("/tmp/remote-fs.err").map_err(|err| {
+                DaemonError::StartFailed(format!("Failed to create stderr log file: {}", err))
+            })?;
 
             let daemon = Daemonize::new()
                 .pid_file("/tmp/remote-fs.pid")
@@ -161,12 +171,17 @@ mod platform {
         async fn signal_handler(&self) {
             use tokio::signal::unix::{SignalKind, signal};
 
+            // Register for signals
             let mut interrupt = signal(SignalKind::interrupt()).expect("Failed to bind SIGINT");
             let mut terminate = signal(SignalKind::terminate()).expect("Failed to bind SIGTERM");
             let mut quit = signal(SignalKind::quit()).expect("Failed to bind SIGQUIT");
             let mut sighup = signal(SignalKind::hangup()).expect("Failed to bind SIGHUP");
 
+            let mut manual_shutdown = signal(SignalKind::user_defined1())
+                .expect("Failed to bind USR1 for manual shutdown");
+
             tokio::select! {
+                // Regular shutdown signals
                 _ = interrupt.recv() => {
                     tracing::info!("SIGINT (Ctrl+C) received, shutting down daemon...");
                 },
@@ -179,6 +194,10 @@ mod platform {
                 _ = sighup.recv() => {
                     tracing::info!("SIGHUP received, shutting down daemon...");
                 },
+                // Manual shutdown signal
+                _ = manual_shutdown.recv() => {
+                    tracing::info!("SIGUSR1 received, shutting down daemon...");
+                }
             }
         }
     }

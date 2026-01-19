@@ -16,7 +16,16 @@ async fn main() -> Result<()> {
     tracing::warn!("[WARN]");
     tracing::error!("[ERROR]");
 
-    run_server(&config.server_host, config.port, &config.filesystem_root).await?;
+    let listener = std::net::TcpListener::bind((config.server_host.as_str(), config.port))
+        .map_err(|err| {
+            ServerError::Other(anyhow::format_err!("Failed to bind to address: {}", err))
+        })?;
+
+    let server = run_server(listener, &config.filesystem_root).await?;
+
+    server
+        .await
+        .map_err(|err| ServerError::Other(anyhow::format_err!("Server runtime error: {}", err)))?;
 
     Ok(())
 }
