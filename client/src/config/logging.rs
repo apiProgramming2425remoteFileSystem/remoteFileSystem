@@ -165,6 +165,17 @@ impl Default for LogFormat {
     }
 }
 
+impl ToString for LogFormat {
+    fn to_string(&self) -> String {
+        match self {
+            LogFormat::Full => String::from("FULL"),
+            LogFormat::Compact => String::from("COMPAT"),
+            LogFormat::Pretty => String::from("PRETTY"),
+            LogFormat::Json => String::from("JSON"),
+        }
+    }    
+}
+
 /// Log verbosity levels
 #[derive(ValueEnum, Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -179,6 +190,18 @@ pub enum LogLevel {
 impl Default for LogLevel {
     fn default() -> Self {
         LogLevel::Info
+    }
+}
+
+impl LogLevel {
+    pub fn to_string_gui(&self) -> String {
+        match self {
+            LogLevel::Trace => String::from("TRACE"),
+            LogLevel::Debug => String::from("TRACE"),
+            LogLevel::Info => String::from("TRACE"),
+            LogLevel::Warn => String::from("TRACE"),
+            LogLevel::Error => String::from("TRACE"),
+        }
     }
 }
 
@@ -209,6 +232,17 @@ pub enum LogRotation {
 impl Default for LogRotation {
     fn default() -> Self {
         LogRotation::Never
+    }
+}
+
+impl ToString for LogRotation{
+    fn to_string(&self) -> String {
+        match self {
+            LogRotation::Minutely => String::from("MINUTELY"),
+            LogRotation::Hourly => String::from("HOURLY"),
+            LogRotation::Daily => String::from("DAILY"),
+            LogRotation::Never => String::from("NEVER"),
+        }
     }
 }
 

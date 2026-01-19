@@ -31,11 +31,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // Health check route
             .service(health_check)
             // Authentication routes
-            .service(web::scope(Routes::AUTH).service(login))
             .service(
                 web::scope(Routes::AUTH)
+                .service(login)
+                .service(
+                    web::scope("")
                     .wrap(from_fn(auth_middleware))
                     .service(logout),
+                )
             )
             // Filesystem operations routes protected by auth middleware
             .service(

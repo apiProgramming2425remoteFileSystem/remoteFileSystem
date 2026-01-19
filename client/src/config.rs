@@ -53,8 +53,7 @@ pub struct RfsConfig {
     pub cache: CacheConfig,
     /// Logging configuration
     pub logging: LoggingConfig,
-    // GUI availability
-    #[arg(short, long, default_value_t = false)]
+    /// GUI availability
     pub no_gui: bool,
 }
 
@@ -68,6 +67,7 @@ impl Default for RfsConfig {
             file_system: FsConfig::default(),
             cache: CacheConfig::default(),
             logging: LoggingConfig::default(),
+            no_gui: false,
         }
     }
 }
@@ -118,6 +118,10 @@ pub struct RfsCliArgs {
     #[command(flatten)]
     #[command(next_help_heading = "Logging Configuration")]
     pub logging: LoggingCliArgs,
+
+    /// use GUI to configure the file system
+    #[arg(short, long, default_value_t = false)]
+    pub no_gui: bool,
 }
 
 pub trait ConfigModule {

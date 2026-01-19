@@ -16,6 +16,7 @@ mod util;
 
 use std::fs;
 use std::io::{self, Write};
+use std::ops::Deref;
 use gui::start_gui;
 
 use anyhow;
@@ -128,8 +129,8 @@ pub fn start(config: &RfsConfig) -> Result<()> {
         // Initialize the daemon
         daemon.initialize()?;
 
-    // Initialize logging based on config
-    let _log = logging::Logging::from(&config.logging)?;
+        // Initialize logging based on config
+        let _log = logging::Logging::from(&config.logging)?;
 
         tracing::trace!("[TRACE]");
         tracing::debug!("[DEBUG]");
@@ -145,12 +146,13 @@ pub fn start(config: &RfsConfig) -> Result<()> {
         tracing::info!("RemoteFS execution finished.");
         Ok(())
     } else {
-        start_gui(rc, config)?;
+        let config_var: RfsConfig = config.to_owned();
+        start_gui(rc, config_var)?;
         Ok(())
     }
 }
 
-async fn run_async(config: RfsConfig, rc: RemoteClient, daemon: Daemon) -> Result<()> {
+pub async fn run_async(config: RfsConfig, rc: RemoteClient, daemon: Daemon) -> Result<()> {
     /*
     tracing::info!("Checking connection to server at {}...", config.server_url);
 

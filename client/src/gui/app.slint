@@ -1,8 +1,22 @@
-import { Button, VerticalBox, LineEdit, Spinner } from "std-widgets.slint";
+import { Button, VerticalBox, LineEdit, Spinner, ScrollView, HorizontalBox, Palette } from "std-widgets.slint";
+
+global FontPalette {
+    in-out property <int> scale: 1;
+    // Dimensioni standard
+    in-out property <length> font-small: 12px * scale;
+    in-out property <length> font-normal: 14px * scale;
+    in-out property <length> font-medium: 18px * scale;
+    in-out property <length> font-large: 20px * scale;
+    in-out property <length> font-title: 24px * scale;
+
+    // Famiglie standard (opzionale)
+    in-out property <string> font-family-default: "sans-serif";
+    in-out property <string> font-familiy-code: "monospace";
+}
 
 export enum ViewState {
     Welcome,
-    Home, 
+    Home,
     Cache,
     MountPoint,
 }
@@ -12,51 +26,133 @@ export enum Status {
     NotLoggedIn,
 }
 
+export struct MountSettings {
+    mount_point: string,
+    allow_root: bool,
+    allow_other: bool,
+    read_only: bool,
+    privileged: bool,
+}
+
+export struct CacheSettings {
+    enabled: bool,
+    use_ttl: bool,
+    ttl: int,
+    policy: string,
+    max_size: int,
+    capacity: int,
+}
+
+export struct FsSettings {
+    server_url: string,
+    foreground: bool,
+    xattr_enable: bool,
+    page_size: int,
+    max_pages: int,
+    buffer_size: int,
+}
+
+export struct LogSettings {
+    format: string,
+    level: string,
+    dir: string,
+    file: string,
+    rotation: string,
+}
+
+export struct BoolItem {
+    env: string,
+    name: string, 
+    value: bool, 
+    id_rust: string,
+}
+
+export struct IntItem {
+    env: string,
+    name: string, 
+    value: int, 
+    id_rust: string,
+}
+
+export struct StringItem {
+    env: string,
+    name: string, 
+    value: string, 
+    id_rust: string,
+}
+
+export struct ListItem {
+    name: string, 
+    id_rust: string,
+}
+
+/* UTILS */
 export component MyButton inherits Rectangle {
     in property <string> text;
-    callback clicked;
+    in property <brush> text_color;
+
+    in property <brush> button_color;
+    in property <length> button_width;
+    in property <length> button_height;
+
+    in property <bool> is_active;
+
+    callback on_click;
+
+    height: button_height;
+    width: button_width;
+
+    border-radius: 8px;
     
-    background: ta.pressed ? #2050aa : (ta.has-hover ? #4080ff : #3070ff);
-    border-radius: 20px;
     animate background { duration: 150ms; }
 
-    Text {
-        text: root.text;
-        color: white;
+    ta := TouchArea {
+        enabled: root.is_active;
+        clicked => { root.on_click(); }
     }
 
-    ta := TouchArea {
-        clicked => { root.clicked(); }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 8px;
+        background: ta.pressed ? button_color.transparentize(0.1) : ta.has-hover ? button_color.transparentize(0.2) : button_color;
+
+        Text {
+            vertical-alignment: center;
+            text: root.text;
+            color: text_color;
+            font-weight: 500;
+        }
     }
+
 }
 
 export component Error inherits Rectangle {
     in property <string> error;
 
-    // Callback per comunicare al genitore di chiudersi
     callback close;
 
-    // Sfondo semi-trasparente che copre tutto
     background: #fffdfd37; 
 
-    // Questa TouchArea cattura i click fuori dal box dell'errore
     TouchArea {
         clicked => { root.close(); }
     }
 
     Rectangle {
-        width: 300px;
-        height: 100px;
+        width: 30%;
+        height: 20%;
         border-radius: 8px;
-        background: #ffffff;
+        background: #FF4E3B;
 
         Text {
-            width: 200px;
-            height: 100px;
+            width: 100%;
+            height: 100%;
+            font-size: FontPalette.font-medium;
             vertical-alignment: center;
             horizontal-alignment: center;
             text: error; 
-            color: red; 
+            color: white; 
             wrap: TextWrap.word-wrap;
         }
     }
@@ -64,19 +160,221 @@ export component Error inherits Rectangle {
 }
 
 export component Loading inherits Rectangle {
-    width: 800px;
-    height: 480px;
-    background: white;
-    opacity: 60%;
 
-    TouchArea {}
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: white;
+        opacity: 60%;
 
-    Spinner {
-        indeterminate: true;
+        TouchArea {}
+    }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 20px;
+
+        Text {
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            color: black;
+            font-size: FontPalette.font-large;
+            font-weight: 600;
+            text: "Loading...";
+        }
     }
 }
 
+export component IntEdit inherits Rectangle{
+    in property <bool> fs_is_active;
+    in property <string> name;
+    in property <string> value;
+    in property <brush> text_color;
 
+    in property <length> toggle_width;
+    in property <length> toggle_height;
+
+    in property <brush> toggle_color;
+
+    in-out property <bool> is_edit_view: false;
+    in-out property <string> new_value_string;
+    in-out property <int> new_value;
+
+    callback on_click(int);
+
+    width: root.toggle_width;
+    height: is_edit_view ? root.toggle_height*1.8 : root.toggle_height;
+    border-radius: 8px;
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: !fs_is_active;
+        clicked => { root.is_edit_view = true; }
+    }
+    background: ta.pressed ? toggle_color.transparentize(0.1) : ta.has-hover ? toggle_color.transparentize(0.2) : toggle_color;
+
+    HorizontalLayout {
+        alignment: center;
+
+        VerticalLayout {
+            alignment: center; 
+            spacing: 2px;
+
+            /* NAME */
+            HorizontalLayout {
+                alignment: center; 
+
+                Text {
+                    vertical-alignment: center;
+                    text: root.name;
+                    color: text_color;
+                    font-weight: 500;
+                }
+            }
+            
+            /* VALUE */
+            if (!is_edit_view):
+                HorizontalLayout {
+                    alignment: center; 
+
+                    Text {
+                        vertical-alignment: center;
+                        text: root.value;
+                        color: text_color.transparentize(0.3);
+                        font-weight: 600;
+                    }
+                }
+                
+
+            if (is_edit_view):
+                HorizontalLayout{
+                    height: 40%;
+                    width: 100%;
+                    alignment: center;
+                    spacing: 2px;
+
+                    LineEdit {
+                        width: root.toggle_width * 0.5;
+                        height: 30%;
+                        placeholder-text: "change it";
+                        input-type: InputType.text;
+                        text <=> root.new_value_string;
+                    }
+
+                    MyButton {
+                        is_active: true;
+                        width: root.toggle_width * 0.3;
+                        height: 20%;
+                        text: root.new_value_string != "" ? "OK" : "X";
+                        text_color: white;
+                        background: root.new_value_string != "" ? #34C759 : #FF383C;
+                        on_click => { 
+                            root.is_edit_view = false; 
+                            if (root.new_value_string != "") {
+                                root.on_click(root.new_value_string.to-float());
+                            }
+                        }
+                    }
+                }
+        }
+    }
+}
+
+export component StringEdit inherits Rectangle{
+    in property <bool> fs_is_active;
+    in property <string> name;
+    in property <string> value;
+    in property <brush> text_color;
+    in-out property <string> guide;
+
+    in property <length> toggle_width;
+    in property <length> toggle_height;
+
+    in property <brush> toggle_color;
+
+    in-out property <bool> is_edit_view: false;
+    in-out property <string> new_value;
+
+    callback on_click(string);
+
+    width: root.toggle_width;
+    height: is_edit_view ? root.toggle_height*1.5 : root.toggle_height;
+    border-radius: 8px;
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: !fs_is_active;
+        clicked => { root.is_edit_view = true; }
+    }
+    background: ta.pressed ? toggle_color.transparentize(0.1) : ta.has-hover ? toggle_color.transparentize(0.2) : toggle_color;
+
+    VerticalLayout {
+        alignment: center; 
+        spacing: 2px;
+
+        /* NAME */
+        HorizontalLayout {
+            alignment: center;
+
+            Text {
+                vertical-alignment: center;
+                text: root.name;
+                color: text_color;
+                font-weight: 500;
+            }
+        }
+
+        /* VALUE */
+        if (!is_edit_view):
+            HorizontalLayout{
+                alignment: center;
+                
+                Text {
+                    vertical-alignment: center;
+                    text: root.value;
+                    color: text_color.transparentize(0.3);
+                    font-weight: 600;
+                }
+            }
+            
+
+        if (is_edit_view):
+            HorizontalLayout{
+                width: 100%;
+                height: 20%;
+                alignment: center;
+                spacing: 2px;
+
+                LineEdit {
+                    width: root.toggle_width * 0.5;
+                    height: 40%;
+                    placeholder-text: guide != "" ? guide : "change it";
+                    font-size: FontPalette.font-small;
+                    input-type: InputType.text;
+                    text <=> root.new_value;
+                }
+
+                MyButton {
+                    is_active: true;
+                    width: root.toggle_width * 0.3;
+                    height: 40%;
+                    text: root.new_value != "" ? "OK" : "X";
+                    text_color: white;
+                    background: root.new_value != "" ? #34C759 : #FF383C;
+                    on_click => { 
+                        root.is_edit_view = false; 
+                        if (root.new_value != "") {
+                            root.on_click(root.new_value);
+                        }
+                    }
+                }
+            }
+    }
+}
+
+/* WELCOME PAGE */
 export component WelcomePage inherits VerticalBox {
     padding: 20px;
     spacing: 10px;
@@ -84,32 +382,75 @@ export component WelcomePage inherits VerticalBox {
     Text {
         text: "Welcome to RemoteFileSystem!";
         color: black;
-        font-size: 20px;
+        font-size: FontPalette.font-large;
         font-weight: 700;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 }
 
+export component ServerUnavailable inherits Rectangle {
+    callback retry();
+    height: 100%;
+    width: 100%;
+    background: #FFBF00;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 40px;
+
+        Text {
+            text: "RemoteFileSystem";
+            color: black;
+            font-size: FontPalette.font-large;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        Text{
+            text: "Server is not available at the moment!";
+            font-size: FontPalette.font-large;
+            font-weight: 600;
+            color: #FF4E3B;
+            horizontal-alignment: center;
+        }
+
+        HorizontalLayout {
+            alignment: center; 
+
+            MyButton {
+                text: "RETRY";
+                text_color: black;
+                button_width: 100px;
+                button_height: 40px;
+                button_color: white;
+                is_active: true;
+                on_click => { root.retry(); }
+            }
+        }
+    }
+}
+
+/* LOGIN MANAGEMENT */
 export component LoginForm inherits Rectangle {
     in-out property <string> username;
     in-out property <string> password;
     
-    callback login_attempted(string, string);
+    callback login(string, string);
 
-    VerticalBox {
+    VerticalLayout {
         spacing: 20px;
         padding: 40px;
         alignment: center;
 
-        // Contenitore del Form con ombra (Rectangle bianco)
         Rectangle {
             background: rgb(0, 128, 255, 0.8);
             border-radius: 8px;
             drop-shadow-blur: 15px;
             drop-shadow-color: #ffffff3b;
-            width: 350px;
-            height: layout.preferred-height + 40px;
+            width: 50%;
+            height: 60%;
             
 
             layout := VerticalBox {
@@ -118,7 +459,7 @@ export component LoginForm inherits Rectangle {
 
                 Text {
                     text: "LOGIN";
-                    font-size: 22px;
+                    font-size: FontPalette.font-medium;
                     font-weight: 800;
                     horizontal-alignment: center;
                     color: white;
@@ -126,8 +467,10 @@ export component LoginForm inherits Rectangle {
 
                 // Campo Username
                 VerticalBox {
-                    padding: 0; spacing: 5px;
-                    Text { text: "Username"; color: white; font-size: 14px; }
+                    padding: 0; 
+                    spacing: 5px;
+
+                    Text { text: "Username"; color: white; font-size: FontPalette.font-normal; }
                     LineEdit {
                         placeholder-text: "username";
                         input-type: InputType.text;
@@ -137,8 +480,10 @@ export component LoginForm inherits Rectangle {
 
                 // Campo Password
                 VerticalBox {
-                    padding: 0; spacing: 5px;
-                    Text { text: "Password"; color: white; font-size: 14px; }
+                    padding: 0; 
+                    spacing: 5px;
+
+                    Text { text: "Password"; color: white; font-size: FontPalette.font-normal; }
                     LineEdit {
                         placeholder-text: "••••••••";
                         input-type: InputType.password;
@@ -156,7 +501,7 @@ export component LoginForm inherits Rectangle {
                     // Disabilita se i campi sono vuoti
                     enabled: root.username != "" && root.password != "";
                     clicked => {
-                        root.login_attempted(root.username, root.password);
+                        root.login(root.username, root.password);
                     }
                 }
             }
@@ -164,119 +509,865 @@ export component LoginForm inherits Rectangle {
     }
 }
 
+/* DASHBOARD CONTENT */
+// TO DO: add on_click actions
+export component Mount inherits Rectangle {
+    in property <bool> fs_is_active;
+
+    in property <MountSettings> mount_settings;
+    callback change_bool_property(BoolItem);
+    callback change_string_property(StringItem);
+
+    in-out property <bool> is_more_view: false;
+
+    in property <[ListItem]> bool_items: [
+        { name: "Allow Root", id_rust: "allow_root" },
+        { name: "Allow Other", id_rust: "allow_other" },
+        { name: "Read Only", id_rust: "read_only" },
+        { name: "Privileged", id_rust: "privileged" },
+    ];
+
+    background: white;
+    height: 60%;
+    width: 25%;
+    border-radius: 8px;
+
+    Rectangle {
+        /* HEADER */
+        Rectangle {
+            background: rgba(0, 128, 255, 0.5);
+            border-radius: 8px;
+            width: 100%;
+            height: 20%;
+            y: 0;
+
+            Text{
+                color: black;
+                font-weight: 600;
+                horizontal-alignment: center;
+                text: "MOUNTPOINT MANAGEMENT";
+            }
+        }
+
+        /* DEFAULT VIEW */
+        VerticalLayout {
+            visible: !root.is_more_view;
+            opacity: !root.is_more_view ? 1 : 0;
+
+            width: 100%;
+            height: 40%;
+            y: (parent.height - self.height) / 2;
+            alignment: center;
+
+            spacing: 10px;
+
+            HorizontalLayout {
+                alignment: center; 
+
+                StringEdit {
+                    toggle_width: 170px;
+                    toggle_height: 50px;
+                    fs_is_active: fs_is_active;
+                    name: "MOUNTPOINT";
+                    value: root.mount_settings.mount-point != "" ? root.mount_settings.mount-point : "click to choose";
+                    text_color: black;
+                    toggle_color: #ECF0F1;
+                    on_click(v) => { root.change_string_property({env: "mount", name: "", value: v, id_rust: "mountpoint"}); }
+                }
+            }
+
+            /* Button to access more settings before mounting */
+            HorizontalLayout {
+                alignment: center;
+
+                MyButton{
+                    button_width: 100px;
+                    button_height: 40px;
+                    button_color: #ECF0F1;
+                    text_color: black;
+                    text: "MORE";
+                    is_active: true;
+                    on_click => { root.is_more_view = true; }
+                }
+            }
+               
+        }
+
+        /* MORE VIEW */
+        VerticalLayout {
+            visible: root.is_more_view;
+            opacity: root.is_more_view ? 1 : 0;
+
+            width: 100%;
+            height: 40%;
+            y: (parent.height - self.height) / 2;
+            spacing: 10px;
+
+            for item in bool_items: HorizontalLayout{
+                    width: 100%;
+                    alignment: center;
+
+                    MyButton{
+                        button_width: 100px;
+                        button_height: 30px;
+                        button_color: root.get_value(item.id_rust) ? #34C759 : #FF383C;
+                        is_active: !root.fs_is_active;
+                        text_color: white;
+                        text: item.name;
+                        on_click => { root.change_bool_property({ env: "mount", name: item.name, value: !root.get_value(item.id_rust), id_rust: item.id_rust }); }
+                    }
+                }
+
+            HorizontalLayout{
+                    width: 100%;
+                    alignment: center;
+                MyButton{
+                    button_width: 100px;
+                    button_height: 40px;
+                    button_color: #ECF0F1;
+                    text_color: black;
+                    text: "BACK";
+                    is_active: true;
+                    on_click => { root.is_more_view = false; }
+                }
+            }
+        }
+    }
+
+    pure function get_value(id: string) -> bool {
+        if (id == "allow_root") { return mount_settings.allow_root; }
+        if (id == "allow_other") { return mount_settings.allow_other; }
+        if (id == "read_only") { return mount_settings.read_only; }
+        if (id == "privileged") { return mount_settings.privileged; }
+        return false;
+    }
+}
+
+export component Cache inherits Rectangle {
+    in property <bool> fs_is_active;
+
+    in property <CacheSettings> cache_settings;
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
+
+    background: white;
+    height: 60%;
+    width: 25%;
+    border-radius: 8px;
+
+    Rectangle {
+        /* HEADER */
+        Rectangle {
+            background: rgba(0, 128, 255, 0.5);
+            border-radius: 8px;
+            width: 100%;
+            height: 20%;
+            y: 0; 
+
+            Text{
+                color: black;
+                font-weight: 600;
+                horizontal-alignment: center;
+                text: "CACHE MANAGEMENT";
+            }
+        }
+
+        /* BUTTONS */
+        VerticalLayout{
+            width: 100%;
+            height: 80%;
+            y: 0.2 * parent.height;
+
+            ScrollView {
+                height: 100%;
+
+                VerticalLayout {
+                    spacing: 5px;
+                    alignment: center;
+
+                    /* cache_enabled */
+                    HorizontalLayout {
+                        alignment: center;
+
+                        MyButton{
+                            button_width: 150px;
+                            button_height: 40px;
+                            button_color: root.cache_settings.enabled ? #FF383C :  #34C759;
+                            is_active: !root.fs_is_active;
+                            text_color: white;
+                            text: root.cache_settings.enabled ? "DISABLE CACHE" : "ENABLE CACHE";
+                            on_click => { root.change_bool_property({env: "cache", name: "", value: !root.cache_settings.enabled, id_rust: "cache_enabled"}); }
+                        }
+                    }
+                    
+                    /* use_ttl -> bool */
+                    HorizontalLayout {
+                        alignment: center;
+
+                        MyButton{
+                            button_width: 100px;
+                            button_height: 30px;
+                            button_color: root.cache_settings.use_ttl ? #FF383C :  #34C759;
+                            is_active: !root.fs_is_active;
+                            text_color: white;
+                            text: root.cache_settings.use_ttl ? "DISABLE TTL" : "USE TTL";
+                            on_click => { root.change_bool_property({env: "cache", name: "", value: !root.cache_settings.use_ttl, id_rust: "use_ttl"}); }
+                        }   
+                    }
+                    
+                    /* ttl */
+                    if (root.cache_settings.enabled && root.cache_settings.use_ttl):
+                        HorizontalLayout{
+                            alignment: center;
+
+                            IntEdit {
+                                toggle_width: 100px;
+                                toggle_height: 30px;
+                                fs_is_active: fs_is_active;
+                                name: "TTL";
+                                value: root.cache_settings.ttl;
+                                text_color: black;
+                                toggle_color: #ECF0F1;
+                            }
+                        }
+                        
+                    /* policy */
+                    HorizontalLayout {
+                        alignment: center;
+
+                        StringEdit {
+                                toggle_width: 170px;
+                                toggle_height: 50px;
+                                fs_is_active: fs_is_active;
+                                name: "CACHE POLICY";
+                                value: root.cache_settings.policy;
+                                guide: "LRU | LFU";
+                                text_color: black;
+                                toggle_color: #ECF0F1;
+                                on_click => { root.change_string_property({env: "cache", name: "", value: " ", id_rust: "policy"}); }
+                            }
+                    }
+                    
+                    /* cache_max_size */
+                    HorizontalLayout {
+                        alignment: center; 
+
+                        IntEdit {
+                            toggle_width: 120px;
+                            toggle_height: 40px;
+                            fs_is_active: fs_is_active;
+                            name: "CACHE MAX SIZE";
+                            value: root.cache_settings.max-size;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                            on_click => { root.change_int_property({env: "cache", name: "", value: 1, id_rust: "max_size"}); }
+                        }
+                    }
+                    
+                    /* cache_capacity */
+                    HorizontalLayout {
+                        alignment: center; 
+
+                        IntEdit {
+                            toggle_width: 120px;
+                            toggle_height: 40px;
+                            fs_is_active: fs_is_active;
+                            name: "CACHE CAPACITY";
+                            value: root.cache_settings.capacity;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                            on_click => { root.change_int_property({env: "cache", name: "", value: 1, id_rust: "capacity"}); }
+                        }
+                    }
+                    
+                }
+            }
+        }
+
+    }
+}
+
+// TO DO: add on_click actions
+export component FS inherits Rectangle {
+    in property <bool> fs_is_active;
+    in property <FsSettings> fs_settings;
+    in property <LogSettings> log_settings;
+
+    in-out property <bool> is_log_view: false;
+    in-out property <bool> is_more_view: false;
+
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
+
+    background: white;
+    height: 60%;
+    width: 25%;
+    border-radius: 8px;
+
+    Rectangle {
+        // Header
+        Rectangle {
+            background: rgba(0, 128, 255, 0.5);
+            border-radius: 8px;
+            width: 100%;
+            height: 20%;
+            y: 0; 
+
+            Text{
+                color: black;
+                font-weight: 600;
+                horizontal-alignment: center;
+                text: "FS MANAGEMENT";
+            }
+        }
+
+        // Default card
+        VerticalLayout {
+            visible: (!root.is_more_view && !root.is_log_view);
+            opacity: (!root.is_more_view && !root.is_log_view) ? 1 : 0;
+            width: 100%;
+            height: 40%;
+            y: 0.25 * parent.height;
+            spacing: 10px; 
+
+            /* foreground */
+            HorizontalLayout{
+                    width: 100%;
+                    alignment: center;
+
+                MyButton{
+                    button_width: 180px;
+                    button_height: 40px;
+                    button_color: root.fs_settings.foreground ? #34C759 : #FF383C;
+                    is_active: !root.fs_is_active;
+                    text_color: white;
+                    text: "FOREGROUND EXECUTION";
+                }                    
+            }
+
+            /* xattr_enable */
+            HorizontalLayout{
+                    width: 100%;
+                    alignment: center;
+
+                MyButton{
+                    button_width: 100px;
+                    button_height: 40px;
+                    button_color: root.fs_settings.xattr-enable ? #FF383C : #34C759;
+                    is_active: !root.fs_is_active;
+                    text_color: white;
+                    text: root.fs_settings.xattr-enable ? "DISABLE XATTR" : "ENABLE XATTR";
+                }                    
+            }
+
+            /* MORE button */
+            HorizontalLayout{
+                    width: 100%;
+                    alignment: center;
+
+                MyButton{
+                    button_width: 100px;
+                    button_height: 40px;
+                    button_color: #ECF0F1;
+                    is_active: true;
+                    text_color: black;
+                    text: "MORE";
+                    on_click => { root.is_more_view = true;}
+                }                    
+            }
+
+            /* LOGGING button */
+            HorizontalLayout{
+                    width: 100%;
+                    alignment: center;
+
+                MyButton{
+                    button_width: 150px;
+                    button_height: 40px;
+                    button_color: #ECF0F1;
+                    is_active: true;
+                    text_color: black;
+                    text: "LOGGING SETTINGS";
+                    on_click => { root.is_log_view = true;}
+                }                    
+            }
+        }
+
+        // MORE card
+        VerticalLayout {
+            visible: root.is_more_view;
+            opacity: root.is_more_view ? 1 : 0;
+            width: 100%;
+            height: 80%;
+            y: 0.25 * parent.height;
+
+            ScrollView {
+                height: 100%;
+
+                VerticalLayout {
+                    spacing: 10px; 
+
+                    /* server_url */
+                    HorizontalLayout{
+                        alignment: center;
+
+                        StringEdit {
+                            toggle_width: 170px;
+                            toggle_height: 50px;
+                            fs_is_active: fs_is_active;
+                            name: "SERVER URL";
+                            value: root.fs_settings.server-url != "" ? root.fs_settings.server-url : "click to choose";
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* page_size */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        IntEdit {
+                            toggle_width: 100px;
+                            toggle_height: 30px;
+                            fs_is_active: fs_is_active;
+                            name: "PAGE SIZE";
+                            value: root.fs_settings.page-size;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* max_pages */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        IntEdit {
+                            toggle_width: 100px;
+                            toggle_height: 30px;
+                            fs_is_active: fs_is_active;
+                            name: "MAX PAGES";
+                            value: root.fs_settings.max-pages;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* buffer_size */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        IntEdit {
+                            toggle_width: 100px;
+                            toggle_height: 30px;
+                            fs_is_active: fs_is_active;
+                            name: "BUFFER SIZE";
+                            value: root.fs_settings.buffer-size;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* BACK button */
+                    HorizontalLayout{
+                            width: 100%;
+                            alignment: center;
+
+                        MyButton{
+                            button_width: 150px;
+                            button_height: 40px;
+                            button_color: #ECF0F1;
+                            is_active: true;
+                            text_color: black;
+                            text: "BACK";
+                            on_click => { root.is_more_view = false;}
+                        }                    
+                    }
+                }
+            }
+        }
+
+        // LOGGING SETTING
+        VerticalLayout {
+            visible: root.is_log_view;
+            opacity: root.is_log_view ? 1 : 0;
+            width: 100%;
+            height: 80%;
+            y: 0.25 * parent.height;
+
+            ScrollView {
+                height: 100%;
+
+                VerticalLayout {
+                    spacing: 10px; 
+
+                    /* log_targets -> removed */
+
+                    /* log_format */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        StringEdit {
+                            toggle_width: 170px;
+                            toggle_height: 50px;
+                            fs_is_active: fs_is_active;
+                            name: "LOG FORMAT";
+                            value: root.log_settings.format;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* log_level */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        StringEdit {
+                            toggle_width: 170px;
+                            toggle_height: 50px;
+                            fs_is_active: fs_is_active;
+                            name: "LOG LEVEL";
+                            value: root.log_settings.level;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* log_dir */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        StringEdit {
+                            toggle_width: 170px;
+                            toggle_height: 50px;
+                            fs_is_active: fs_is_active;
+                            name: "LOG DIRECTORY";
+                            value: root.log_settings.dir;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* log_file */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        StringEdit {
+                            toggle_width: 170px;
+                            toggle_height: 50px;
+                            fs_is_active: fs_is_active;
+                            name: "LOG FILE";
+                            value: root.log_settings.file;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* log_rotation */
+                    HorizontalLayout{
+                        width: 100%;
+                        alignment: center;
+
+                        StringEdit {
+                            toggle_width: 170px;
+                            toggle_height: 50px;
+                            fs_is_active: fs_is_active;
+                            name: "LOG ROTATION";
+                            value: root.log_settings.rotation;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                        }
+                    }
+
+                    /* BACK button */
+                    HorizontalLayout{
+                            width: 100%;
+                            alignment: center;
+
+                        MyButton{
+                            button_width: 150px;
+                            button_height: 40px;
+                            button_color: #ECF0F1;
+                            is_active: true;
+                            text_color: black;
+                            text: "BACK";
+                            on_click => { root.is_log_view = false;}
+                        }                    
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+/* HOME */
 export component Home inherits Rectangle {
     in property <Status> status;
-    callback login_attempted(string, string);
+    in property <bool> fs_is_active;
 
-    height: 600px;
-    width: 800px;
+    callback login(string, string);
+    callback logout();
+    callback mount();
+    callback unmount();
+
+    callback select_mountpoint();
+
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
+
+    in property <MountSettings> mount_settings;
+    in property <CacheSettings> cache_settings;
+    in property <FsSettings> fs_settings;
+    in property <LogSettings> log_settings;
+
+    height: 100%;
+    width: 100%;
 
     VerticalBox {
         padding: 0;
         spacing: 0;
 
-        // --- HEADER ---
+        /* --- HEADER --- */
         Rectangle {
-            height: 60px;
-            background: rgba(0, 128, 255, 1);
-            
-            // Titolo centrato
-            Text {
-                text: "Remote FS";
-                color: white;
-                font-size: 18px;
-                font-weight: 700;
-                vertical-alignment: center;
-                horizontal-alignment: center;
-            }
+            height: 10%;
+            background: #0080FF;
 
-            // Bottone a destra
             HorizontalLayout {
-                padding-right: 15px;
-                height: 40px;
-                alignment: end;
+                padding: 15px;
+                height: 100%;
+                alignment: LayoutAlignment.end;
+            
+                // Titolo centrale
+                Rectangle {
+                    width: 33%;
+                    Text {
+                        text: "Remote FS";
+                        color: white;
+                        font-size: FontPalette.font-medium;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    } 
+                } 
+                
+                // Bottone a destra
+                HorizontalLayout {
+                    width: 33%;
+                    alignment: LayoutAlignment.end;
+                    padding-right: 80px;
 
-                if (status == Status.LoggedIn):
-                    Button {
-                        text: "LOGOUT";
-                        width: 80px;
-                    }
+                    if (status == Status.LoggedIn):
+                        VerticalLayout{
+                            alignment: center;
+
+                            MyButton{
+                                text: "LOGOUT";
+                                text_color: white;
+                                button_color: #ff383bd4;
+                                button_width: 100px;
+                                button_height: 40px;
+                                is_active: true;
+                                on_click => { root.logout(); }
+                            }
+                        }
+                }
             }
         }
 
-        // --- CONTENT ---
+        /* --- CONTENT --- */
         Rectangle {
             background: #ecf0f1;
-            // 'vertical-stretch: 1' dice a Slint di occupare tutto lo spazio disponibile
-            vertical-stretch: 1; 
+            height: 80%; 
 
-            HorizontalLayout {
+            /* NO LOGIN */
+            HorizontalLayout{
+                visible: status == Status.NotLoggedIn;
+                opacity: status == Status.NotLoggedIn ? 1 : 0;
+                animate opacity { duration: 500ms; easing: ease-in-out; }
+
                 alignment: center;
 
-                if (status == Status.NotLoggedIn):
-                    LoginForm{ login_attempted(u, p) => {root.login_attempted(u, p);} }
-                if (status == Status.LoggedIn): 
-                    Text {
-                        text: "DASHBOARD";
-                        color: #333;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
+                LoginForm{ login(u, p) => {root.login(u, p);} }
             }
-            
-        }
 
-        // --- FOOTER ---
+            /* MANAGEMENT DASHBOARD */
+            VerticalLayout {
+                visible: status == Status.LoggedIn;
+                opacity: status == Status.LoggedIn ? 1 : 0;
+                animate opacity { duration: 500ms; easing: ease-in-out; }
+
+                alignment: center;
+                spacing: 20px;
+
+                HorizontalLayout{
+                    spacing: 40px; 
+                    alignment: center;
+
+                    Mount { 
+                        fs_is_active: fs_is_active;
+                        mount_settings: root.mount_settings;
+
+                        change_string_property(s) => { root.change_string_property(s); }
+                        change_bool_property(b) => { root.change_bool_property(b); }
+                    }
+
+                    Cache {
+                        fs_is_active: root.fs_is_active;
+                        cache_settings: root.cache_settings;
+
+                        change_bool_property(b) => { root.change_bool_property(b); }
+                        change_int_property(i) => { root.change_int_property(i); }
+                        change_string_property(s) => { root.change_string_property(s); }
+                    }
+
+                    FS{
+                        fs_is_active: root.fs_is_active;
+                        fs_settings: root.fs_settings;
+                        log_settings: root.log_settings;
+
+                        change_bool_property(b) => { root.change_bool_property(b); }
+                        change_int_property(i) => { root.change_int_property(i); }
+                        change_string_property(s) => { root.change_string_property(s); }
+                    }
+                }
+
+                /* CENTRAL BUTTON */
+                HorizontalLayout {
+                    height: 10%;
+                    alignment: center;
+
+                    if (root.fs_is_active):
+                        MyButton{
+                            text: "UNMOUNT";
+                            text_color: white;
+                            button_color: #FF383C;
+                            button_width: 100px;
+                            button_height: 40px;
+                            on_click => { root.unmount();}
+                        }
+                    if (!root.fs_is_active):
+                        MyButton{
+                            text: "MOUNT";
+                            text_color: white;
+                            button_color: #34C759;
+                            button_width: 100px;
+                            button_height: 40px;
+                            is_active: root.mount_settings.mount_point != "";
+                            on_click => {root.mount();}
+                        }
+                }
+            }
+        }
+            
+        /* --- FOOTER --- */
         Rectangle {
-            height: 60px;
+            height: 10%;
             background: rgba(0, 128, 255, 0.5);
             
             Text {
                 text: "Politecnico di Torino";
-                font-size: 12px;
-                color: #ffffff;
+                font-size: FontPalette.font-small;
+                color: white;
                 horizontal-alignment: center;
             }
         }
     }
 }
 
+/* COMPLETE APPLICATION */
 export component App inherits Window {
-    background: #ffffff;
-    height: 600px;
-    width: 800px;
+    background: white;
+    min-height: 600px;
+    min-width: 800px;
     title: "RemoteFileSystem";
+    
+    changed height => {
+        FontPalette.scale = round(root.height / 800px);
+    }
 
-    callback login_attempted(string, string);
+    callback login(string, string);
+    callback retry();
+    callback logout();
+    callback mount();
+    callback unmount();
 
     in property <ViewState> active_view: ViewState.Welcome;
     in property <Status> status: Status.NotLoggedIn;
     in-out property <bool> is_loading: false;
+    in-out property <bool> server_unavailable: false;
     in-out property <string> error_message: "";
+    in-out property <bool> fs_is_active: false;
 
-    if (active_view == ViewState.Welcome): 
-        WelcomePage{
-            opacity: active_view == ViewState.Welcome ? 1 : 0;
-            animate opacity { duration: 1000ms; easing: ease-in-out; }
-        }
+    in property <MountSettings> mount_settings;
 
-    if (active_view == ViewState.Home): 
-        Home {
-            opacity: active_view == ViewState.Home ? 1 : 0;
-            animate opacity { duration: 1000ms; easing: ease-in-out; }
+    in property <CacheSettings> cache_settings;
 
-            status: status;
-            login_attempted(u, p) => { 
-                is_loading = true;
-                root.login_attempted(u, p); 
-            }
-        }
+    in property <FsSettings> fs_settings;
+    in property <LogSettings> log_settings;
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
 
-    if (error_message != ""):
-        Error { 
-            error: error_message; 
-            close => {error_message = ""};
-        }
+    
+    WelcomePage{
+        visible: active_view == ViewState.Welcome;
+        opacity: active_view == ViewState.Welcome ? 1 : 0;
+        animate opacity { duration: 500ms; easing: ease-in-out; }
+    }
+
+    Home {
+        visible: active_view == ViewState.Home;
+        opacity: active_view == ViewState.Home ? 1 : 0;
+        animate opacity { duration: 500ms; easing: ease-in-out; }
+
+        status: status;
+        fs_is_active: fs_is_active;
+        login(u, p) => { root.is_loading = true; root.login(u, p); }
+        logout => { root.is_loading = true; root.logout(); }
+        
+        mount => { root.is_loading = true; root.mount(); }
+        unmount => { root.is_loading = true; root.unmount(); }
+
+        change_bool_property(b) => { root.is_loading = true; root.change_bool_property(b); }
+        change_int_property(i) => { root.is_loading = true; root.change_int_property(i); }
+        change_string_property(s) => { root.is_loading = true; root.change_string_property(s); }
+
+        /* Mountpoint card */
+        mount_settings: root.mount_settings;
+
+        /* Cache card */
+        cache_settings: root.cache_settings;
+
+        /* Fs card */
+        fs_settings: root.fs_settings;
+        log_settings: root.log_settings;
+    }
+
+    ServerUnavailable{
+        visible: server_unavailable;
+        opacity: server_unavailable ? 1 : 0;
+        animate opacity { duration: 500ms; easing: ease-in-out; }
+
+        retry => { root.is_loading = true; root.retry() };
+    }
+
+    Error { 
+        visible: error_message != "";
+        opacity: error_message != "" ? 1 : 0;
+        
+        error: error_message; 
+        close => {error_message = ""};
+    }
 
     if (is_loading):
         Loading {}
