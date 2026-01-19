@@ -163,7 +163,7 @@ pub fn start<R: RemoteStorage + Debug + 'static>(config: &Config, rc: R) -> Resu
     }
 }
 
-#[cfg(unix)]
+
 async fn perform_login<R: RemoteStorage + Debug + 'static>(
     rc: &R,
     config: &Config,
@@ -209,6 +209,7 @@ async fn perform_login<R: RemoteStorage + Debug + 'static>(
     )))
 }
 
+#[cfg(unix)]
 pub async fn run_async<R: RemoteStorage + Debug + 'static>(
     config: Config,
     rc: R,
