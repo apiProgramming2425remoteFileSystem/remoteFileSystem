@@ -4,10 +4,11 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_test::assert_ok;
 
-use client::cache::CachePolicy;
-use client::config::Config;
+use client::config::RfsConfig;
+use client::config::cache::CachePolicy;
+use client::config::logging::{LogFormat, LogLevel, LogTargets};
 use client::daemon::Daemon;
-use client::logging::{LogFormat, LogLevel, LogTargets, Logging};
+use client::logging::Logging;
 use client::network::MockRemoteStorage;
 use client::run_async;
 
@@ -47,11 +48,11 @@ pub struct AppController {
 
 impl AppController {
     /// Starts the client application with the provided configuration and mock storage.
-    pub async fn start(config: Config, mock: MockRemoteStorage) -> Result<Self> {
-        register_fuse_panic_hook(config.mountpoint.to_path_buf());
+    pub async fn start(config: RfsConfig, mock: MockRemoteStorage) -> Result<Self> {
+        register_fuse_panic_hook(config.mount_point.to_path_buf());
 
         // Initialize logging based on config
-        let _logger = Logging::from(&config)?;
+        let _logger = Logging::from(&config.logging)?;
 
         // Initialize the daemon in foreground mode to avoid forking the process
         let daemon = Daemon::new().foreground(true);
@@ -64,7 +65,7 @@ impl AppController {
         // This allows the test logic to run concurrently in the main thread.
         let app_handle = tokio::spawn(async move {
             // Start the client with the mock
-            run_async(config, mock, daemon_handle)
+            let x = run_async(config, mock, daemon_handle)
                 .await
                 .expect("Failed to run async client");
 
@@ -109,29 +110,10 @@ async fn wait_ready(wait_time: Duration) -> Result<()> {
     Ok(())
 }
 
-pub fn get_config(mountpoint: &Path) -> Config {
-    // let config = Config {
-    //     mountpoint: mount_path.clone(),
-    //     ..Default::default()
-    // };
-
-    Config {
-        mountpoint: mountpoint.to_path_buf(),
-        server_url: "http://ignore-me".to_string(),
+pub fn get_config(mountpoint: &Path) -> RfsConfig {
+    RfsConfig {
+        mount_point: mountpoint.to_path_buf(),
         username: Some("test_user".to_string()),
-        cache_enabled: true,
-        cache_capacity: 50,
-        cache_use_ttl: true,
-        cache_ttl_seconds: 300,
-        cache_policy: CachePolicy::Lru,
-        cache_max_size: 100,
-        xattributes_enabled: true,
-        log_targets: vec![LogTargets::Console],
-        log_format: LogFormat::Pretty,
-        log_level: LogLevel::Debug,
-        log_dir: None,
-        log_file: None,
-        log_rotation: None,
-        foreground: true,
+        ..Default::default()
     }
 }

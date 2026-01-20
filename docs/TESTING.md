@@ -10,8 +10,6 @@ Before running the tests, ensure you have the necessary system libraries (for FU
 
 You need FUSE headers installed on your machine.
 
-You need FUSE headers installed on your machine.
-
 - **Ubuntu/Debian:** `sudo apt install libfuse3-dev fuse3`
 - **Fedora:** `sudo dnf install fuse3-devel`
 <!-- - **macOS:** Requires [macFUSE](https://osxfuse.github.io/). -->
@@ -242,7 +240,9 @@ The `src/` modules provide the infrastructure to:
 #[test]
 fn test_end_to_end_upload() -> Result<()> {
     // Setup system using the Builder pattern
-    let mut sys_build = setup()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+
 
     // Build the context (compiles binaries, spawns server, spawns client, waits for mount)
     let ctx = sys_build.build()?;

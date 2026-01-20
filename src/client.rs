@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow};
 
 use crate::binary::{BinaryBuilder, get_bin};
-use crate::{LogStrategy, apply_logging};
+use crate::{DEFAULT_PASS, DEFAULT_USER, LogStrategy, apply_logging};
 
 // Cache the path of the client binary
 static CLIENT_BIN: OnceLock<PathBuf> = OnceLock::new();
@@ -34,11 +34,12 @@ impl ClientProcess {
 
         let mut cmd = Command::new(bin);
 
-        cmd.arg("--mountpoint").arg(mount_point);
+        cmd.arg("run");
+        cmd.arg("--mount-point").arg(mount_point);
         cmd.arg("--server-url").arg(server_url);
-        cmd.arg("--username").arg("test_user");
-        cmd.env("PASSWORD", "test_password");
         cmd.arg("--foreground");
+        cmd.arg("--username").arg(DEFAULT_USER);
+        cmd.env("RFS__PASSWORD", DEFAULT_PASS);
 
         builder.apply_to(&mut cmd);
         apply_logging(&mut cmd, log_strategy, "client");
@@ -68,14 +69,14 @@ impl Drop for ClientProcess {
             return;
         }
 
-        // Logica unmount graceful vista prima
+        self.child.kill().expect("Failed to kill client process");
+        self.child.wait().expect("Failed to wait on client process");
+
+        // Logic to unmount gracefully the FUSE filesystem
         #[cfg(unix)]
         Command::new("umount")
             .arg(&self.mount_point)
             .status()
             .expect("Failed to unmount");
-
-        self.child.kill().expect("Failed to kill client process");
-        self.child.wait().expect("Failed to wait on client process");
     }
 }

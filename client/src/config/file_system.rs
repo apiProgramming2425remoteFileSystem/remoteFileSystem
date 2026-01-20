@@ -29,7 +29,7 @@ impl ConfigModule for FsConfig {}
 #[derive(Debug, Clone, Parser, Serialize)]
 pub struct FsCliArgs {
     /// Disable xattributes
-    #[arg(long = "no-xattr", num_args = 0, default_missing_value = "true")]
+    #[arg(long = "no-xattr", num_args = 0, default_missing_value = "false")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub xattr_enable: Option<bool>,
 

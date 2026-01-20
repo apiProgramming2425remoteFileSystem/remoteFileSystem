@@ -1,17 +1,16 @@
 use anyhow::{Result, anyhow};
 use std::fs;
-use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
 mod common;
-use common::{TEST_LOGS_DIR, setup};
+use common::*;
 
 #[test]
 fn test_correct_lifecycle() -> Result<()> {
     // Setup system
-    let mut sys_build = setup()?;
-    sys_build.log_to_file(Path::new(TEST_LOGS_DIR));
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
 
     let ctx = sys_build.build()?;
 
@@ -34,7 +33,9 @@ fn test_correct_lifecycle() -> Result<()> {
 #[test]
 fn test_data_propagation_to_server_disk() -> Result<()> {
     // Setup system
-    let ctx = setup().expect("Failed to setup system builder").build()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+    let ctx = sys_build.build()?;
 
     let filename = "integration_check.txt";
     let content = "Data traveling through the pipeline";
@@ -68,14 +69,14 @@ fn test_data_propagation_to_server_disk() -> Result<()> {
 #[test]
 fn test_cache_serves_content_when_server_is_dead() -> Result<()> {
     // Setup with explicit Caching Enabled
-    let mut sys_build = setup()?;
+    let test_env = TestEnvironment::new()?;
+    let mut sys_build = test_env.setup()?;
 
-    let cache_ttl_seconds = 5;
+    let cache_ttl_seconds = 3;
 
     sys_build
         .client
-        .arg("--cache-enabled")
-        .arg_pair("--cache-ttl-seconds", &cache_ttl_seconds.to_string());
+        .arg_pair("--cache-ttl", &cache_ttl_seconds.to_string());
 
     let mut ctx = sys_build.build()?;
 
@@ -123,7 +124,8 @@ fn test_cache_serves_content_when_server_is_dead() -> Result<()> {
 fn test_client_sees_existing_files_on_startup() -> Result<()> {
     // Prepare the SERVER STATE separately first
     // We start a server, put a file in its root, then start the client later.
-    let mut sys_build = setup()?;
+    let test_env = TestEnvironment::new()?;
+    let mut sys_build = test_env.setup()?;
     sys_build.no_client();
 
     let ctx_srv = sys_build.build()?;
@@ -140,7 +142,7 @@ fn test_client_sees_existing_files_on_startup() -> Result<()> {
 
     // Now Start the Client MANUALLY
     // We attach it to the existing server context
-    let mut sys_build = setup()?;
+    let mut sys_build = test_env.setup()?;
     sys_build.no_server().host("localhost").port(8080); // Match the server host and port
 
     let ctx_clt = sys_build.build()?;
@@ -166,7 +168,9 @@ fn test_client_sees_existing_files_on_startup() -> Result<()> {
 
 #[test]
 fn test_data_is_persisted_on_server_disk() -> Result<()> {
-    let ctx = setup()?.build()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+    let ctx = sys_build.build()?;
 
     // Path on the Client (Virtual FUSE mount)
     let Some(clt_mnt) = ctx.mount_point() else {

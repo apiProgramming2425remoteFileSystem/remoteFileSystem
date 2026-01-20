@@ -8,30 +8,40 @@ use reqwest_retry::policies::ExponentialBackoff;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant, sleep};
 
-use server::config::Config;
-use server::logging::{LogFormat, LogLevel, LogTargets, Logging};
+use server::config::RfsConfig;
+use server::config::logging::{LogFormat, LogLevel, LogTargets};
+use server::db::DB;
+use server::logging::Logging;
 use server::run_server;
 
+const DB_PATH: &str = "database/test-db.sqlite";
+
 /// Helper function to bootstrap the application in a background task.
-pub async fn start_server_app(mut config: Config) -> Result<(Logging, HttpClient, JoinHandle<()>)> {
+pub async fn start_server_app(
+    mut config: RfsConfig,
+) -> Result<(Logging, HttpClient, JoinHandle<()>)> {
     // Initialize logging based on config
-    let log = Logging::from(&config)?;
+    let log = Logging::from(&config.logging)?;
 
     let server_host = config.server_host.clone();
     let filesystem_root = config.filesystem_root.clone();
 
-    let lst = tokio::net::TcpListener::bind(format!("{}:{}", &server_host, config.port)).await?;
+    let lst =
+        tokio::net::TcpListener::bind(format!("{}:{}", &server_host, config.server_port)).await?;
     let local_addr = lst.local_addr()?;
-    config.port = local_addr.port();
+    config.server_port = local_addr.port();
     println!("Test server will start at {}", local_addr);
 
     let listener = lst.into_std()?;
+
+    // Initialize database connection
+    let db_conn = DB::open_connection(DB_PATH).await?;
 
     // Spawn the core application logic in a separate Tokio task.
     // This allows the test logic to run concurrently in the main thread.
     let app_handle = tokio::spawn(async move {
         // Start the server
-        let server = run_server(listener, &filesystem_root)
+        let server = run_server(listener, &filesystem_root, db_conn)
             .await
             .expect("Failed to run async server");
 
@@ -44,7 +54,7 @@ pub async fn start_server_app(mut config: Config) -> Result<(Logging, HttpClient
     // Wait a bit for the app to start
     let http_client = HttpClient::new(&format!(
         "http://{}:{}/api/v1",
-        &config.server_host, config.port
+        &config.server_host, config.server_port
     ));
 
     Ok((log, http_client, app_handle))
@@ -117,21 +127,11 @@ impl HttpClient {
     }
 }
 
-pub fn get_config(fs_root: &Path) -> Config {
-    // let config = Config {
-    //     mountpoint: mount_path.clone(),
-    //     ..Default::default()
-    // };
-
-    Config {
+pub fn get_config(fs_root: &Path) -> RfsConfig {
+    RfsConfig {
         server_host: "localhost".to_string(),
-        port: 0, // Use port 0 to let the OS assign an available port
+        server_port: 0, // Use port 0 to let the OS assign an available port
         filesystem_root: fs_root.to_path_buf(),
-        log_targets: vec![LogTargets::Console],
-        log_format: LogFormat::Pretty,
-        log_level: LogLevel::Debug,
-        log_dir: None,
-        log_file: None,
-        log_rotation: None,
+        ..Default::default()
     }
 }

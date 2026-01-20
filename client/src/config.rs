@@ -95,7 +95,7 @@ pub struct RfsCliArgs {
     pub server_url: Option<String>,
 
     /// Run the application in the foreground without daemonizing.
-    #[arg(short, long, num_args = 0, default_missing_value = "false")]
+    #[arg(short, long, num_args = 0, default_missing_value = "true")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub foreground: Option<bool>,
 

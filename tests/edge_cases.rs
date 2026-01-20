@@ -2,11 +2,13 @@ use anyhow::{Result, anyhow};
 use std::fs;
 
 mod common;
-use common::setup;
+use common::*;
 
 #[test]
 fn test_special_characters_in_filenames() -> Result<()> {
-    let ctx = setup()?.build()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+    let ctx = sys_build.build()?;
 
     // List of tricky filenames
     let filenames = vec![
@@ -39,11 +41,18 @@ fn test_special_characters_in_filenames() -> Result<()> {
 
 #[test]
 fn test_large_file_transfer() -> Result<()> {
-    let ctx = setup()?.build()?;
+    let test_env = TestEnvironment::new()?;
+    let mut sys_build = test_env.setup()?;
 
     // Generate a 5MB payload
     // Ensure this doesn't exceed your cache size if testing with strict limits
     let size = 5 * 1024 * 1024;
+    sys_build
+        .client
+        .arg_pair("--cache-max-size", &size.to_string());
+
+    let ctx = sys_build.build()?;
+
     let large_data = vec![65u8; size]; // 5MB of 'A's
 
     let path = ctx
@@ -67,7 +76,10 @@ fn test_large_file_transfer() -> Result<()> {
 #[test]
 fn test_directory_depth_limit() -> Result<()> {
     // Tests if the system handles deep recursion gracefully
-    let ctx = setup()?.build()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+    let ctx = sys_build.build()?;
+
     let mut current_path = ctx
         .mount_point()
         .expect("Client context missing")

@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use crate::binary::{BinaryBuilder, get_bin};
-use crate::{LogStrategy, apply_logging};
+use crate::{DEFAULT_GID, DEFAULT_PASS, DEFAULT_UID, DEFAULT_USER, LogStrategy, apply_logging};
 
 // Cache the path of the server binary
 static SERVER_BIN: OnceLock<PathBuf> = OnceLock::new();
@@ -24,21 +24,33 @@ impl ServerProcess {
         host: &str,
         port: u16,
         fs_root: &Path,
+        db_path: &Path,
         log_strategy: &LogStrategy,
     ) -> Result<Self> {
-        std::fs::create_dir_all(fs_root)?;
-
         let bin = SERVER_BIN.get_or_init(|| {
             println!("Building Server binary...");
             get_bin("server")
         });
 
+        // First, create the default user
         let mut cmd = Command::new(bin);
+        cmd.arg("--database-path").arg(db_path);
+        cmd.arg("user-create");
+        cmd.arg("-u").arg(DEFAULT_USER);
+        cmd.arg("-p").arg(DEFAULT_PASS);
+        cmd.arg("--uid").arg(DEFAULT_UID);
+        cmd.arg("--gid").arg(DEFAULT_GID);
 
+        cmd.status()
+            .map_err(|e| anyhow!("Failed to create default user: {}", e))?;
+        apply_logging(&mut cmd, log_strategy, "server");
+
+        cmd = Command::new(bin);
+        cmd.arg("--database-path").arg(db_path);
+        cmd.arg("run");
         cmd.arg("--server-host").arg(host);
-        cmd.arg("--port").arg(port.to_string());
+        cmd.arg("--server-port").arg(port.to_string());
         cmd.arg("--filesystem-root").arg(fs_root);
-
         builder.apply_to(&mut cmd);
         apply_logging(&mut cmd, log_strategy, "server");
 

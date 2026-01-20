@@ -135,7 +135,6 @@ fn start_windows<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) 
     })?;
 
     drop(runtime);
-    
 
     mount_windows(rc, config)?;
 
@@ -181,7 +180,7 @@ async fn perform_login<R: RemoteStorage + Debug + 'static>(
             input.trim().to_string()
         };
 
-        let password = match std::env::var("PASSWORD") {
+        let password = match std::env::var("RFS__PASSWORD") {
             Ok(pwd) => pwd,
             Err(_) => {
                 println!("Password: ");

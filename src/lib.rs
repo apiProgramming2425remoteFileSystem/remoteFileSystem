@@ -13,7 +13,12 @@ use crate::binary::BinaryBuilder;
 use crate::client::ClientProcess;
 use crate::server::ServerProcess;
 
-pub const WAIT_TIMEOUT_SECS: u64 = 3;
+pub const WAIT_TIMEOUT_SECS: u64 = 1;
+pub const DEFAULT_DB_PATH: &str = "database/remote_fs_db.sqlite";
+pub const DEFAULT_USER: &str = "test_user";
+pub const DEFAULT_PASS: &str = "test_password";
+pub const DEFAULT_UID: &str = "1";
+pub const DEFAULT_GID: &str = "1";
 
 /// Holds the running processes.
 /// When it is destroyed (Drop), it automatically kills the client and server and unmounts the directory.
@@ -78,12 +83,20 @@ pub struct SystemBuilder {
     port: u16,
     /// Server root directory
     server_root: PathBuf,
+    /// Path to the database file
+    db_path: PathBuf,
     /// Mount point for the client
     mount_point: PathBuf,
 }
 
 impl SystemBuilder {
-    pub fn new(host: &str, port: u16, server_root: &Path, mount_point: &Path) -> Self {
+    pub fn new(
+        host: &str,
+        port: u16,
+        server_root: &Path,
+        db_path: &Path,
+        mount_point: &Path,
+    ) -> Self {
         Self {
             server: BinaryBuilder::new(),
             client: BinaryBuilder::new(),
@@ -91,6 +104,7 @@ impl SystemBuilder {
             host: host.to_string(),
             port,
             server_root: PathBuf::from(server_root),
+            db_path: PathBuf::from(db_path),
             mount_point: PathBuf::from(mount_point),
         }
     }
@@ -145,6 +159,7 @@ impl SystemBuilder {
                 &self.host,
                 self.port,
                 &self.server_root,
+                &self.db_path,
                 &self.log_strategy,
             )?)
         } else {
@@ -205,6 +220,7 @@ impl Default for SystemBuilder {
             host: "localhost".to_string(),
             port: 8080,
             server_root: PathBuf::from("/remote-fs"),
+            db_path: PathBuf::from(DEFAULT_DB_PATH),
             mount_point: PathBuf::from("/mnt/remote-fs"),
         }
     }
@@ -225,24 +241,29 @@ pub fn apply_logging(cmd: &mut Command, log_strategy: &LogStrategy, binary_name:
             cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
         }
         LogStrategy::ToFile(path) => {
-            path.file_name().expect("Invalid log file path");
-
             // Extract directory for LOG_DIR env var
-            let log_dir = match path.parent() {
-                Some(parent_log_path) => PathBuf::from(parent_log_path),
-                None => PathBuf::from("."),
+            let (log_dir, log_file_name) = match path.extension() {
+                Some(_) => (
+                    path.parent().expect("Invalid log file path"),
+                    PathBuf::from(path.file_stem().expect("Invalid log file name")),
+                ),
+                None => (path.as_path(), PathBuf::from(format!("{binary_name}_log"))),
             };
 
-            // Extract file name for LOG_FILE env var
-            let log_file_name = match path.file_name() {
-                Some(file_name) => PathBuf::from(file_name),
-                None => PathBuf::from(binary_name).join("_log.log"),
-            };
+            if !path.exists() {
+                std::fs::create_dir_all(log_dir).expect("Could not create log directory");
+            }
+
+            println!("Log directory for {}: {:?}", binary_name, log_dir);
+            println!("Log file name for {}: {:?}", binary_name, log_file_name);
 
             // Pass the CLI arguments to your application
             cmd.arg("--log-targets").arg("file");
-            cmd.env("LOG_DIR", log_dir);
-            cmd.env("LOG_FILE", log_file_name);
+            cmd.arg("--log-dir").arg(log_dir);
+            cmd.arg("--log-file").arg(log_file_name);
+            // cmd.arg("--log-format").arg("pretty");
+            // cmd.arg("--log-level").arg("debug");
+
             // Stdio Management for File Logging, inherit the rest
             cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
         }

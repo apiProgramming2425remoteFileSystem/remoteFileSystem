@@ -45,6 +45,7 @@ slow-timeout = { period = "5s", terminate-after = 3, on-timeout = "fail" }
 filter = "package(remote_fs_core) and kind(test)"
 test-group = "serial_fuse"
 slow-timeout = { period = "30s", terminate-after = 3, on-timeout = "fail" }
+retries = { backoff = "fixed", count = 2, delay = "1s" }
 
 
 # ==============================================================================

@@ -28,7 +28,7 @@ test-int = "nextest run --features int-tests --profile integration"
 # =========================================================
 # Uses the [profile.e2e] defined in nextest.toml
 # Includes automatic retries and tuned timeouts
-test-e2e = "nextest run --profile e2e"
+test-e2e = "nextest run --features int-tests --profile e2e"
 
 # =========================================================
 #  DEBUGGING COMMANDS

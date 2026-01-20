@@ -2,12 +2,14 @@ use anyhow::{Result, anyhow};
 use std::fs;
 
 mod common;
-use common::setup;
+use common::*;
 
 #[test]
 fn test_write_and_read_file() -> Result<()> {
     // Start the system with default configuration
-    let ctx = setup()?.build()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+    let ctx = sys_build.build()?;
 
     let file_path = ctx
         .mount_point()
@@ -30,7 +32,9 @@ fn test_write_and_read_file() -> Result<()> {
 
 #[test]
 fn test_create_directory_structure() -> Result<()> {
-    let ctx = setup()?.build()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+    let ctx = sys_build.build()?;
 
     // Define a nested structure: /parent/child/data.json
     let dir_path = ctx
@@ -56,7 +60,9 @@ fn test_create_directory_structure() -> Result<()> {
 
 #[test]
 fn test_file_crud_lifecycle() -> Result<()> {
-    let ctx = setup()?.build()?;
+    let test_env = TestEnvironment::new()?;
+    let sys_build = test_env.setup()?;
+    let ctx = sys_build.build()?;
 
     let mount_dir = ctx
         .mount_point()

@@ -2,8 +2,8 @@
 mod common;
 use common::*;
 
-use server::config::Config;
-use server::logging::{LogFormat, LogLevel, LogTargets};
+use server::config::RfsConfig;
+use server::config::logging::{LogFormat, LogLevel, LogTargets};
 
 use anyhow::Result;
 
