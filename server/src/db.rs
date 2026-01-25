@@ -8,7 +8,6 @@ use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use nix::libc::user;
 use sqlx::{
     Sqlite, SqlitePool,
     migrate::{MigrateDatabase, Migrator},

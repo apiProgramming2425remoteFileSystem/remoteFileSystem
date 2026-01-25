@@ -1,0 +1,30 @@
+# Build stage
+FROM rust:slim AS builder
+
+ARG app_path=/opt/remote_fs
+
+RUN apt-get update && apt-get install -y pkg-config fuse3 libfuse3-dev libssl-dev
+
+WORKDIR ${app_path}/client
+COPY client .
+
+RUN cargo build --release
+
+# Runtime stage
+FROM ubuntu:latest AS runtime
+
+ARG app_path=/opt/remote_fs
+ARG bin_name=remote_fs_client
+ARG real_bin_name=remote_fs_client_core
+
+COPY scripts/installer_wrapper.sh /tmp/installer_wrapper.sh
+
+# Install the client using the installer wrapper script and clean up
+RUN chmod +x /tmp/installer_wrapper.sh && \
+    /tmp/installer_wrapper.sh "${app_path}" "${real_bin_name}" "/usr/local/bin/remote_fs_client" && \
+    rm /tmp/installer_wrapper.sh
+
+COPY --from=builder ${app_path}/client/target/release/${bin_name} ${app_path}/${real_bin_name}
+
+# Entrypoint runs your daemon binary
+ENTRYPOINT ["remote_fs_client"]

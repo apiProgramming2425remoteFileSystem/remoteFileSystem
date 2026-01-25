@@ -6,14 +6,10 @@ mod windows;
 #[cfg(windows)]
 pub use windows::*;
 
-use std::fmt::Debug;
-
-#[cfg(windows)]
-pub use windows::*;
-
 use crate::config::RfsConfig;
 use crate::fs_model::FileSystem;
 use crate::network::RemoteStorage;
+#[cfg(windows)]
 use tokio::runtime::Runtime;
 
 pub struct Fs {
@@ -23,7 +19,7 @@ pub struct Fs {
 }
 
 impl Fs {
-    pub fn new<R: RemoteStorage + Debug + 'static>(rc: R, config: &RfsConfig) -> Self {
+    pub fn new<R: RemoteStorage>(rc: R, config: &RfsConfig) -> Self {
         Self {
             fs: FileSystem::new(rc, config),
             #[cfg(windows)]

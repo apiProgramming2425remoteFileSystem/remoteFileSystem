@@ -50,7 +50,7 @@ impl Directory {
     }
 
     pub fn get_children(&self) -> Vec<FSItem> {
-        self.children.values().map(|n| n.clone()).collect()
+        self.children.values().cloned().collect()
     }
 
     pub fn add(&mut self, item: FSItem) {

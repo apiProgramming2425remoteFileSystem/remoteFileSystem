@@ -14,7 +14,7 @@ use crate::cache::*;
 use crate::config::RfsConfig;
 use crate::error::FsModelError;
 use crate::network::RemoteStorage;
-use crate::network::models::{ItemType, SerializableFSItem, Xattributes};
+use crate::network::models::{ItemType, SerializableFSItem};
 use crate::rw_buffer::{ReadBuffer, WriteBuffer};
 
 pub mod attributes;
@@ -112,7 +112,7 @@ fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attribute
 //
 impl FileSystem {
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new<R: RemoteStorage + Debug + 'static>(rc: R, config: &RfsConfig) -> Self {
+    pub fn new<R: RemoteStorage>(rc: R, config: &RfsConfig) -> Self {
         let buffer_capacity = config.file_system.buffer_size;
         let page_size = config.file_system.page_size;
 
@@ -406,7 +406,7 @@ impl FileSystem {
             let client = self.remote_client.clone();
             tokio::spawn(async move {
                 if client
-                    .write_file(&path.to_string_lossy().to_string(), offset, &data)
+                    .write_file(path.to_string_lossy().as_ref(), offset, &data)
                     .await
                     .is_err()
                 {

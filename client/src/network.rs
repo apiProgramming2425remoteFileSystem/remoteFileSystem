@@ -20,7 +20,7 @@ use mockall::automock;
 
 #[cfg_attr(any(test, feature = "int-tests"), automock)]
 #[async_trait::async_trait]
-pub trait RemoteStorage: Debug + Send + Sync {
+pub trait RemoteStorage: Debug + Send + Sync + 'static {
     async fn health_check(&self) -> Result<()>;
 
     // AUTHENTICATION MANAGEMENT

@@ -1,17 +1,15 @@
 x-constants:
-  app_path: &app_path ${APP_PATH}
   mount_point: &mount_point ${RFS__MOUNT_POINT}
-  fs_root: &fs_root ${RFS__FILESYSTEM_ROOT}
-  server_url: &server_url http://${RFS__SERVER_HOST:-server}:${RFS__SERVER_PORT:-8080}
-  database_path: &database_path ${DATABASE_PATH}
+  server_url: &server_url ${RFS__SERVER_URL:-http://${RFS__SERVER_HOST:-server}:${RFS__SERVER_PORT:-8080}}
+  database_path: &database_path ${DATABASE_PATH:-database/db.sqlite}
 
 services:
   server:
     build:
-      context: ./server
+      context: .
+      dockerfile: docker/Dockerfile.server
       args:
-        app_path: *app_path
-        remote_fs_server: server # the name of the package
+        bin_name: server # the name of the package
     container_name: remote_fs-server
     ports:
       - "${RFS__SERVER_PORT:-8080}:8080"
@@ -20,19 +18,21 @@ services:
     environment:
       RFS__SERVER_HOST: ${RFS__SERVER_HOST:-server}
       RFS__SERVER_PORT: ${RFS__SERVER_PORT:-8080}
-      RFS__FILESYSTEM_ROOT: *fs_root
+      RFS__FILESYSTEM_ROOT: ${RFS__FILESYSTEM_ROOT}
       DATABASE_PATH: *database_path
     networks:
       - remote-fs-net
+    env_file:
+      - server/.env
     command: >
-      run
+      --database-path ${DATABASE_PATH} run --filesystem-root ${RFS__FILESYSTEM_ROOT} --server-host ${RFS__SERVER_HOST} --server-port ${RFS__SERVER_PORT}
 
   client:
     build:
-      context: ./client
+      context: .
+      dockerfile: docker/Dockerfile.client
       args:
-        app_path: *app_path
-        remote_fs_client: client # the name of the package
+        bin_name: client # the name of the package
     container_name: remote_fs-client
     # privileged: true
     networks:
@@ -46,6 +46,8 @@ services:
     environment:
       RFS__MOUNT_POINT: *mount_point
       RFS__SERVER_URL: *server_url
+    env_file:
+      - client/.env
     # command: >
     #   run --mount-point ${RFS__MOUNT_POINT} --server-url ${RFS__SERVER_URL}
     tty: true # Keep the terminal open
@@ -64,7 +66,7 @@ services:
     volumes:
       - .:${APP_PATH}/
       - ./mount_dir:${RFS__FILESYSTEM_ROOT} # Server FS root for testing purposes
-    working_dir: *app_path
+    working_dir: ${APP_PATH}
     tty: true # Keep the terminal open
     restart: unless-stopped # Automatically restart unless stopped manually
 

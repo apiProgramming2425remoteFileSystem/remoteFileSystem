@@ -1,0 +1,30 @@
+# Build stage
+FROM rust:slim AS builder
+
+ARG app_path=/opt/remote_fs
+
+WORKDIR ${app_path}/server
+COPY server .
+
+RUN cargo build --release
+
+# Runtime stage
+FROM ubuntu:latest AS runtime
+
+ARG app_path=/opt/remote_fs
+ARG bin_name=remote_fs_server
+ARG real_bin_name=remote_fs_server_core
+
+COPY scripts/installer_wrapper.sh /tmp/installer_wrapper.sh
+
+# Install the server using the installer wrapper script and clean up
+RUN chmod +x /tmp/installer_wrapper.sh && \
+    /tmp/installer_wrapper.sh "${app_path}" "${real_bin_name}" "/usr/local/bin/remote_fs_server" && \
+    rm /tmp/installer_wrapper.sh
+
+COPY --from=builder ${app_path}/server/target/release/${bin_name} ${app_path}/${real_bin_name}
+
+EXPOSE 8080
+
+# Entrypoint runs the server binary
+ENTRYPOINT ["remote_fs_server"]

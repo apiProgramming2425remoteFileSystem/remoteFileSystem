@@ -1,30 +1,38 @@
-use std::cell::Cell;
-use std::ffi::{c_void, OsStr};
-use std::path::{Path, PathBuf};
-use winfsp::filesystem::{DirInfo, DirMarker, FileSecurity, ModificationDescriptor, WideNameInfo};
-use winfsp::filesystem::VolumeInfo;
-use winfsp::FspError;
-use windows::Win32::Foundation::*;
 use crate::error::{FsModelError, FuseError, NetworkError};
-use std::io::ErrorKind;
-use windows_sys::Wdk::Storage::FileSystem::{FILE_CREATE, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_IF};
-use windows::Win32::Storage::FileSystem::{FILE_READ_DATA, FILE_READ_ATTRIBUTES, FILE_WRITE_DATA, FILE_APPEND_DATA, FILE_WRITE_ATTRIBUTES, FILE_EXECUTE, DELETE};
-use crate::fs_model::attributes::Timestamp;
-use std::hash::{Hash, Hasher};
-use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::instrument;
-use winfsp::{filesystem::{
-    FileInfo,
-    FileSystemContext,
-    OpenFileInfo,
-}, host::FileSystemHost, Result, U16CStr};
-use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT};
 use crate::fs_model;
+use crate::fs_model::attributes::Timestamp;
 use crate::fs_model::{Attributes, FileType, SetAttr};
 use crate::fuse::Fs;
 use crate::network::models::{ItemType, SerializableFSItem};
+use std::cell::Cell;
+use std::ffi::OsString;
+use std::ffi::{OsStr, c_void};
+use std::hash::{Hash, Hasher};
+use std::io::ErrorKind;
+use std::os::windows::ffi::OsStringExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::instrument;
+use windows::Win32::Foundation::*;
+use windows::Win32::Storage::FileSystem::{
+    DELETE, FILE_APPEND_DATA, FILE_EXECUTE, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
+    FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
+};
+use windows_sys::Wdk::Storage::FileSystem::{
+    FILE_CREATE, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_IF,
+};
+use windows_sys::Win32::Foundation::STATUS_FILE_IS_A_DIRECTORY;
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
+};
+use winfsp::FspError;
+use winfsp::filesystem::VolumeInfo;
+use winfsp::filesystem::{DirInfo, DirMarker, FileSecurity, ModificationDescriptor, WideNameInfo};
+use winfsp::{
+    Result, U16CStr,
+    filesystem::{FileInfo, FileSystemContext, OpenFileInfo},
+    host::FileSystemHost,
+};
 
 const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
 const HELLO_DATA: &[u8] = b"Hello from MockFS!\r\n";
@@ -40,9 +48,8 @@ macro_rules! fslog {
 }
 
 fn parse_symlink_target(extra_buffer: Option<&[u8]>) -> Result<String> {
-    let buf = extra_buffer.ok_or_else(|| {
-        FsModelError::InvalidInput("Missing reparse buffer".into())
-    })?;
+    let buf =
+        extra_buffer.ok_or_else(|| FsModelError::InvalidInput("Missing reparse buffer".into()))?;
 
     if buf.len() < 20 {
         return Err(FspError::IO(ErrorKind::InvalidInput));
@@ -53,10 +60,8 @@ fn parse_symlink_target(extra_buffer: Option<&[u8]>) -> Result<String> {
         return Err(FspError::IO(ErrorKind::InvalidInput));
     }
 
-    let print_name_offset =
-        u16::from_le_bytes(buf[12..14].try_into().unwrap()) as usize;
-    let print_name_length =
-        u16::from_le_bytes(buf[14..16].try_into().unwrap()) as usize;
+    let print_name_offset = u16::from_le_bytes(buf[12..14].try_into().unwrap()) as usize;
+    let print_name_length = u16::from_le_bytes(buf[14..16].try_into().unwrap()) as usize;
 
     let path_buffer_start = 20;
     let start = path_buffer_start + print_name_offset;
@@ -73,9 +78,7 @@ fn parse_symlink_target(extra_buffer: Option<&[u8]>) -> Result<String> {
         )
     };
 
-    let target = OsString::from_wide(u16_slice)
-        .to_string_lossy()
-        .to_string();
+    let target = OsString::from_wide(u16_slice).to_string_lossy().to_string();
 
     Ok(target)
 }
@@ -85,8 +88,6 @@ fn index_from_path(path: &Path) -> u64 {
     path.hash(&mut h);
     h.finish()
 }
-
-
 
 pub fn winfsp_path_to_pathbuf(path: &U16CStr) -> Result<PathBuf> {
     // UTF-16 → String
@@ -111,20 +112,15 @@ fn mask_from_access(granted_access: u32) -> u32 {
     let mut mask = 0;
 
     // READ → R_OK (4)
-    if granted_access & (
-        FILE_READ_DATA.0 |
-            FILE_READ_ATTRIBUTES.0
-    ) != 0 {
+    if granted_access & (FILE_READ_DATA.0 | FILE_READ_ATTRIBUTES.0) != 0 {
         mask |= 4;
     }
 
     // WRITE → W_OK (2)
-    if granted_access & (
-        FILE_WRITE_DATA.0 |
-            FILE_APPEND_DATA.0 |
-            FILE_WRITE_ATTRIBUTES.0 |
-            DELETE.0
-    ) != 0 {
+    if granted_access
+        & (FILE_WRITE_DATA.0 | FILE_APPEND_DATA.0 | FILE_WRITE_ATTRIBUTES.0 | DELETE.0)
+        != 0
+    {
         mask |= 2;
     }
 
@@ -136,9 +132,7 @@ fn mask_from_access(granted_access: u32) -> u32 {
     mask
 }
 
-
 const WINDOWS_EPOCH_DIFF: u64 = 11644473600; // seconds
-
 
 fn unix_to_filetime(ts: Timestamp) -> u64 {
     let secs = ts.sec as u64;
@@ -155,9 +149,11 @@ fn filetime_to_unix(t: u64) -> Option<Timestamp> {
     let secs = unix_100ns / 10_000_000;
     let nanos = (unix_100ns % 10_000_000) * 100;
 
-    Some(Timestamp { sec: secs as i64, nsec: nanos as u32 })
+    Some(Timestamp {
+        sec: secs as i64,
+        nsec: nanos as u32,
+    })
 }
-
 
 fn fill_file_info(info: &mut FileInfo, attr: &Attributes) {
     info.file_attributes = match attr.kind {
@@ -172,8 +168,11 @@ fn fill_file_info(info: &mut FileInfo, attr: &Attributes) {
         attr.size
     };
 
-    info.creation_time =
-        unix_to_filetime(if attr.crtime.is_zero() { attr.ctime } else { attr.crtime });
+    info.creation_time = unix_to_filetime(if attr.crtime.is_zero() {
+        attr.ctime
+    } else {
+        attr.crtime
+    });
 
     info.last_access_time = unix_to_filetime(attr.atime);
     info.last_write_time = unix_to_filetime(attr.mtime);
@@ -184,16 +183,8 @@ fn fill_file_info(info: &mut FileInfo, attr: &Attributes) {
     info.ea_size = 0;
 }
 
-
-
-
-
-
-
 type FILE_ACCESS_RIGHTS = u32;
 type FILE_FLAGS_AND_ATTRIBUTES = u32;
-
-
 
 pub struct Handle {
     path: PathBuf,
@@ -210,26 +201,18 @@ impl FileSystemContext for Fs {
         _granted_access: FILE_ACCESS_RIGHTS,
         file_info: &mut OpenFileInfo,
     ) -> Result<Self::FileContext> {
-
         self.rt.block_on(async {
             let path = winfsp_path_to_pathbuf(file_name)?;
 
             // 1. esistenza + tipo
             let attr = self.fs.get_attributes(&path).await?;
-            fslog!(
-            "open",
-            "path={:?} create={:?}",
-                path, create_options
-            );
-
+            fslog!("open", "path={:?} create={:?}", path, create_options);
 
             // 2. tipo coerente
-            if attr.kind == FileType::Directory &&
-                (create_options & FILE_NON_DIRECTORY_FILE) != 0 {
+            if attr.kind == FileType::Directory && (create_options & FILE_NON_DIRECTORY_FILE) != 0 {
                 tracing::error!("Directory creation failed");
-                return Err(STATUS_FILE_IS_A_DIRECTORY.into());
+                return Err(FspError::NTSTATUS(STATUS_FILE_IS_A_DIRECTORY));
             }
-
 
             let info = file_info.as_mut();
             info.file_attributes = match attr.kind {
@@ -240,11 +223,12 @@ impl FileSystemContext for Fs {
             info.file_size = attr.size;
             info.allocation_size = attr.size;
 
-            Ok(Handle { path, delete_on_close: Cell::new(false) })
+            Ok(Handle {
+                path,
+                delete_on_close: Cell::new(false),
+            })
         })
     }
-
-
 
     fn close(&self, context: Self::FileContext) {
         fslog!("close", "path={:?}", context.path);
@@ -260,7 +244,7 @@ impl FileSystemContext for Fs {
         file_name: &U16CStr,
         _security_descriptor: Option<&mut [c_void]>,
         _reparse_point_resolver: impl FnOnce(&U16CStr) -> Option<FileSecurity>,
-    ) -> Result<FileSecurity>{
+    ) -> Result<FileSecurity> {
         self.rt.block_on(async {
             let path = winfsp_path_to_pathbuf(file_name)?;
 
@@ -280,11 +264,7 @@ impl FileSystemContext for Fs {
         })
     }
 
-    fn get_file_info(
-        &self,
-        context: &Self::FileContext,
-        file_info: &mut FileInfo,
-    ) -> Result<()> {
+    fn get_file_info(&self, context: &Self::FileContext, file_info: &mut FileInfo) -> Result<()> {
         self.rt.block_on(async {
             let attr = self.fs.get_attributes(&context.path).await?;
 
@@ -304,8 +284,11 @@ impl FileSystemContext for Fs {
             file_info.allocation_size = allocation_size;
             file_info.file_size = attr.size;
 
-            file_info.creation_time =
-                unix_to_filetime(if attr.crtime.is_zero() { attr.ctime } else { attr.crtime });
+            file_info.creation_time = unix_to_filetime(if attr.crtime.is_zero() {
+                attr.ctime
+            } else {
+                attr.crtime
+            });
 
             file_info.last_access_time = unix_to_filetime(attr.atime);
             file_info.last_write_time = unix_to_filetime(attr.mtime);
@@ -319,8 +302,6 @@ impl FileSystemContext for Fs {
         })
     }
 
-
-
     fn read_directory(
         &self,
         context: &Self::FileContext,
@@ -328,25 +309,18 @@ impl FileSystemContext for Fs {
         marker: DirMarker<'_>,
         buffer: &mut [u8],
     ) -> Result<u32> {
-
         self.rt.block_on(async {
             let path = &context.path;
             let mut items = self.fs.readdir(path).await?;
             items.sort_by(|a, b| a.name.cmp(&b.name));
-            fslog!(
-                "read_dir",
-                "path={:?}",
-                path
-            );
+            fslog!("read_dir", "path={:?}", path);
 
             let mut cursor = 0u32;
             let mut start = 0usize;
 
             // --- Marker handling (NAME-based) ---
             if !marker.is_none() {
-                if let Some(name) = marker.inner_as_cstr()
-                    .and_then(|s| s.to_string().ok()) {
-
+                if let Some(name) = marker.inner_as_cstr().and_then(|s| s.to_string().ok()) {
                     if let Some(pos) = items.iter().position(|e| e.name == name) {
                         start = pos + 1;
                     }
@@ -381,7 +355,6 @@ impl FileSystemContext for Fs {
         extra_buffer_is_reparse_point: bool,
         file_info: &mut OpenFileInfo,
     ) -> Result<Self::FileContext> {
-
         self.rt.block_on(async {
             let path = winfsp_path_to_pathbuf(file_name)?;
             fslog!(
@@ -392,11 +365,11 @@ impl FileSystemContext for Fs {
                 granted_access
             );
 
-            let is_dir  = create_options & FILE_DIRECTORY_FILE != 0;
+            let is_dir = create_options & FILE_DIRECTORY_FILE != 0;
             let is_file = create_options & FILE_NON_DIRECTORY_FILE != 0;
 
-            let create  = create_options & FILE_CREATE != 0;
-            let open    = create_options & FILE_OPEN != 0;
+            let create = create_options & FILE_CREATE != 0;
+            let open = create_options & FILE_OPEN != 0;
             let open_if = create_options & FILE_OPEN_IF != 0;
 
             let info: &mut FileInfo = file_info.as_mut();
@@ -412,7 +385,10 @@ impl FileSystemContext for Fs {
                 info.file_size = 0;
                 info.allocation_size = 0;
 
-                return Ok(Handle { path, delete_on_close: Cell::new(false) });
+                return Ok(Handle {
+                    path,
+                    delete_on_close: Cell::new(false),
+                });
             }
 
             /* ================= DIRECTORY ================= */
@@ -428,14 +404,19 @@ impl FileSystemContext for Fs {
                 info.file_size = 0;
                 info.allocation_size = 0;
 
-                return Ok(Handle { path, delete_on_close: Cell::new(false) });
+                return Ok(Handle {
+                    path,
+                    delete_on_close: Cell::new(false),
+                });
             }
 
             /* ================= FILE ================= */
 
             if is_file {
                 if create || open_if {
-                    self.fs.create_file(&path, &FileType::RegularFile, 0, &[]).await?;
+                    self.fs
+                        .create_file(&path, &FileType::RegularFile, 0, &[])
+                        .await?;
                 } else if open {
                     self.fs.get_attributes(&path).await?;
                 }
@@ -444,22 +425,17 @@ impl FileSystemContext for Fs {
                 info.file_size = 0;
                 info.allocation_size = 0;
 
-                return Ok(Handle { path, delete_on_close: Cell::new(false) });
+                return Ok(Handle {
+                    path,
+                    delete_on_close: Cell::new(false),
+                });
             }
 
             Err(FspError::IO(ErrorKind::InvalidInput))
         })
     }
 
-
-    fn cleanup(
-        &self,
-        context: &Self::FileContext,
-        file_name: Option<&U16CStr>,
-        _flags: u32,
-    ) {
-
-
+    fn cleanup(&self, context: &Self::FileContext, file_name: Option<&U16CStr>, _flags: u32) {
         let _ = self.rt.block_on(async {
             self.fs.flush_write_buffer().await.ok();
 
@@ -468,7 +444,8 @@ impl FileSystemContext for Fs {
                     fslog!(
                         "cleanup",
                         "path={:?} delete_pending={}",
-                        path, context.delete_on_close.get()
+                        path,
+                        context.delete_on_close.get()
                     );
                     self.fs.cache_invalidate(path);
                 }
@@ -484,33 +461,21 @@ impl FileSystemContext for Fs {
         }
     }
 
-
-    fn flush(
-        &self,
-        _context: Option<&Self::FileContext>,
-        _file_info: &mut FileInfo,
-    ) -> Result<()> {
+    fn flush(&self, _context: Option<&Self::FileContext>, _file_info: &mut FileInfo) -> Result<()> {
         self.rt.block_on(async {
             self.fs.flush_write_buffer().await?;
             Ok(())
         })
     }
 
-
-
     fn get_security(
         &self,
         _context: &Self::FileContext,
         security_descriptor: Option<&mut [c_void]>,
     ) -> Result<u64> {
-
         const SD: &[u8] = &[
-            0x01, 0x00,
-            0x04, 0x80,
-            0x14, 0x00, 0x00, 0x00,
-            0x14, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x04, 0x80, 0x14, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
 
         if let Some(buf) = security_descriptor {
@@ -528,7 +493,6 @@ impl FileSystemContext for Fs {
         Ok(SD.len() as u64)
     }
 
-
     fn set_security(
         &self,
         _context: &Self::FileContext,
@@ -537,7 +501,6 @@ impl FileSystemContext for Fs {
     ) -> Result<()> {
         Ok(())
     }
-
 
     fn overwrite(
         &self,
@@ -548,17 +511,18 @@ impl FileSystemContext for Fs {
         _extra_buffer: Option<&[u8]>,
         file_info: &mut FileInfo,
     ) -> Result<()> {
-
         self.rt.block_on(async {
-            self.fs.set_attributes(
-                0,
-                0,
-                &context.path,
-                SetAttr {
-                    size: Some(0),
-                    ..Default::default()
-                },
-            ).await
+            self.fs
+                .set_attributes(
+                    0,
+                    0,
+                    &context.path,
+                    SetAttr {
+                        size: Some(0),
+                        ..Default::default()
+                    },
+                )
+                .await
         })?;
 
         file_info.file_size = 0;
@@ -566,8 +530,6 @@ impl FileSystemContext for Fs {
 
         Ok(())
     }
-
-
 
     fn rename(
         &self,
@@ -581,13 +543,16 @@ impl FileSystemContext for Fs {
         fslog!(
             "rename",
             "from={:?} to={:?} replace={}",
-            old_path, new_path, replace_if_exists
+            old_path,
+            new_path,
+            replace_if_exists
         );
 
         if !replace_if_exists {
-            match self.rt.block_on(async {
-                self.fs.get_attributes(&new_path).await
-            }) {
+            match self
+                .rt
+                .block_on(async { self.fs.get_attributes(&new_path).await })
+            {
                 Ok(_) => {
                     return Err(FspError::NTSTATUS(0xC0000035u32 as i32));
                 }
@@ -597,13 +562,11 @@ impl FileSystemContext for Fs {
             }
         }
 
-        self.rt.block_on(async {
-            self.fs.rename(&old_path, &new_path).await
-        })?;
+        self.rt
+            .block_on(async { self.fs.rename(&old_path, &new_path).await })?;
 
         Ok(())
     }
-
 
     fn set_basic_info(
         &self,
@@ -623,9 +586,7 @@ impl FileSystemContext for Fs {
         setattr.ctime = filetime_to_unix(last_change_time);
 
         let needs_call =
-            setattr.atime.is_some() ||
-                setattr.mtime.is_some() ||
-                setattr.ctime.is_some();
+            setattr.atime.is_some() || setattr.mtime.is_some() || setattr.ctime.is_some();
 
         fslog!(
             "set_file_info",
@@ -637,21 +598,15 @@ impl FileSystemContext for Fs {
         );
 
         if needs_call {
-            let attrs = self.rt.block_on(async {
-                self.fs.set_attributes(
-                    0,
-                    0,
-                    &context.path,
-                    setattr,
-                ).await
-            })?;
+            let attrs = self
+                .rt
+                .block_on(async { self.fs.set_attributes(0, 0, &context.path, setattr).await })?;
 
             *file_info = attrs.into();
         }
 
         Ok(())
     }
-
 
     fn set_delete(
         &self,
@@ -669,8 +624,6 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
-
-
     fn set_file_size(
         &self,
         context: &Self::FileContext,
@@ -678,17 +631,18 @@ impl FileSystemContext for Fs {
         _set_allocation_size: bool,
         file_info: &mut FileInfo,
     ) -> Result<()> {
-
         self.rt.block_on(async {
-            self.fs.set_attributes(
-                0,
-                0,
-                &context.path,
-                SetAttr {
-                    size: Some(new_size),
-                    ..Default::default()
-                },
-            ).await
+            self.fs
+                .set_attributes(
+                    0,
+                    0,
+                    &context.path,
+                    SetAttr {
+                        size: Some(new_size),
+                        ..Default::default()
+                    },
+                )
+                .await
         })?;
 
         file_info.file_size = new_size;
@@ -697,23 +651,17 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
-
-
-    fn read(
-        &self,
-        context: &Self::FileContext,
-        buffer: &mut [u8],
-        offset: u64,
-    ) -> Result<u32> {
-
+    fn read(&self, context: &Self::FileContext, buffer: &mut [u8], offset: u64) -> Result<u32> {
         self.rt.block_on(async {
-            let res = self.fs.read_file(&context.path, offset as usize, buffer.len()).await?;
+            let res = self
+                .fs
+                .read_file(&context.path, offset as usize, buffer.len())
+                .await?;
             let len = res.len();
             buffer[..len].copy_from_slice(&res);
             Ok(len as u32)
         })
     }
-
 
     fn write(
         &self,
@@ -723,10 +671,13 @@ impl FileSystemContext for Fs {
         write_to_eof: bool,
         constrained_io: bool,
         file_info: &mut FileInfo,
-    ) -> Result<u32>{
+    ) -> Result<u32> {
         self.rt.block_on(async {
             let flags = fs_model::Flags::default();
-            let written = self.fs.write_file(&context.path, &flags, offset as usize, buffer).await?;
+            let written = self
+                .fs
+                .write_file(&context.path, &flags, offset as usize, buffer)
+                .await?;
             file_info.file_size = file_info.file_size.max(offset + written as u64);
             file_info.allocation_size = file_info.file_size;
             Ok(written as u32)
@@ -741,37 +692,28 @@ impl FileSystemContext for Fs {
     ) -> Result<()> {
         let name = winfsp_path_to_pathbuf(file_name)?;
         let path = context.path.join(&name);
-        let attrs = self.rt.block_on(async {
-            self.fs.get_attributes(&path).await
-        })?;
+        let attrs = self
+            .rt
+            .block_on(async { self.fs.get_attributes(&path).await })?;
         let file_info = out_dir_info.file_info_mut();
         *file_info = attrs.into();
         out_dir_info.set_name(&name)?;
         Ok(())
     }
 
-
-    fn get_volume_info(&self, out_volume_info: &mut VolumeInfo) -> Result<()>{
+    fn get_volume_info(&self, out_volume_info: &mut VolumeInfo) -> Result<()> {
         out_volume_info.total_size = 1024 * 1024 * 1024;
         out_volume_info.free_size = 1024 * 1024 * 1024;
         out_volume_info.set_volume_label("remote FS");
         Ok(())
     }
 
-    fn set_volume_label(
-        &self,
-        volume_label: &U16CStr,
-        volume_info: &mut VolumeInfo,
-    ) -> Result<()>{
+    fn set_volume_label(&self, volume_label: &U16CStr, volume_info: &mut VolumeInfo) -> Result<()> {
         volume_info.set_volume_label("remote FS");
         Ok(())
     }
 
-    fn get_stream_info(
-        &self,
-        context: &Self::FileContext,
-        buffer: &mut [u8],
-    ) -> Result<u32>{
+    fn get_stream_info(&self, context: &Self::FileContext, buffer: &mut [u8]) -> Result<u32> {
         Ok(0)
     }
 
@@ -780,7 +722,7 @@ impl FileSystemContext for Fs {
         file_name: &U16CStr,
         is_directory: bool,
         buffer: &mut [u8],
-    ) -> Result<u64>{
+    ) -> Result<u64> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
@@ -789,7 +731,7 @@ impl FileSystemContext for Fs {
         context: &Self::FileContext,
         file_name: &U16CStr,
         buffer: &mut [u8],
-    ) -> Result<u64>{
+    ) -> Result<u64> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
@@ -798,7 +740,7 @@ impl FileSystemContext for Fs {
         context: &Self::FileContext,
         file_name: &U16CStr,
         buffer: &[u8],
-    ) -> Result<()>{
+    ) -> Result<()> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
@@ -807,7 +749,7 @@ impl FileSystemContext for Fs {
         context: &Self::FileContext,
         file_name: &U16CStr,
         buffer: &[u8],
-    ) -> Result<()>{
+    ) -> Result<()> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
@@ -815,7 +757,7 @@ impl FileSystemContext for Fs {
         &self,
         context: &Self::FileContext,
         buffer: &mut [u8],
-    ) -> Result<u32>{
+    ) -> Result<u32> {
         Ok(0)
     }
 
@@ -824,7 +766,7 @@ impl FileSystemContext for Fs {
         context: &Self::FileContext,
         buffer: &[u8],
         file_info: &mut FileInfo,
-    ) -> Result<()>{
+    ) -> Result<()> {
         Err(FspError::NTSTATUS(0xC00000BBu32 as i32))
     }
 
@@ -834,98 +776,65 @@ impl FileSystemContext for Fs {
         control_code: u32,
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<u32>{
+    ) -> Result<u32> {
         Err(FspError::NTSTATUS(0xC0000010u32 as i32))
     }
 
-    fn dispatcher_stopped(&self, normally: bool){
+    fn dispatcher_stopped(&self, normally: bool) {
         if normally {
             println!("Filesystem stopped normally");
         } else {
             println!("Filesystem stopped abnormally");
         }
     }
-
 }
-
-
-
 
 impl From<FsModelError> for FspError {
     fn from(value: FsModelError) -> Self {
         tracing::error!("{}", value);
 
         match value {
-            FsModelError::NotFound(_) => {
-                FspError::NTSTATUS(STATUS_OBJECT_NAME_NOT_FOUND.0)
-            }
+            FsModelError::NotFound(_) => FspError::NTSTATUS(STATUS_OBJECT_NAME_NOT_FOUND.0),
 
-            FsModelError::PermissionDenied(_) => {
-                FspError::NTSTATUS(STATUS_ACCESS_DENIED.0)
-            }
+            FsModelError::PermissionDenied(_) => FspError::NTSTATUS(STATUS_ACCESS_DENIED.0),
 
-            FsModelError::InvalidInput(_) |
-            FsModelError::ConversionFailed(_) => {
+            FsModelError::InvalidInput(_) | FsModelError::ConversionFailed(_) => {
                 FspError::NTSTATUS(STATUS_INVALID_PARAMETER.0)
             }
 
-            FsModelError::FileHandlerError => {
-                FspError::NTSTATUS(STATUS_INVALID_HANDLE.0)
-            }
+            FsModelError::FileHandlerError => FspError::NTSTATUS(STATUS_INVALID_HANDLE.0),
 
-            FsModelError::WriterError => {
-                FspError::NTSTATUS(STATUS_IO_DEVICE_ERROR.0)
-            }
+            FsModelError::WriterError => FspError::NTSTATUS(STATUS_IO_DEVICE_ERROR.0),
 
-            FsModelError::NoData(_) => {
-                FspError::NTSTATUS(STATUS_NO_EAS_ON_FILE.0)
-            }
+            FsModelError::NoData(_) => FspError::NTSTATUS(STATUS_NO_EAS_ON_FILE.0),
 
             FsModelError::ServerError(net) => net.into(),
 
-            FsModelError::Other(_) => {
-                FspError::NTSTATUS(STATUS_UNEXPECTED_IO_ERROR.0)
-            }
+            FsModelError::Other(_) => FspError::NTSTATUS(STATUS_UNEXPECTED_IO_ERROR.0),
         }
     }
 }
 
-
-
 impl From<NetworkError> for FspError {
     fn from(value: NetworkError) -> Self {
         match value {
-            NetworkError::ConnectionFailed(_) => {
-                FspError::NTSTATUS(STATUS_HOST_UNREACHABLE.0)
-            }
+            NetworkError::ConnectionFailed(_) => FspError::NTSTATUS(STATUS_HOST_UNREACHABLE.0),
 
-            NetworkError::InvalidInput(_) => {
-                FspError::NTSTATUS(STATUS_INVALID_PARAMETER.0)
-            }
+            NetworkError::InvalidInput(_) => FspError::NTSTATUS(STATUS_INVALID_PARAMETER.0),
 
-            NetworkError::Request(_) => {
-                FspError::NTSTATUS(STATUS_IO_DEVICE_ERROR.0)
-            }
+            NetworkError::Request(_) => FspError::NTSTATUS(STATUS_IO_DEVICE_ERROR.0),
 
             NetworkError::ServerError(FuseError::NotFound(_)) => {
                 FspError::NTSTATUS(STATUS_OBJECT_NAME_NOT_FOUND.0)
             }
 
-            NetworkError::ServerError(_) => {
-                FspError::NTSTATUS(STATUS_UNEXPECTED_IO_ERROR.0)
-            }
+            NetworkError::ServerError(_) => FspError::NTSTATUS(STATUS_UNEXPECTED_IO_ERROR.0),
 
-            NetworkError::UnexpectedResponse(_) => {
-                FspError::NTSTATUS(STATUS_BAD_NETWORK_PATH.0)
-            }
+            NetworkError::UnexpectedResponse(_) => FspError::NTSTATUS(STATUS_BAD_NETWORK_PATH.0),
 
-            NetworkError::InvalidCredentials => {
-                FspError::NTSTATUS(STATUS_ACCESS_DENIED.0)
-            }
+            NetworkError::InvalidCredentials => FspError::NTSTATUS(STATUS_ACCESS_DENIED.0),
 
-            NetworkError::Other(_) => {
-                FspError::NTSTATUS(STATUS_IO_DEVICE_ERROR.0)
-            }
+            NetworkError::Other(_) => FspError::NTSTATUS(STATUS_IO_DEVICE_ERROR.0),
         }
     }
 }
@@ -951,9 +860,3 @@ impl From<Attributes> for FileInfo {
         info
     }
 }
-
-
-
-
-
-

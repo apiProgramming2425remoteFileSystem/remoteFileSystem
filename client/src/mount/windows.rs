@@ -1,13 +1,9 @@
-use std::fmt::Debug;
 use crate::config::RfsConfig;
 use crate::fuse::Fs;
 use crate::network::RemoteStorage;
 use winfsp::host::{FileSystemHost, VolumeParams};
 
-pub fn mount_windows<R: RemoteStorage + Debug + 'static>(
-    rc: R,
-    config: &RfsConfig,
-) -> winfsp::Result<()> {
+pub fn mount_windows<R: RemoteStorage>(rc: R, config: &RfsConfig) -> winfsp::Result<()> {
     let fs = Fs::new(rc, config);
     let mut params = VolumeParams::default();
     params.case_preserved_names(true);

@@ -14,7 +14,6 @@ pub mod network;
 pub mod rw_buffer;
 mod util;
 
-use std::fmt::Debug;
 use std::fs;
 use std::io::{self, Write};
 
@@ -46,7 +45,7 @@ const MAX_LOGIN_ATTEMPTS: u8 = 3;
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
 #[cfg(unix)]
-pub fn start_unix<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) -> Result<()> {
+pub fn start_unix<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS...");
 
     // Create mount point directory if it doesn't exist
@@ -114,7 +113,7 @@ pub fn start_unix<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R)
 }
 
 #[cfg(windows)]
-fn start_windows<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) -> Result<()> {
+fn start_windows<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS (Windows / WinFSP)");
 
     let _log = logging::Logging::from(&config.logging)?;
@@ -152,7 +151,7 @@ fn start_windows<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) 
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
-pub fn start<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) -> Result<()> {
+pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     #[cfg(unix)]
     {
         start_unix(config, rc)
@@ -163,10 +162,7 @@ pub fn start<R: RemoteStorage + Debug + 'static>(config: &RfsConfig, rc: R) -> R
     }
 }
 
-async fn perform_login<R: RemoteStorage + Debug + 'static>(
-    rc: &R,
-    config: &RfsConfig,
-) -> Result<String> {
+async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<String> {
     println!("Welcome to Remote File System. First you need to authenticate!");
 
     for i in 0..MAX_LOGIN_ATTEMPTS {
@@ -209,11 +205,7 @@ async fn perform_login<R: RemoteStorage + Debug + 'static>(
 }
 
 #[cfg(unix)]
-pub async fn run_async<R: RemoteStorage + Debug + 'static>(
-    config: RfsConfig,
-    rc: R,
-    daemon: Daemon,
-) -> Result<()> {
+pub async fn run_async<R: RemoteStorage>(config: RfsConfig, rc: R, daemon: Daemon) -> Result<()> {
     /*
     tracing::info!("Checking connection to server at {}...", config.server_url);
 

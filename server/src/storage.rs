@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::fs::{self, FileTimes, Permissions};
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
@@ -341,10 +341,7 @@ impl FileSystem {
         let real = self.make_real_path(path.as_ref())?;
         let meta = real.symlink_metadata()?;
 
-        if meta.file_type().is_symlink() {
-            fs::remove_file(&real)?;
-            Ok(())
-        } else if meta.is_file() {
+        if meta.file_type().is_symlink() || meta.is_file() {
             fs::remove_file(&real)?;
             Ok(())
         } else if meta.is_dir() {
@@ -430,7 +427,7 @@ impl FileSystem {
 
         // Allowed only if user is the owner or root
         if let Some(mode) = new_attributes.mode {
-            if self.is_allowed(user_id, group_id, &Path::new(path), Operation::OwnerOnly)? {
+            if self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {
                 let mut adjusted_mode = mode as u16;
 
                 if user_id == group_id {
@@ -461,7 +458,7 @@ impl FileSystem {
                 if client_gid <= 1000 {
                     return Err(StorageError::PermissionDenied);
                 } else {
-                    server_gid = server_gid - 1000;
+                    server_gid -= 1000;
                 }
                 let new_gid = Some(Gid::from_raw(server_gid));
 

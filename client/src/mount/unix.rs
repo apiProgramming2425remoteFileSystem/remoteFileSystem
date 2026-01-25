@@ -64,9 +64,6 @@ impl MountFs for UnixSession {
 impl From<&MountOptions> for MountOptionsFuse {
     fn from(options: &MountOptions) -> Self {
         let mut mount_options = MountOptionsFuse::default();
-        if options.allow_root {
-            mount_options.allow_root(true);
-        }
         if options.allow_other {
             mount_options.allow_other(true);
         }

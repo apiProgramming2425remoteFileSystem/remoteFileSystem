@@ -26,7 +26,6 @@ pub struct MountPoint {
 pub struct MountOptions {
     read_only: bool,
     allow_other: bool,
-    allow_root: bool,
     privileged: bool,
 }
 
@@ -124,7 +123,6 @@ impl MountOptions {
         MountOptionsBuilder::new()
             .read_only(config.read_only)
             .allow_other(config.allow_other)
-            .allow_root(config.allow_root)
             .privileged(config.privileged)
             .build()
     }
@@ -152,7 +150,6 @@ fn create_driver() -> Box<dyn MountFs> {
 pub struct MountOptionsBuilder {
     read_only: Option<bool>,
     allow_other: Option<bool>,
-    allow_root: Option<bool>,
     privileged: Option<bool>,
 }
 
@@ -169,10 +166,6 @@ impl MountOptionsBuilder {
         self.allow_other = Some(allow_other);
         self
     }
-    pub fn allow_root(mut self, allow_root: bool) -> Self {
-        self.allow_root = Some(allow_root);
-        self
-    }
     pub fn privileged(mut self, privileged: bool) -> Self {
         self.privileged = Some(privileged);
         self
@@ -182,7 +175,6 @@ impl MountOptionsBuilder {
         MountOptions {
             read_only: self.read_only.unwrap_or_default(),
             allow_other: self.allow_other.unwrap_or_default(),
-            allow_root: self.allow_root.unwrap_or_default(),
             privileged: self.privileged.unwrap_or_default(),
         }
     }

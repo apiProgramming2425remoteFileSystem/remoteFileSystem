@@ -1063,7 +1063,7 @@ impl From<fs_model::Attributes> for FileAttr {
             mtime: value.mtime.into(),
             ctime: value.ctime.into(),
             kind: value.kind.into(),
-            perm: u16::from(value.kind) | u16::from(value.perm),
+            perm: u16::from(value.kind) | value.perm,
             nlink: value.nlink,
             uid: value.uid,
             gid: value.gid,

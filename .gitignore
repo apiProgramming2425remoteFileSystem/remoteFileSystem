@@ -5,3 +5,4 @@ logs/
 *.lock
 *.db-*
 database/
+build_output/

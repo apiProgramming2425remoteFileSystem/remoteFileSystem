@@ -203,7 +203,6 @@ pub enum NetworkError {
     #[error("Unexpected Server Response: {0}")]
     UnexpectedResponse(String), // When the server does not send valid JSON
 
-
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -250,7 +249,6 @@ pub enum RfsClientError {
     #[cfg(windows)]
     #[error(transparent)]
     WinFSPError(#[from] winfsp::FspError),
-
 
     //#[error("Cache error: {0}")]
     //Cache(#[from] CacheError),

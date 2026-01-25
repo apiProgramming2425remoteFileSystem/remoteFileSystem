@@ -4,10 +4,7 @@ use reqwest::{Client, Response, Result as ReqwestResult};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
-use rpassword::read_password;
 use std::fmt::Debug;
-use std::io;
-use std::io::Write;
 use tracing::{Level, instrument};
 use urlencoding;
 
@@ -15,7 +12,7 @@ use super::APP_V1_BASE_URL;
 use super::RemoteStorage;
 use super::middleware::*;
 use super::models::*;
-use crate::error::{FuseError, NetworkError, RfsClientError};
+use crate::error::{FuseError, NetworkError};
 use crate::fs_model::{Attributes, Stats, attributes::SetAttr};
 
 type Result<T> = std::result::Result<T, NetworkError>;
