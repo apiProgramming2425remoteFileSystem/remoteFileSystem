@@ -411,6 +411,23 @@ impl PathFilesystem for Fs {
             return Err(FuseError::InvalidInput("Invalid open flags".to_string()).into());
         }
 
+        let fs_flags = fs_model::Flags::try_from(flags)?;
+
+        if fs_flags.trunc {
+            self.fs
+                .set_attributes(
+                    req.uid,
+                    req.gid,
+                    path,
+                    fs_model::SetAttr {
+                        size: Some(0),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+        }
+
+
         let fh = self.fs.open(path, &fs_flags).await?;
 
         Ok(ReplyOpen { fh, flags })
@@ -641,6 +658,21 @@ impl PathFilesystem for Fs {
             .await?;
 
         let fs_flags = fs_model::Flags::try_from(flags)?;
+
+        if offset_out == 0 {
+            self.fs
+                .set_attributes(
+                    req.uid,
+                    req.gid,
+                    &file_out_path,
+                    fs_model::SetAttr {
+                        size: Some(0),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+        }
+
 
         let write_data = self
             .fs
