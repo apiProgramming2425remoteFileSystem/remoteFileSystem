@@ -47,7 +47,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(make_directory)
                     .service(delete_item)
                     .service(rename)
-                    .service(resolve_child)
                     .service(get_attributes)
                     .service(set_attributes)
                     .service(get_permissions)
@@ -58,6 +57,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(get_x_attributes)
                     .service(list_x_attributes)
                     .service(delete_x_attributes),
+                    //.service(resolve_child)
             ),
     )
     .default_service(web::route().to(|req: actix_web::HttpRequest| async move {
@@ -169,7 +169,7 @@ async fn delete_item(
 }
 
 /* Inutile se lookup = getAttr */
-#[get("/resolve/{path}")]
+/*#[get("/resolve/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
 async fn resolve_child(
     user: AuthenticatedUser,
@@ -180,7 +180,7 @@ async fn resolve_child(
     let attributes = fs.get_attributes(path.as_str())?;
 
     Ok(HttpResponse::Ok().json(attributes))
-}
+}*/
 
 #[get("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]

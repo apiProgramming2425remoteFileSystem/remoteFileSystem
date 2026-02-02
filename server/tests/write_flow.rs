@@ -1,5 +1,7 @@
 mod common;
 use bytes::Bytes;
+use serde::Serialize;
+use crate::common::ReadFileRequest;
 
 #[tokio::test]
 async fn test_make_directory() -> anyhow::Result<()> {
@@ -219,3 +221,77 @@ async fn test_delete_file_and_directory() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn write_with_offset_overwrites_only_part() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    // prima scrittura
+    let url = format!("{}?offset=0", client.set_url("files", "/b.txt"));
+    client.put(&url)
+        .body(Bytes::from_static(b"abcdef"))
+        .send().await?
+        .error_for_status()?;
+
+    // sovrascrivo da offset 2
+    let url = format!("{}?offset=2", client.set_url("files", "/b.txt"));
+    client.put(&url)
+        .body(Bytes::from_static(b"ZZ"))
+        .send().await?
+        .error_for_status()?;
+
+    // leggo tutto
+    let read_url = client.set_url("files", "/b.txt");
+    let data = client.get(&read_url)
+        .json(&ReadFileRequest::new(0, 20))
+        .send().await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+
+    assert_eq!(&data[..], b"abZZef");
+    Ok(())
+}
+
+#[tokio::test]
+async fn write_with_offset_beyond_eof_pads_with_zeros() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    // write at offset 10
+    let write_url = format!(
+        "{}?offset=10",
+        client.set_url("files", "/c.txt")
+    );
+
+    client.put(&write_url)
+        .body(Bytes::from_static(b"x"))
+        .send()
+        .await?
+        .error_for_status()?; // IMPORTANT: must succeed
+
+    // read whole file
+    let read_url = client.set_url("files", "/c.txt");
+    let data = client.get(&read_url)
+        .json(&ReadFileRequest::new(0, 20))
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+
+    // file must be 11 bytes long
+    assert_eq!(data.len(), 11);
+
+    // first 10 bytes must be zero
+    assert!(data[..10].iter().all(|b| *b == 0));
+
+    // last byte must be 'x'
+    assert_eq!(data[10], b'x');
+
+    Ok(())
+}
+

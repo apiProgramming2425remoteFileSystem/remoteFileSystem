@@ -16,15 +16,15 @@ use server::logging::Logging;
 use server::run_server;
 use server::error::LoggingError;
 use once_cell::sync::OnceCell;
-
+use serde::{Deserialize, Serialize};
 
 static LOGGER: OnceCell<Logging> = OnceCell::new();
 
 
-const TEST_USER: &str = "test_user";
-const TEST_PASSWORD: &str = "test_password";
-const TEST_USER_ID: i64 = 1;
-const TEST_GROUP_ID: i64 = 1;
+pub const TEST_USER: &str = "test_user";
+pub const TEST_PASSWORD: &str = "test_password";
+pub const TEST_USER_ID: i64 = 1;
+pub const TEST_GROUP_ID: i64 = 1;
 
 /// Ottiene un token di test legato al DB specificato
 pub async fn get_test_token(db_path: &Path) -> Result<String> {
@@ -115,7 +115,7 @@ async fn wait_ready(address: &str, wait_time: Duration) -> Result<()> {
 
 /// Client HTTP che può inserire automaticamente il token negli header
 pub struct HttpClient {
-    base_url: String,
+    pub(crate) base_url: String,
     http_client: ClientWithMiddleware,
 }
 
@@ -209,3 +209,114 @@ pub fn get_config(fs_root: &Path) -> RfsConfig {
         ..Default::default()
     }
 }
+
+#[derive(Debug, Serialize)]
+pub struct ReadFileRequest {
+    offset: usize,
+    size: usize,
+}
+
+impl ReadFileRequest {
+    pub fn new(offset: usize, size: usize) -> Self {
+        ReadFileRequest { offset, size }
+    }
+}
+
+
+
+#[derive(Debug, Serialize)]
+pub struct SetAttrRequest {
+    pub setattr: SetAttr,
+}
+
+
+impl SetAttrRequest {
+    pub fn new(setattr: SetAttr) -> Self {
+        Self { setattr }
+    }
+}
+
+
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize)]
+pub struct SetAttr {
+    /// set file or directory mode.
+    pub mode: Option<u32>,
+    /// set file or directory uid.
+    pub uid: Option<u32>,
+    /// set file or directory gid.
+    pub gid: Option<u32>,
+    /// set file or directory size.
+    pub size: Option<u64>,
+    /// the lock_owner argument.
+    pub lock_owner: Option<u64>,
+    /// set file or directory atime.
+    pub atime: Option<Timestamp>,
+    /// set file or directory mtime.
+    pub mtime: Option<Timestamp>,
+    /// set file or directory ctime.
+    pub ctime: Option<Timestamp>,
+}
+
+
+
+
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq /*, Ord, PartialOrd, Hash */)]
+pub struct Attributes {
+    /// Size in bytes
+    pub size: u64,
+    /// Size in blocks
+    pub blocks: u64,
+    /// Time of last access
+    pub atime: Timestamp,
+    /// Time of last modification
+    pub mtime: Timestamp,
+    /// Time of last change
+    pub ctime: Timestamp,
+    /// Time of creation (macOS only)
+    pub crtime: Timestamp,
+    /// Kind of file (directory, file, pipe, etc)
+    pub kind: FileType,
+    /// Permissions
+    pub perm: u16,
+    /// Number of hard links
+    pub nlink: u32,
+    /// User id
+    pub uid: u32,
+    /// Group id
+    pub gid: u32,
+    /// Rdev
+    pub rdev: u32,
+    /// block size
+    pub blksize: u32,
+    /// #[cfg(target_os = "macos")]
+    pub flags: u32,
+}
+
+/// File types
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq /*, Ord, PartialOrd, Hash */)]
+pub enum FileType {
+    /// Named pipe [`libc::S_IFIFO`]
+    NamedPipe,
+    /// Character device [`libc::S_IFCHR`]
+    CharDevice,
+    /// Block device [`libc::S_IFBLK`]
+    BlockDevice,
+    /// Directory [`libc::S_IFDIR`]
+    Directory,
+    /// Regular file [`libc::S_IFREG`]
+    RegularFile,
+    /// Symbolic link [`libc::S_IFLNK`]
+    Symlink,
+    /// Unix domain socket [`libc::S_IFSOCK`]
+    Socket,
+}
+
+
+/// A file's timestamp, according to FUSE.
+#[derive(Debug, Clone, Serialize, Deserialize, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct Timestamp {
+    pub sec: i64,
+    pub nsec: u32,
+}
+
+

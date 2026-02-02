@@ -294,13 +294,13 @@ impl RemoteStorage for RemoteClient {
         handle_response(resp, |_| async { Ok(()) }).await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    /*#[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn resolve_child(&self, path: &str) -> Result<Attributes> {
         let url = self.set_url("attributes/directory", path);
         let resp = self.http_client.get(url).send().await?;
 
         handle_response(resp, |r| r.json()).await
-    }
+    }*/
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn create_symlink(&self, path: &str, target: &str) -> Result<Attributes> {

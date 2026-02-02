@@ -428,7 +428,7 @@ impl FileSystem {
         // Allowed only if user is the owner or root
         if let Some(mode) = new_attributes.mode {
             if self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {
-                let mut adjusted_mode = mode as u16;
+                /*let  mut  adjusted_mode = mode as u16;
 
                 if user_id == group_id {
                     let mut permission = Permission::try_from(mode as u16).map_err(|_| {
@@ -436,9 +436,9 @@ impl FileSystem {
                     })?;
                     permission.group = permission.user;
                     adjusted_mode = permission.into();
-                }
+                }*/
 
-                let perms = std::fs::Permissions::from_mode(adjusted_mode as u32);
+                let perms = std::fs::Permissions::from_mode(/*adjusted_*/mode/* as u32*/);
                 file.set_permissions(perms)?;
             } else {
                 return Err(StorageError::PermissionDenied);

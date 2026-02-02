@@ -48,7 +48,7 @@ pub trait RemoteStorage: Debug + Send + Sync + 'static {
     async fn mkdir(&self, path: &str) -> Result<Attributes>;
     async fn rename(&self, old_path: &str, new_path: &str) -> Result<()>;
     async fn remove(&self, path: &str) -> Result<()>;
-    async fn resolve_child(&self, path: &str) -> Result<Attributes>;
+    //async fn resolve_child(&self, path: &str) -> Result<Attributes>;
     async fn create_symlink(&self, path: &str, target: &str) -> Result<Attributes>;
     async fn read_symlink(&self, path: &str) -> Result<String>;
 }

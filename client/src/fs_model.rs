@@ -471,7 +471,7 @@ impl FileSystem {
         Ok(())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    /*#[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn resolve_child<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
         let path = path.as_ref();
 
@@ -492,7 +492,7 @@ impl FileSystem {
             cache_put_attr(cache, path, attributes);
         }
         Ok(attributes)
-    }
+    }*/
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {

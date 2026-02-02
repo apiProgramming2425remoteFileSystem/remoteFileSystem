@@ -1,5 +1,7 @@
 mod common;
 use bytes::Bytes;
+use serde::Serialize;
+use crate::common::ReadFileRequest;
 
 #[tokio::test]
 async fn test_list_directories() -> anyhow::Result<()> {
@@ -62,3 +64,75 @@ async fn test_list_files() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn write_then_read_whole_file() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    let write_url = format!(
+        "{}?offset=0",
+        client.set_url("files", "/a.txt")
+    );
+
+    client.put(&write_url)
+        .body(Bytes::from_static(b"hello world"))
+        .send().await?
+        .error_for_status()?;
+
+    let read_url = client.set_url("files", "/a.txt");
+    let data = client.get(&read_url)
+        .json(&ReadFileRequest::new(0, 20))
+        .send().await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+
+    assert_eq!(&data[..], b"hello world");
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_with_offset_and_size() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    let url = format!("{}?offset=0", client.set_url("files", "/d.txt"));
+    client.put(&url)
+        .body(Bytes::from_static(b"0123456789"))
+        .send().await?
+        .error_for_status()?;
+
+    let read_url = client.set_url("files", "/d.txt");
+    let data = client.get(&read_url)
+        .json(&ReadFileRequest::new(3, 4))
+        .send().await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+
+    assert_eq!(&data[..], b"3456");
+    Ok(())
+}
+
+
+#[tokio::test]
+async fn health_check_works() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    let url = client.set_short_url("health");
+    let resp = client.get(&url).send().await?;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await?;
+    assert!(body.contains("RemoteFS Server is running"));
+
+    Ok(())
+}
+
+
+
