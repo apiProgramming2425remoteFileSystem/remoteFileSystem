@@ -6,9 +6,7 @@ use common::*;
 
 #[test]
 fn test_special_characters_in_filenames() -> Result<()> {
-    let test_env = TestEnvironment::new()?;
-    let sys_build = test_env.setup()?;
-    let ctx = sys_build.build()?;
+    let (_ctx, mount_point, _server_root) = setup_e2e!();
 
     // List of tricky filenames
     let filenames = vec![
@@ -20,10 +18,7 @@ fn test_special_characters_in_filenames() -> Result<()> {
     ];
 
     for name in filenames {
-        let path = ctx
-            .mount_point()
-            .ok_or_else(|| anyhow!("Client context missing"))?
-            .join(name);
+        let path = mount_point.join(name);
         let content = format!("Content of {}", name);
 
         // Write
@@ -76,14 +71,9 @@ fn test_large_file_transfer() -> Result<()> {
 #[test]
 fn test_directory_depth_limit() -> Result<()> {
     // Tests if the system handles deep recursion gracefully
-    let test_env = TestEnvironment::new()?;
-    let sys_build = test_env.setup()?;
-    let ctx = sys_build.build()?;
+    let (_ctx, mount_point, _server_root) = setup_e2e!();
 
-    let mut current_path = ctx
-        .mount_point()
-        .expect("Client context missing")
-        .to_path_buf();
+    let mut current_path = mount_point.to_path_buf();
 
     // Create a path 10 levels deep
     for i in 0..10 {
@@ -101,6 +91,40 @@ fn test_directory_depth_limit() -> Result<()> {
     // Read back
     let content = fs::read_to_string(&file_path)?;
     assert_eq!(content, "I am deep");
+
+    Ok(())
+}
+
+#[test]
+fn test_complex_tree_manipulation() -> Result<()> {
+    let (_ctx, root, _server_root) = setup_e2e!();
+
+    // Deep Nesting
+    let deep_path = root.join("a/b/c/d/e/f/g");
+    fs::create_dir_all(&deep_path)?;
+    assert!(deep_path.exists());
+
+    // Special Characters
+    let weird_name = deep_path.join("file with spaces & symbols!.txt");
+    fs::write(&weird_name, "content")?;
+    assert!(weird_name.exists());
+
+    // Directory Rename (The hardest test for FUSE clients)
+    // Move 'a' to 'z'. 'z/b/c...' must still exist.
+    let new_root = root.join("z");
+    fs::rename(root.join("a"), &new_root)?;
+
+    assert!(!root.join("a").exists(), "Old directory still exists");
+    assert!(
+        new_root.join("b/c/d/e/f/g").exists(),
+        "Children not moved with parent"
+    );
+    assert!(
+        new_root
+            .join("b/c/d/e/f/g/file with spaces & symbols!.txt")
+            .exists(),
+        "File lost in move"
+    );
 
     Ok(())
 }

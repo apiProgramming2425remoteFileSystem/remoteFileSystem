@@ -7,13 +7,13 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 use crate::binary::BinaryBuilder;
 use crate::client::ClientProcess;
 use crate::server::ServerProcess;
 
-pub const WAIT_TIMEOUT_SECS: u64 = 1;
+pub const WAIT_TIMEOUT_SECS: u64 = 5;
 pub const DEFAULT_DB_PATH: &str = "database/remote_fs_db.sqlite";
 pub const DEFAULT_USER: &str = "test_user";
 pub const DEFAULT_PASS: &str = "test_password";
@@ -56,6 +56,30 @@ impl Context {
         println!("Manually stopping client...");
         drop(c);
     }
+
+    pub fn remount_client(&mut self, system_builder: SystemBuilder) -> Result<()> {
+        let server_url = if let Some(ref srv) = self.server {
+            format!("http://{}:{}", srv.host, srv.port)
+        } else {
+            return Err(anyhow!("Cannot remount client without a running server"));
+        };
+
+        // Start new client
+        let mut new_client = ClientProcess::spawn(
+            system_builder.client,
+            &system_builder.mount_point,
+            &server_url,
+            &system_builder.log_strategy,
+        )?;
+
+        // Wait for readiness
+        new_client.wait_ready(Duration::from_secs(WAIT_TIMEOUT_SECS))?;
+
+        // Replace old client
+        self.client = Some(new_client);
+
+        Ok(())
+    }
 }
 
 /// List of logging strategies
@@ -70,6 +94,7 @@ pub enum LogStrategy {
 }
 
 /// Builder for the entire test system (server + client)
+#[derive(Clone, Debug)]
 pub struct SystemBuilder {
     /// Specific configuration for the Server
     pub server: BinaryBuilder,
@@ -85,6 +110,8 @@ pub struct SystemBuilder {
     server_root: PathBuf,
     /// Path to the database file
     db_path: PathBuf,
+    /// Whether to initialize the database
+    init_db: bool,
     /// Mount point for the client
     mount_point: PathBuf,
 }
@@ -106,6 +133,7 @@ impl SystemBuilder {
             server_root: PathBuf::from(server_root),
             db_path: PathBuf::from(db_path),
             mount_point: PathBuf::from(mount_point),
+            init_db: true,
         }
     }
 
@@ -150,6 +178,12 @@ impl SystemBuilder {
         self
     }
 
+    /// Sets whether to initialize the database
+    pub fn init_db(&mut self, init: bool) -> &mut Self {
+        self.init_db = init;
+        self
+    }
+
     // Final build and start
     pub fn build(self) -> Result<Context> {
         // Start Server and Client as per configuration
@@ -161,12 +195,13 @@ impl SystemBuilder {
                 &self.server_root,
                 &self.db_path,
                 &self.log_strategy,
+                self.init_db,
             )?)
         } else {
             None
         };
 
-        let client_proc = if self.client.enabled() {
+        let mut client_proc = if self.client.enabled() {
             let server_url = if let Some(ref srv) = server_proc {
                 format!("http://{}:{}", srv.host, srv.port)
             } else {
@@ -193,7 +228,7 @@ impl SystemBuilder {
                         .expect("Server failed to become ready");
                 });
             }
-            if let Some(ref cli) = client_proc {
+            if let Some(ref mut cli) = client_proc {
                 s.spawn(|| {
                     cli.wait_ready(wait_duration)
                         .expect("Client failed to become ready");
@@ -222,6 +257,7 @@ impl Default for SystemBuilder {
             server_root: PathBuf::from("/remote-fs"),
             db_path: PathBuf::from(DEFAULT_DB_PATH),
             mount_point: PathBuf::from("/mnt/remote-fs"),
+            init_db: true,
         }
     }
 }

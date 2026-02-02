@@ -271,6 +271,44 @@ fn test_end_to_end_upload() -> Result<()> {
 }
 ```
 
+#### E2E Helpers
+
+The repository provides small E2E helpers in `tests/common/mod.rs` to keep test code concise. Use them for simple tests; prefer manual setup when you need custom client/server configuration.
+
+- `setup_e2e!()`
+  - Quick default setup. Builds a temporary `TestEnvironment`, calls `setup()` and `build()` on the `SystemBuilder`, and returns `(ctx, mount_point, server_root)` where `mount_point` and `server_root` are owned `PathBuf`s ready for use.
+
+    ```rust
+    let (ctx, mount_point, server_root) = setup_e2e!();
+    std::fs::write(mount_point.join("file.txt"), "content")?;
+    ```
+
+  - The macro uses the default `SystemBuilder` configuration. If a test needs additional customization, build the setup manually:
+
+    ```rust
+    let test_env = TestEnvironment::new()?;
+    let mut sys_build = test_env.setup()?;
+    sys_build.client.arg_pair("--cache-ttl", "1");
+    // other sys_build customization...
+    let ctx = sys_build.build()?;
+    ```
+
+    Use `setup_e2e!()` for straightforward E2E checks and manual `TestEnvironment` + `SystemBuilder` for any test requiring non-default behavior.
+
+- `compare_command_outputs(binary, args, client_target, server_target)`
+  - Run the same command against the client mount and server storage, assert both succeed, and return their stdout for comparison (e.g., `md5sum`, `ls`).
+
+    ```rust
+    let (client_out, server_out) = compare_command_outputs(
+        "md5sum",
+        ["-b"],
+        &mount_point.join("file.bin"),
+        &server_root.join("file.bin"),
+    )?;
+    assert_eq!(client_out, server_out);
+    ```
+
+
 ---
 
 ## Quick Start & Aliases

@@ -9,23 +9,12 @@ use common::*;
 #[test]
 fn test_correct_lifecycle() -> Result<()> {
     // Setup system
-    let test_env = TestEnvironment::new()?;
-    let sys_build = test_env.setup()?;
-
-    let ctx = sys_build.build()?;
-
-    let Some(mount_dir) = ctx.mount_point() else {
-        return Err(anyhow!("Client context missing"));
-    };
+    let (_ctx, mount_dir, server_root) = setup_e2e!();
 
     println!("Using mount point at {:?}", mount_dir);
     std::fs::write(mount_dir.join("file.txt"), "content")?;
 
-    let Some(server) = &ctx.server else {
-        return Err(anyhow!("Server root missing"));
-    };
-
-    assert!(server.fs_root.join("file.txt").exists());
+    assert!(server_root.join("file.txt").exists());
     println!("Test completed, resources will be cleaned up on drop.");
     Ok(())
 }
@@ -33,9 +22,7 @@ fn test_correct_lifecycle() -> Result<()> {
 #[test]
 fn test_data_propagation_to_server_disk() -> Result<()> {
     // Setup system
-    let test_env = TestEnvironment::new()?;
-    let sys_build = test_env.setup()?;
-    let ctx = sys_build.build()?;
+    let (ctx, _mount_dir, _server_root) = setup_e2e!();
 
     let filename = "integration_check.txt";
     let content = "Data traveling through the pipeline";
@@ -168,9 +155,7 @@ fn test_client_sees_existing_files_on_startup() -> Result<()> {
 
 #[test]
 fn test_data_is_persisted_on_server_disk() -> Result<()> {
-    let test_env = TestEnvironment::new()?;
-    let sys_build = test_env.setup()?;
-    let ctx = sys_build.build()?;
+    let (ctx, _mount_dir, _server_root) = setup_e2e!();
 
     // Path on the Client (Virtual FUSE mount)
     let Some(clt_mnt) = ctx.mount_point() else {

@@ -53,6 +53,13 @@ pub trait MountFs: Send + Sync {
             "Unmounting not supported on this platform".into(),
         ))
     }
+
+    /// Attempt a lazy/detach unmount for the given mount point.
+    async fn lazy_unmount(&mut self, _mount_point: &Path) -> Result<()> {
+        Err(MountError::UnsupportedPlatform(
+            "Lazy unmount not supported on this platform".into(),
+        ))
+    }
 }
 
 impl MountPoint {
@@ -89,6 +96,7 @@ impl MountPoint {
         Ok(())
     }
 
+    // Delegate to the platform-specific `wait` implementation.
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn wait(&mut self) -> Result<()> {
         tracing::info!("Waiting for FS unmount or session end...");
@@ -97,12 +105,19 @@ impl MountPoint {
         Ok(())
     }
 
+    // Delegate to the platform-specific `unmount` implementation.
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn unmount(&mut self) -> Result<()> {
         tracing::info!("Unmounting FS from {:?}", self.mount_point);
         self.session.unmount().await?;
 
         Ok(())
+    }
+
+    /// Delegate to the platform-specific `lazy_unmount` implementation.
+    #[instrument(skip(self), err(level = Level::WARN))]
+    pub async fn lazy_unmount(&mut self) -> Result<()> {
+        self.session.lazy_unmount(&self.mount_point).await
     }
 }
 

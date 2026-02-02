@@ -17,4 +17,10 @@ escargot = "0.5"
 tempfile = "3"
 walkdir = "2.3"
 
-# [dev-dependencies]
+[dev-dependencies]
+libc = "0.2"
+fs2 = "0.4.3"
+rstest = "0.26"
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.31.1", features = ["signal", "user"] }

@@ -59,6 +59,46 @@ impl MountFs for UnixSession {
         tracing::info!("FS unmounted successfully.");
         Ok(())
     }
+
+    async fn lazy_unmount(&mut self, mount_point: &Path) -> Result<()> {
+        // Clone the mount_point for use inside blocking task
+        let mp = mount_point.to_path_buf();
+
+        let res = tokio::task::spawn_blocking(move || {
+            use std::process::Command;
+
+            let candidates: &[(&str, &[&str])] = &[
+                ("umount", &["-l"]),
+                ("fusermount3", &["-u", "-z"]),
+                ("fusermount", &["-u", "-z"]),
+            ];
+
+            for (cmd, args) in candidates {
+                let mut command = Command::new(cmd);
+                for a in *args {
+                    command.arg(a);
+                }
+                command.arg(&mp);
+                if command.spawn().is_ok() {
+                    return Ok(());
+                }
+            }
+
+            Err(MountError::UnmountFailed(
+                "No suitable lazy-unmount command available".to_string(),
+            ))
+        })
+        .await;
+
+        match res {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(join_err) => Err(MountError::Other(anyhow::format_err!(
+                "Failed to spawn lazy-unmount task: {}",
+                join_err
+            ))),
+        }
+    }
 }
 
 impl From<&MountOptions> for MountOptionsFuse {

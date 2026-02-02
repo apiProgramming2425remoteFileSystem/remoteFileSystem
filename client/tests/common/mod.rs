@@ -4,9 +4,8 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_test::assert_ok;
 
-use client::config::RfsConfig;
-use client::config::cache::CachePolicy;
-use client::config::logging::{LogFormat, LogLevel, LogTargets};
+use client::config::logging::LogTargets;
+use client::config::{LoggingConfig, RfsConfig};
 use client::daemon::Daemon;
 use client::logging::Logging;
 use client::network::MockRemoteStorage;
@@ -65,7 +64,7 @@ impl AppController {
         // This allows the test logic to run concurrently in the main thread.
         let app_handle = tokio::spawn(async move {
             // Start the client with the mock
-            let x = run_async(config, mock, daemon_handle)
+            run_async(config, mock, daemon_handle)
                 .await
                 .expect("Failed to run async client");
 
@@ -114,6 +113,10 @@ pub fn get_config(mountpoint: &Path) -> RfsConfig {
     RfsConfig {
         mount_point: mountpoint.to_path_buf(),
         username: Some("test_user".to_string()),
+        logging: LoggingConfig {
+            log_targets: vec![LogTargets::Console],
+            ..Default::default()
+        },
         ..Default::default()
     }
 }

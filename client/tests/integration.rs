@@ -5,14 +5,12 @@ use common::*;
 use client::network::MockRemoteStorage;
 
 use anyhow::Result;
-use mockall::predicate::*;
-use tokio_test::assert_ok;
 
 // TEMPLATE
 #[tokio::test]
 async fn test_client_with_mock() -> Result<()> {
     // Create a mock RemoteStorage client
-    let mut mock = MockRemoteStorage::new();
+    let mock = MockRemoteStorage::new();
     // Configure the mock to respond like the network would
 
     let mount_dir = tempfile::tempdir()?;

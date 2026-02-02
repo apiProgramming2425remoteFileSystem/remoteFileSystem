@@ -26,26 +26,29 @@ impl ServerProcess {
         fs_root: &Path,
         db_path: &Path,
         log_strategy: &LogStrategy,
+        init_db: bool,
     ) -> Result<Self> {
         let bin = SERVER_BIN.get_or_init(|| {
             println!("Building Server binary...");
             get_bin("server")
         });
 
-        // First, create the default user
+        if init_db {
+            // First, create the default user
+            let mut cmd = Command::new(bin);
+            cmd.arg("--database-path").arg(db_path);
+            cmd.arg("user-create");
+            cmd.arg("-u").arg(DEFAULT_USER);
+            cmd.arg("-p").arg(DEFAULT_PASS);
+            cmd.arg("--uid").arg(DEFAULT_UID);
+            cmd.arg("--gid").arg(DEFAULT_GID);
+
+            cmd.status()
+                .map_err(|e| anyhow!("Failed to create default user: {}", e))?;
+            apply_logging(&mut cmd, log_strategy, "server");
+        }
+
         let mut cmd = Command::new(bin);
-        cmd.arg("--database-path").arg(db_path);
-        cmd.arg("user-create");
-        cmd.arg("-u").arg(DEFAULT_USER);
-        cmd.arg("-p").arg(DEFAULT_PASS);
-        cmd.arg("--uid").arg(DEFAULT_UID);
-        cmd.arg("--gid").arg(DEFAULT_GID);
-
-        cmd.status()
-            .map_err(|e| anyhow!("Failed to create default user: {}", e))?;
-        apply_logging(&mut cmd, log_strategy, "server");
-
-        cmd = Command::new(bin);
         cmd.arg("--database-path").arg(db_path);
         cmd.arg("run");
         cmd.arg("--server-host").arg(host);
@@ -63,6 +66,10 @@ impl ServerProcess {
             }),
             Err(e) => Err(anyhow!("Failed to spawn Server process: {}", e)),
         }
+    }
+
+    pub fn process(&mut self) -> &mut Child {
+        &mut self.child
     }
 
     pub fn wait_ready(&self, wait_time: Duration) -> Result<()> {

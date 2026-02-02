@@ -243,9 +243,16 @@ pub async fn run_async<R: RemoteStorage>(config: RfsConfig, rc: R, daemon: Daemo
         // Ends when a shutdown signal is received
         _ = daemon.wait_for_shutdown() => {
             tracing::info!("Shutdown signal received via Daemon.");
-            // Attempt graceful unmount
-            if let Err(e) = mount_point.unmount().await {
-                tracing::error!("Error during graceful unmount: {}", e);
+            // Attempt lazy unmount, exiting immediately.
+            match mount_point.lazy_unmount().await {
+                Ok(()) => tracing::info!("Requested lazy unmount (detach)"),
+                Err(e) => {
+                    // Fallback to graceful unmount
+                    tracing::warn!("Lazy unmount failed: {}. Falling back to graceful unmount.", e);
+                    if let Err(e) = mount_point.unmount().await {
+                        tracing::error!("Error during graceful unmount: {}", e);
+                    }
+                }
             }
         }
     };

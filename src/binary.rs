@@ -20,7 +20,7 @@ pub fn get_bin(name: &str) -> PathBuf {
             // It's up-to-date! Return the direct path
             return bin_path.to_path_buf();
         } else {
-            println!("🔄 Changes detected in '{}', rebuilding...", name);
+            println!("Changes detected in '{}', rebuilding...", name);
         }
     }
 
@@ -51,11 +51,13 @@ fn find_existing_binary(name: &str) -> Option<PathBuf> {
     };
 
     let mut path = workspace_root.join("target").join(profile).join(name);
-    println!("Looking for binary at {:?}", path);
 
     // Gestione estensione .exe per Windows
-    #[cfg(windows)]
-    path.set_extension("exe");
+    if cfg!(windows) {
+        path.set_extension("exe");
+    }
+
+    println!("Looking for binary at {:?}", path);
 
     if path.exists() { Some(path) } else { None }
 }
