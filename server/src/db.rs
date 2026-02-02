@@ -58,7 +58,7 @@ async fn verify_password(password: &str, hash: &str) -> bool {
 }
 
 #[instrument(err(level = Level::ERROR))]
-async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
+pub async fn generate_token(user_id: i64, group_id: i64) -> anyhow::Result<String> {
     // 1. Compute expiration time
     let expiration_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -149,6 +149,10 @@ impl DB {
         db.create_user(4, 4, "test_user", "test_password").await?;
         */
         Ok(Self { pool })
+    }
+
+    pub async fn user_exists(&self, username: &str) -> Result<bool> {
+        Ok(self.get_user(username).await?.is_some())
     }
 
     /* -- REVOKED TOKEN MANAGEMENT */

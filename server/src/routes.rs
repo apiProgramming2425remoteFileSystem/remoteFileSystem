@@ -144,7 +144,7 @@ async fn make_directory(
         None => return Err(api_err!(InvalidInput, "Invalid path")),
     };
 
-    user.check_permission(&fs, &path, Operation::Write)?;
+    user.check_permission(&fs, &parent, Operation::Write)?;
 
     fs.make_dir(user.user_id, user.group_id, parent, name)?;
 
@@ -444,7 +444,7 @@ impl AuthenticatedUser {
             Ok(false) => Err(ApiError::PermissionDenied(String::from(
                 "You do not have the needed permissions.",
             ))),
-            Err(e) => Err(ApiError::InternalError(e.to_string())),
+            Err(e) => Err(e.into()),
         }
     }
 }

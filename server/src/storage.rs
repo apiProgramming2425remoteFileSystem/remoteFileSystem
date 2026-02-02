@@ -507,12 +507,10 @@ impl FileSystem {
     ) -> Result<bool> {
         let mut path = self.make_real_path(path)?;
         if !path.exists() {
-            path = PathBuf::from(path.parent().expect("Generic error"));
-            // REVIEW: check if this is correct
-            // return Err(StorageError::InvalidPath(format!(
-            //     "Path {:?} does not exist",
-            //     path
-            // )));
+            let parent = path.parent().ok_or_else(|| {
+                StorageError::NotFound(format!("Path not found: {:?}", path))
+            })?;
+            path = parent.to_path_buf();
         }
 
         let attributes = get_attributes_by_path(&path)?;
