@@ -14,6 +14,7 @@ pub enum ApiError {
     AlreadyExists(String),
     NotADirectory(String),
     IsADirectory(String),
+    DirectoryNotEmpty(String),
     // --- Permission and Security ---
     PermissionDenied(String),
     OperationNotPermitted(String),
@@ -110,6 +111,9 @@ pub enum StorageError {
     #[error("Permission denied")]
     PermissionDenied,
 
+    #[error("Directory not empty: {0}")]
+    DirectoryNotEmpty(String),
+
     #[error("Operation not supported: {0}")]
     UnsupportedOperation(String),
 
@@ -188,6 +192,7 @@ impl From<StorageError> for ApiError {
             StorageError::UnsupportedOperation(err) => {
                 api_err!(Unsupported, err)
             }
+            StorageError::DirectoryNotEmpty(err) => api_err!(DirectoryNotEmpty, "{}", err),
             StorageError::ConversionFailed => api_err!(InternalError, "Conversion failed"),
             StorageError::MetadataError(err) => api_err!(InternalError, "Metadata error: {}", err),
             StorageError::Other(error) => {

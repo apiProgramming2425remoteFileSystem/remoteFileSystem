@@ -9,7 +9,7 @@ use models::*;
 use std::fmt::Debug;
 
 use crate::error::NetworkError;
-use crate::fs_model::{Attributes, SetAttr, Stats};
+use crate::fs_model::{Attributes, RenameFlags, SetAttr, Stats};
 
 pub const APP_V1_BASE_URL: &str = "/api/v1";
 
@@ -46,7 +46,7 @@ pub trait RemoteStorage: Debug + Send + Sync + 'static {
     async fn read_file(&self, path: &str, offset: usize, size: usize) -> Result<Vec<u8>>;
     async fn write_file(&self, path: &str, offset: usize, data: &[u8]) -> Result<Attributes>;
     async fn mkdir(&self, path: &str) -> Result<Attributes>;
-    async fn rename(&self, old_path: &str, new_path: &str) -> Result<()>;
+    async fn rename(&self, old_path: &str, new_path: &str, flags: RenameFlags) -> Result<()>;
     async fn remove(&self, path: &str) -> Result<()>;
     //async fn resolve_child(&self, path: &str) -> Result<Attributes>;
     async fn create_symlink(&self, path: &str, target: &str) -> Result<Attributes>;

@@ -134,6 +134,8 @@ pub enum FuseError {
     NotADirectory(String),
     #[error("Is a Directory: {0}")]
     IsADirectory(String),
+    #[error("Directory not empty: {0}")]
+    DirectoryNotEmpty(String),
 
     // --- Permission and Security ---
     #[error("Permission Denied: {0}")]
@@ -206,18 +208,6 @@ pub enum NetworkError {
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
-
-/* cache uses Option for now, can't generate errors
-/// Cache related errors
-#[derive(Error, Debug)]
-pub enum CacheError {
-    #[error("Cache miss for key: {0}")]
-    CacheMiss(String),
-
-    #[error("Cache corruption detected")]
-    Corruption,
-}
-*/
 
 /// Top-level client error enum wrapping sub-errors
 #[derive(Error, Debug)]

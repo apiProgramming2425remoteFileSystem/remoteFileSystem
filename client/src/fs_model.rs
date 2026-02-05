@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-
 use tokio::sync::RwLock;
 use tracing::{Level, instrument};
 
@@ -32,6 +31,18 @@ type Result<T> = std::result::Result<T, FsModelError>;
 static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
 pub static PAGE_SIZE: OnceLock<usize> = OnceLock::new();
 pub static MAX_PAGES: OnceLock<usize> = OnceLock::new();
+
+
+
+bitflags::bitflags! {
+    #[derive(Debug, Copy, Clone)]
+    pub struct RenameFlags: u32 {
+        const NOREPLACE = 0b0001;
+        const EXCHANGE  = 0b0010;
+        const WHITEOUT  = 0b0100;
+    }
+}
+
 
 #[derive(Debug)]
 pub struct FileSystem {
@@ -61,46 +72,8 @@ fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
     }
 }
 
-// REVIEW: move these functions to the relevant fs_model module?
 
-#[instrument(skip(cache), ret(level = Level::DEBUG))]
-fn cache_write_file<P: AsRef<Path> + Debug>(
-    cache: &Arc<Cache>,
-    path: P,
-    offset: usize,
-    data: &[u8],
-    invalidate_attributes: bool,
-) {
-    if let Some(name) = path.as_ref().file_name() {
-        let mut file = File::new(name.to_os_string(), None);
-        file.write_content(offset, data);
-        cache.put(
-            path.as_ref().to_path_buf(),
-            CacheItem::File(file),
-            invalidate_attributes,
-        );
-    }
-}
 
-#[instrument(skip(cache), ret(level = Level::DEBUG))]
-fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attributes: Attributes) {
-    if let Some(name) = path.as_ref().file_name() {
-        let item = match attributes.kind {
-            FileType::Directory => {
-                CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))
-            }
-            FileType::RegularFile => {
-                CacheItem::File(File::new(name.to_os_string(), Some(attributes)))
-            }
-            FileType::Symlink => {
-                CacheItem::SymLink(SymLink::new(name.to_os_string(), Some(attributes), None))
-            }
-            _ => CacheItem::File(File::new(name.to_os_string(), Some(attributes))),
-        };
-
-        cache.put(path.as_ref().to_path_buf(), item, false);
-    }
-}
 
 /// pub async fn template_fn(&self, args) -> Result<> {
 ///     1. check args
@@ -259,8 +232,6 @@ impl FileSystem {
         offset: usize,
         data: &[u8],
     ) -> Result<Attributes> {
-        // TODO: flags
-
         let path = path.as_ref();
         let path_str = path_to_string(path)?;
 
@@ -278,8 +249,6 @@ impl FileSystem {
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn open<P: AsRef<Path> + Debug>(&self, path: P, flags: &Flags) -> Result<u64> {
-        // TODO: flags
-
         let fh = CURRENT_FH.fetch_add(1, Ordering::Relaxed);
         let mut guard = self.file_handlers.write().await;
 
@@ -295,8 +264,6 @@ impl FileSystem {
         flags: &Flags,
         fh: u64,
     ) -> Result<()> {
-        // TODO: flags
-
         let mut guard = self.file_handlers.write().await;
 
         guard.remove(&fh);
@@ -362,15 +329,6 @@ impl FileSystem {
         offset: usize,
         data: &[u8],
     ) -> Result<usize> {
-        /*
-        // TODO: flags
-        mi dà errore nelle copy
-        if !(flags.writeonly || flags.readwrite) {
-            return Err(FsModelError::PermissionDenied(String::from(
-                "You do not have enough permissions.",
-            )));
-        }
-         */
 
         let path = path.as_ref();
         let mut data_written = 0;
@@ -439,21 +397,29 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn rename<P: AsRef<Path> + Debug>(&self, old_path: P, new_path: P) -> Result<()> {
+    pub async fn rename<P: AsRef<Path> + Debug>(&self, old_path: P, new_path: P, flags: RenameFlags) -> Result<()> {
         let old_path_str = path_to_string(&old_path)?;
         let new_path_str = path_to_string(&new_path)?;
 
         self.remote_client
-            .rename(&old_path_str, &new_path_str)
+            .rename(&old_path_str, &new_path_str, flags)
             .await?;
 
         if let Some(cache) = &self.cache {
-            let old_item = cache.remove(old_path);
-            if let Some(name) = new_path.as_ref().file_name()
-                && let Some(mut item) = old_item
-            {
-                item.rename(name.to_os_string());
-                cache.put_new(new_path, item);
+            match flags {
+                f if f.contains(RenameFlags::EXCHANGE) => {
+                    cache.remove(old_path);
+                    cache.remove(new_path);
+                }
+                _ => {
+                    let old_item = cache.remove(old_path);
+                    if let Some(name) = new_path.as_ref().file_name()
+                        && let Some(mut item) = old_item
+                    {
+                        item.rename(name.to_os_string());
+                        cache.put_new(new_path, item);
+                    }
+                }
             }
         }
 

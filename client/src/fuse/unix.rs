@@ -101,9 +101,6 @@ impl PathFilesystem for Fs {
         fh: Option<u64>,
         flags: u32,
     ) -> FuseResult<ReplyAttr> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
@@ -246,9 +243,6 @@ impl PathFilesystem for Fs {
     /// get filesystem statistics.
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn statfs(&self, req: Request, path: &OsStr) -> FuseResult<ReplyStatFs> {
-        // TODO:
-        //Err(FuseError::NotImplemented.into())
-
         let path = PathBuf::from(path);
         let stats = self.fs.get_fs_stats(&path).await?;
 
@@ -289,7 +283,6 @@ impl PathFilesystem for Fs {
         block_size: u32,
         idx: u64,
     ) -> FuseResult<ReplyBmap> {
-        // TODO:
         Err(FuseError::Unsupported("bmap".to_string()).into())
     }
 
@@ -303,7 +296,6 @@ impl PathFilesystem for Fs {
         offset: u64,
         whence: u32,
     ) -> FuseResult<ReplyLSeek> {
-        // TODO:
         Err(FuseError::Unsupported("lseek".to_string()).into())
     }
 
@@ -319,9 +311,6 @@ impl PathFilesystem for Fs {
         mode: u32,
         rdev: u32,
     ) -> FuseResult<ReplyEntry> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let path = PathBuf::from(parent).join(name);
 
         let fs_type = fs_model::FileType::try_from(mode)?;
@@ -359,9 +348,6 @@ impl PathFilesystem for Fs {
         mode: u32,
         flags: u32,
     ) -> FuseResult<ReplyCreated> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let path = PathBuf::from(parent).join(name);
 
         let fs_type = fs_model::FileType::try_from(mode)?;
@@ -431,9 +417,6 @@ impl PathFilesystem for Fs {
         offset: u64,
         size: u32,
     ) -> FuseResult<ReplyData> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let file_path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
@@ -442,16 +425,24 @@ impl PathFilesystem for Fs {
             };
             p
         };
+        let mut data_read : usize = 0;
+        let mut data : Vec<u8> = vec![];
 
-        let data = self
-            .fs
-            .read_file(
-                &file_path,
-                offset as usize,
-                size as usize,
-                // &self.auth_token,
-            )
-            .await?;
+        while data_read < size as usize {
+            let new_data = self
+                .fs
+                .read_file(
+                    &file_path,
+                    (offset as usize)+data_read,
+                    (size as usize)-data_read,
+                )
+                .await?;
+            if new_data.is_empty() {
+                break;
+            }
+            data.extend_from_slice(&new_data);
+            data_read += new_data.len();
+        }
 
         Ok(ReplyData { data: data.into() })
     }
@@ -475,9 +466,6 @@ impl PathFilesystem for Fs {
         write_flags: u32,
         flags: u32,
     ) -> FuseResult<ReplyWrite> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let file_path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
@@ -630,15 +618,24 @@ impl PathFilesystem for Fs {
             p
         };
 
-        let data = self
-            .fs
-            .read_file(
-                &file_in_path,
-                offset_in as usize,
-                length as usize,
-                // &self.auth_token,
-            )
-            .await?;
+        let mut data_read : usize = 0;
+        let mut data : Vec<u8> = vec![];
+
+        while data_read < length as usize {
+            let new_data = self
+                .fs
+                .read_file(
+                    &file_in_path,
+                    (offset_in as usize)+data_read,
+                    (length as usize)-data_read,
+                )
+                .await?;
+            if new_data.is_empty() {
+                break;
+            }
+            data.extend_from_slice(&new_data);
+            data_read += new_data.len();
+        }
 
         let fs_flags = fs_model::Flags::try_from(flags)?;
 
@@ -649,7 +646,6 @@ impl PathFilesystem for Fs {
                 &fs_flags,
                 offset_out as usize,
                 data.as_slice(),
-                // &self.auth_token,
             )
             .await?;
 
@@ -674,9 +670,6 @@ impl PathFilesystem for Fs {
         length: u64,
         mode: u32,
     ) -> FuseResult<()> {
-        // TODO:
-        // Err(FuseError::NotImplemented.into())
-
         let file_path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
@@ -725,9 +718,6 @@ impl PathFilesystem for Fs {
     /// remove a directory.
     #[instrument(skip(self), err(level = Level::ERROR))]
     async fn rmdir(&self, req: Request, parent: &OsStr, name: &OsStr) -> FuseResult<()> {
-        // TODO:
-        // tracing::warn!("[Not Implemented]");
-        // Err(libc::ENOSYS.into())
         let path = Path::new(parent).join(name);
 
         self.fs.remove(&path).await?;
@@ -804,7 +794,6 @@ impl PathFilesystem for Fs {
         offset: u64,
         lock_owner: u64,
     ) -> FuseResult<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
-        // TODO:
         let path = Path::new(parent);
 
         let items = self.fs.readdir(&path).await?;
@@ -876,13 +865,11 @@ impl PathFilesystem for Fs {
         parent: &OsStr,
         name: &OsStr,
     ) -> FuseResult<()> {
-        // TODO:
-        // tracing::warn!("[Not Implemented]");
-        // Err(libc::ENOSYS.into())
         let old_path = Path::new(origin_parent).join(origin_name);
         let new_path = Path::new(parent).join(name);
+        let flags = fs_model::RenameFlags::from_bits_truncate(0);
 
-        self.fs.rename(&old_path, &new_path).await?;
+        self.fs.rename(&old_path, &new_path, flags).await?;
         Ok(())
     }
 
@@ -897,13 +884,11 @@ impl PathFilesystem for Fs {
         name: &OsStr,
         flags: u32,
     ) -> FuseResult<()> {
-        // TODO:
-        // tracing::warn!("[Not Implemented]");
-        //Err(libc::ENOSYS.into());
         let old_path = Path::new(origin_parent).join(origin_name);
         let new_path = Path::new(parent).join(name);
+        let flags = fs_model::RenameFlags::from_bits_truncate(flags);
 
-        self.fs.rename(&old_path, &new_path).await?;
+        self.fs.rename(&old_path, &new_path, flags).await?;
         Ok(())
     }
 
@@ -916,7 +901,6 @@ impl PathFilesystem for Fs {
         new_parent: &OsStr,
         new_name: &OsStr,
     ) -> FuseResult<ReplyEntry> {
-        // TODO:
         Err(FuseError::Unsupported("link".to_string()).into())
     }
 
@@ -979,7 +963,6 @@ impl PathFilesystem for Fs {
         r#type: u32,
         pid: u32,
     ) -> FuseResult<ReplyLock> {
-        // TODO:
         Err(FuseError::NotImplemented.into())
     }
 
@@ -1002,7 +985,6 @@ impl PathFilesystem for Fs {
         pid: u32,
         block: bool,
     ) -> FuseResult<()> {
-        // TODO:
         Err(FuseError::NotImplemented.into())
     }
 
@@ -1010,7 +992,6 @@ impl PathFilesystem for Fs {
     /// server with the unique id of the operation.
     #[instrument(skip(self), err(level = Level::ERROR))]
     async fn interrupt(&self, req: Request, unique: u64) -> FuseResult<()> {
-        // TODO:
         Err(FuseError::Unsupported("interrupt".to_string()).into())
     }
 
@@ -1027,7 +1008,6 @@ impl PathFilesystem for Fs {
         envents: u32,
         notify: &Notify,
     ) -> FuseResult<ReplyPoll> {
-        // TODO:
         Err(FuseError::Unsupported("poll".to_string()).into())
     }
 
@@ -1040,7 +1020,6 @@ impl PathFilesystem for Fs {
         offset: u64,
         data: Bytes,
     ) -> FuseResult<()> {
-        // TODO:
         Err(FuseError::Unsupported("notify_reply".to_string()).into())
     }
 
@@ -1127,6 +1106,7 @@ impl From<FuseError> for Errno {
             FuseError::AlreadyExists(_) => libc::EEXIST.into(),
             FuseError::NotADirectory(_) => libc::ENOTDIR.into(),
             FuseError::IsADirectory(_) => libc::EISDIR.into(),
+            FuseError::DirectoryNotEmpty(_) => libc::ENOTEMPTY.into(),
             // --- Permission and Security ---
             FuseError::PermissionDenied(_) => libc::EACCES.into(),
             FuseError::OperationNotPermitted(_) => libc::EPERM.into(),

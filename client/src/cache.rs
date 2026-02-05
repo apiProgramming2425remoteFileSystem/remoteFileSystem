@@ -1,5 +1,5 @@
 use crate::config::cache::{CacheConfig, CachePolicy};
-use crate::fs_model::{Attributes, Directory, File, SymLink};
+use crate::fs_model::{Attributes, Directory, File, FileType, SymLink};
 use crate::network::models::{ItemType, SerializableFSItem};
 
 use std::collections::HashMap;
@@ -12,9 +12,13 @@ use std::time::{Duration, Instant};
 
 use tracing::{Level, instrument};
 
-// REVIEW: add a trait for Cacheable items in fs_model?
-// like CacheableItem with methods like merge, get_attributes, invalidate_attributes, rename
-// then implement it for File, SymLink, Directory and CacheItem can just delegate to those methods
+pub trait CacheableItem{
+    fn rename(&mut self, name: OsString);
+    fn get_attributes(&self) -> Option<Attributes>;
+
+    fn invalidate_attributes(&mut self);
+}
+
 
 #[derive(Clone, Debug)]
 pub enum CacheItem {
@@ -23,43 +27,32 @@ pub enum CacheItem {
     Directory(Directory),
 }
 
-impl CacheItem {
-    pub fn rename(&mut self, name: OsString) {
+impl CacheableItem for CacheItem {
+    fn rename(&mut self, name: OsString) {
         match self {
-            CacheItem::File(file) => {
-                file.name = name;
-            }
-            CacheItem::SymLink(link) => {
-                link.name = name;
-            }
-            CacheItem::Directory(directory) => {
-                directory.name = name;
-            }
+            CacheItem::File(item) => item.rename(name),
+            CacheItem::SymLink(item) => item.rename(name),
+            CacheItem::Directory(item) => item.rename(name),
         }
     }
 
-    pub fn get_attributes(&self) -> Option<Attributes> {
+    fn get_attributes(&self) -> Option<Attributes> {
         match self {
-            CacheItem::File(file) => file.attributes,
-            CacheItem::SymLink(link) => link.attributes,
-            CacheItem::Directory(directory) => directory.attributes,
+            CacheItem::File(item) => item.get_attributes(),
+            CacheItem::SymLink(item) => item.get_attributes(),
+            CacheItem::Directory(item) => item.get_attributes(),
         }
     }
 
-    pub fn invalidate_attributes(&mut self) {
+    fn invalidate_attributes(&mut self) {
         match self {
-            CacheItem::File(file) => {
-                file.attributes = None;
-            }
-            CacheItem::SymLink(link) => {
-                link.attributes = None;
-            }
-            CacheItem::Directory(directory) => {
-                directory.attributes = None;
-            }
+            CacheItem::File(item) => item.invalidate_attributes(),
+            CacheItem::SymLink(item) => item.invalidate_attributes(),
+            CacheItem::Directory(item) => item.invalidate_attributes(),
         }
     }
 }
+
 
 impl From<SerializableFSItem> for CacheItem {
     fn from(item: SerializableFSItem) -> Self {
@@ -266,6 +259,49 @@ impl Cache {
         }
     }
 }
+
+
+
+#[instrument(skip(cache), ret(level = Level::DEBUG))]
+pub fn cache_write_file<P: AsRef<Path> + Debug>(
+    cache: &Arc<Cache>,
+    path: P,
+    offset: usize,
+    data: &[u8],
+    invalidate_attributes: bool,
+) {
+    if let Some(name) = path.as_ref().file_name() {
+        let mut file = File::new(name.to_os_string(), None);
+        file.write_content(offset, data);
+        cache.put(
+            path.as_ref().to_path_buf(),
+            CacheItem::File(file),
+            invalidate_attributes,
+        );
+    }
+}
+
+#[instrument(skip(cache), ret(level = Level::DEBUG))]
+pub fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attributes: Attributes) {
+    if let Some(name) = path.as_ref().file_name() {
+        let item = match attributes.kind {
+            FileType::Directory => {
+                CacheItem::Directory(Directory::new(name.to_os_string(), Some(attributes), None))
+            }
+            FileType::RegularFile => {
+                CacheItem::File(File::new(name.to_os_string(), Some(attributes)))
+            }
+            FileType::Symlink => {
+                CacheItem::SymLink(SymLink::new(name.to_os_string(), Some(attributes), None))
+            }
+            _ => CacheItem::File(File::new(name.to_os_string(), Some(attributes))),
+        };
+
+        cache.put(path.as_ref().to_path_buf(), item, false);
+    }
+}
+
+
 
 impl Debug for Cache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

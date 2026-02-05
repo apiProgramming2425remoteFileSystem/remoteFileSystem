@@ -1,6 +1,6 @@
 use crate::cache::CacheItem;
 use crate::error::FsModelError;
-use crate::fs_model::{Attributes, SetAttr};
+use crate::fs_model::{Attributes, RenameFlags, SetAttr};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
@@ -95,11 +95,12 @@ impl WriteFile {
 pub struct RenameRequest {
     old_path: String,
     new_path: String,
+    flags: u32,
 }
 
 impl RenameRequest {
-    pub fn new(old_path: String, new_path: String) -> Self {
-        RenameRequest { old_path, new_path }
+    pub fn new(old_path: String, new_path: String, flags: RenameFlags) -> Self {
+        RenameRequest { old_path, new_path, flags: flags.bits() }
     }
 }
 

@@ -260,11 +260,12 @@ async fn rename(
     json: web::Json<RenameRequest>,
 ) -> Result<impl Responder> {
     let old_path = json.old_path();
-    user.check_permission(&fs, &old_path, Operation::Write)?;
-
     let new_path = json.new_path();
+    let flags = RenameFlags::from_bits_truncate(json.flags());
+    user.check_permission(&fs, &old_path, Operation::Write)?;
+    user.check_permission(&fs, &new_path, Operation::Write)?;
 
-    fs.rename(&old_path, &new_path)?;
+    fs.rename(&old_path, &new_path, flags)?;
 
     Ok(HttpResponse::Ok().body("Successful renaming!"))
 }
@@ -371,12 +372,7 @@ async fn list_x_attributes(
 ) -> Result<impl Responder> {
     let path = path.into_inner();
     user.check_permission(&fs, &path, Operation::Read)?;
-
-    // REVIEW: if list_x_attributes returns an empty vec, is already the correct behavior
-    // let names = pool.list_x_attributes(&path).await?;
-
-    let names = pool.list_x_attributes(&path).await?.unwrap_or_default();
-
+    let names = pool.list_x_attributes(&path).await?;
     Ok(HttpResponse::Ok().json(names))
 }
 
@@ -415,6 +411,7 @@ impl ResponseError for ApiError {
             ApiError::AlreadyExists(_) => StatusCode::CONFLICT,
             ApiError::NotADirectory(_) => StatusCode::BAD_REQUEST,
             ApiError::IsADirectory(_) => StatusCode::BAD_REQUEST,
+            ApiError::DirectoryNotEmpty(_) => StatusCode::CONFLICT,
             ApiError::PermissionDenied(_) => StatusCode::FORBIDDEN,
             ApiError::OperationNotPermitted(_) => StatusCode::FORBIDDEN,
             ApiError::StorageFull(_) => StatusCode::INSUFFICIENT_STORAGE,

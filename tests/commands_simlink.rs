@@ -87,7 +87,9 @@ mod tests {
         Ok(())
     }
 
+
     /// Verifies cmd fails to create symlink if target does not exist.
+    // ... funziona quando replico il comportamento
     #[test]
     fn test_cmd_symlink_broken_target() -> Result<()> {
         let (_ctx, mount_point, _server_root) = setup_e2e!();
@@ -203,6 +205,7 @@ mod tests {
     }
 
     // Verifies cmd removes symlinks correctly.
+    // ... funziona quando replico il comportamento
     #[test]
     fn test_cmd_unlink() -> Result<()> {
         let (_ctx, mount_point, server_root) = setup_e2e!();

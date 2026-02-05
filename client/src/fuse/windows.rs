@@ -563,7 +563,7 @@ impl FileSystemContext for Fs {
         }
 
         self.rt
-            .block_on(async { self.fs.rename(&old_path, &new_path).await })?;
+            .block_on(async { self.fs.rename(&old_path, &new_path, fs_model::RenameFlags::from_bits_truncate(0)).await })?;
 
         Ok(())
     }

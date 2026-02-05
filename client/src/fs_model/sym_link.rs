@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
-
+use crate::cache::CacheableItem;
 use super::Attributes;
 
 #[derive(Clone)]
@@ -29,6 +29,21 @@ impl SymLink {
         }
     }
 }
+
+impl CacheableItem for SymLink {
+    fn rename(&mut self, name: OsString) {
+        self.name = name;
+    }
+
+    fn get_attributes(&self) -> Option<Attributes> {
+        self.attributes
+    }
+
+    fn invalidate_attributes(&mut self) {
+        self.attributes = None;
+    }
+}
+
 
 impl Debug for SymLink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

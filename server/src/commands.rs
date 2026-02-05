@@ -40,7 +40,6 @@ impl Executable for UserCreateCommand {
     type Error = CommandError;
 
     async fn execute_with_db(&self, db: DB) -> Result<(), Self::Error> {
-        // REVIEW:
         let Some(user_id) = self.user_id else {
             return Err(CommandError::ExecutionFailed(
                 "User ID must be specified for user creation.".to_string(),

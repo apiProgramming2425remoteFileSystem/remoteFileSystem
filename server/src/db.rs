@@ -510,21 +510,13 @@ impl DB {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn list_x_attributes(&self, path: &str) -> Result<Option<ListXattributes>> {
+    pub async fn list_x_attributes(&self, path: &str) -> Result<ListXattributes> {
         let result = sqlx::query_scalar::<_, String>("SELECT name FROM xattributes WHERE path = ?")
             .bind(path)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
-
-        // REVIEW: is not necessary to return None if empty, because then use unwrap_or_default where default is empty list
-        // Ok(ListXattributes { names: result }) // change the return type to Result<ListXattributes>
-
-        if result.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(ListXattributes { names: result }))
-        }
+        Ok(ListXattributes { names: result })
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -543,6 +535,4 @@ impl DB {
             None => Ok(None),
         }
     }
-
-    // -- CONCURRENCY MANAGEMENT --
 }

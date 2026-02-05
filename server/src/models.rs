@@ -65,17 +65,22 @@ pub struct OffsetQuery {
 pub struct RenameRequest {
     old_path: String,
     new_path: String,
+    flags: u32,
 }
 
 impl RenameRequest {
-    pub fn new(old_path: String, new_path: String) -> Self {
-        Self { old_path, new_path }
+    pub fn new(old_path: String, new_path: String, flags: u32) -> Self {
+        Self { old_path, new_path, flags }
     }
     pub fn new_path(&self) -> String {
         self.new_path.clone()
     }
     pub fn old_path(&self) -> String {
         self.old_path.clone()
+    }
+
+    pub fn flags(&self) -> u32 {
+        self.flags
     }
 }
 

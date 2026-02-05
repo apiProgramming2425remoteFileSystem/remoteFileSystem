@@ -13,7 +13,7 @@ use super::RemoteStorage;
 use super::middleware::*;
 use super::models::*;
 use crate::error::{FuseError, NetworkError};
-use crate::fs_model::{Attributes, Stats, attributes::SetAttr};
+use crate::fs_model::{Attributes, Stats, attributes::SetAttr, RenameFlags};
 
 type Result<T> = std::result::Result<T, NetworkError>;
 
@@ -277,9 +277,9 @@ impl RemoteStorage for RemoteClient {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR))]
-    async fn rename(&self, old_path: &str, new_path: &str) -> Result<()> {
+    async fn rename(&self, old_path: &str, new_path: &str, flags: RenameFlags) -> Result<()> {
         let url = self.set_short_url("rename");
-        let rename_req = RenameRequest::new(String::from(old_path), String::from(new_path));
+        let rename_req = RenameRequest::new(String::from(old_path), String::from(new_path), flags);
 
         let resp = self.http_client.put(url).json(&rename_req).send().await?;
 

@@ -86,6 +86,96 @@ async fn test_set_and_delete_xattr() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_list_xattr_empty() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    // mkdir
+    let url = client.set_url("mkdir", "/dir");
+    client.post(&url).send().await?.error_for_status()?;
+
+    // list xattr
+    let url = client.set_long_url("xattributes", "/dir", "names", None);
+    let res = client.get(&url)
+        .send().await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    assert_eq!(res["names"].as_array().unwrap().len(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_list_xattr_with_values() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    let url = client.set_url("mkdir", "/dir");
+    client.post(&url).send().await?.error_for_status()?;
+
+    for name in ["user.a", "user.b"] {
+        let url = client.set_long_url("xattributes", "/dir", "names", Some(name));
+        client.put(&url)
+            .json(&serde_json::json!({"xattributes": b"v".to_vec()}))
+            .send().await?
+            .error_for_status()?;
+    }
+
+    let url = client.set_long_url("xattributes", "/dir", "names", None);
+    let res = client.get(&url)
+        .send().await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let mut names = res["names"]
+        .as_array().unwrap()
+        .iter().map(|v| v.as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+
+    names.sort();
+    assert_eq!(names, vec!["user.a", "user.b"]);
+
+    Ok(())
+}
+
+
+#[tokio::test]
+async fn test_list_xattr_after_delete() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    let url = client.set_url("mkdir", "/dir");
+    client.post(&url).send().await?.error_for_status()?;
+
+    let url = client.set_long_url("xattributes", "/dir", "names", Some("user.test"));
+    client.put(&url)
+        .json(&serde_json::json!({"xattributes": b"hello".to_vec()}))
+        .send().await?
+        .error_for_status()?;
+
+    // delete
+    client.delete(&url).send().await?.error_for_status()?;
+
+    // list
+    let url = client.set_long_url("xattributes", "/dir", "names", None);
+    let res = client.get(&url)
+        .send().await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    assert!(res["names"].as_array().unwrap().is_empty());
+
+    Ok(())
+}
+
 
 #[tokio::test]
 async fn test_get_attributes_new_directory() -> anyhow::Result<()> {

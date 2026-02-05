@@ -38,7 +38,6 @@ impl ReadBuffer {
 
     #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub fn read<P: AsRef<Path> + Debug>(&self, path: P, offset: usize, len: usize) -> Vec<u8> {
-        // REVIEW: is this correct?
         if path.as_ref() != self.path {
             Vec::new()
         } else if offset < self.offset || offset >= self.offset + self.valid_up_to {

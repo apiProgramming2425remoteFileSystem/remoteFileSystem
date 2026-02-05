@@ -24,6 +24,15 @@ pub struct FileSystem {
     real_path: PathBuf, // the real path of the file system
 }
 
+bitflags::bitflags! {
+    #[derive(Debug)]
+    pub struct RenameFlags: u32 {
+        const NOREPLACE = 0b0001;
+        const EXCHANGE  = 0b0010;
+        const WHITEOUT  = 0b0100;
+    }
+}
+
 fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
     tracing::trace!("--PATH: {:?}", path);
     match fs::symlink_metadata(path) {
@@ -328,13 +337,34 @@ impl FileSystem {
         &self,
         old_path: P,
         new_path: S,
+        flags: RenameFlags,
     ) -> Result<()> {
-        let real_old_path = self.make_real_path(old_path)?;
-        let real_new_path = self.make_real_path(new_path)?;
+        let old = self.make_real_path(old_path)?;
+        let new = self.make_real_path(new_path)?;
 
-        fs::rename(&real_old_path, &real_new_path)?;
+        if flags.contains(RenameFlags::EXCHANGE) {
+            self.rename_exchange(&old, &new)?;
+            return Ok(());
+        }
+
+        if flags.contains(RenameFlags::NOREPLACE) && new.exists() {
+            return Err(StorageError::AlreadyExists(new.to_string_lossy().to_string()));
+        }
+
+        fs::rename(old, new)?;
         Ok(())
     }
+
+    fn rename_exchange(&self, a: &Path, b: &Path) -> Result<()> {
+        let tmp = a.with_extension(".swap_tmp");
+
+        fs::rename(a, &tmp)?;
+        fs::rename(b, a)?;
+        fs::rename(&tmp, b)?;
+
+        Ok(())
+    }
+
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn delete<P: AsRef<Path> + Debug>(&self, path: P) -> Result<()> {
@@ -345,7 +375,11 @@ impl FileSystem {
             fs::remove_file(&real)?;
             Ok(())
         } else if meta.is_dir() {
-            fs::remove_dir_all(&real)?;
+            let mut entries = fs::read_dir(&real)?;
+            if entries.next().is_some() {
+                return Err(StorageError::DirectoryNotEmpty(path.as_ref().to_string_lossy().to_string()));
+            }
+            fs::remove_dir(&real)?;
             Ok(())
         } else {
             Err(StorageError::NotFound(format!("{:?}", path)))
