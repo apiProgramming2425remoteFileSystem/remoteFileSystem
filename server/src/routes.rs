@@ -154,33 +154,21 @@ async fn make_directory(
 }
 
 #[delete("/files/{path}")]
-#[instrument(skip(fs), ret(level = Level::DEBUG))]
+#[instrument(skip(fs, pool), ret(level = Level::DEBUG))]
 async fn delete_item(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
+    pool: web::Data<DB>,
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let path = path.into_inner();
     user.check_permission(&fs, &path, Operation::Write)?;
 
     fs.delete(path.as_str())?;
+    pool.remove_all_x_attributes(&path).await?;
 
     Ok(HttpResponse::Ok().body("Successful deletion!"))
 }
-
-/* Inutile se lookup = getAttr */
-/*#[get("/resolve/{path}")]
-#[instrument(skip(fs), ret(level = Level::DEBUG))]
-async fn resolve_child(
-    user: AuthenticatedUser,
-    fs: web::Data<FileSystem>,
-    path: web::Path<String>,
-) -> Result<impl Responder> {
-    let path = path.into_inner();
-    let attributes = fs.get_attributes(path.as_str())?;
-
-    Ok(HttpResponse::Ok().json(attributes))
-}*/
 
 #[get("/attributes/{path}")]
 #[instrument(skip(fs), ret(level = Level::DEBUG))]
@@ -253,11 +241,12 @@ async fn get_stats(
 }
 
 #[put("/rename")]
-#[instrument(skip(fs), ret(level = Level::DEBUG))]
+#[instrument(skip(fs, pool), ret(level = Level::DEBUG))]
 async fn rename(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,
     json: web::Json<RenameRequest>,
+    pool: web::Data<DB>,
 ) -> Result<impl Responder> {
     let old_path = json.old_path();
     let new_path = json.new_path();
@@ -266,6 +255,12 @@ async fn rename(
     user.check_permission(&fs, &new_path, Operation::Write)?;
 
     fs.rename(&old_path, &new_path, flags)?;
+    if flags.contains(RenameFlags::EXCHANGE){
+        pool.exchange_x_attributes(&old_path, &new_path).await?;
+    }
+    else {
+        pool.rename_x_attributes(&old_path, &new_path).await?;
+    }
 
     Ok(HttpResponse::Ok().body("Successful renaming!"))
 }

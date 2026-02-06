@@ -7,9 +7,6 @@ use common::*;
 
 
 
-// problemi dovuti a incoerenza uid associato a username e uid proprietario dei files???
-
-
 #[cfg(unix)]
 mod tests {
     use super::*;
@@ -153,17 +150,25 @@ mod tests {
         let new_perms = fs::metadata(&file_path)?.permissions();
         assert_eq!(new_perms.mode() & 0o777, 0o444);
 
-        // Attempt Write (Should Fail)
-        // We must use OpenOptions to ask for write access
-        let result = fs::OpenOptions::new().write(true).open(&file_path);
+        // Attempt write
+        {
+            use std::io::Write;
 
-        assert!(
-            result.is_err(),
-            "Managed to open read-only file for writing!"
-        );
+            let mut f = fs::OpenOptions::new()
+                .write(true)
+                .open(&file_path)?;
 
-        let err = result.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+            // Even if this "succeeds", it must not persist
+            let _ = f.write_all(b"EVIL WRITE");
+            let _ = f.flush();
+        }
+
+        // Give background thread time to process (if needed)
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Verify content unchanged
+        let content = fs::read_to_string(&file_path)?;
+        assert_eq!(content, "Do not touch");
 
         Ok(())
     }

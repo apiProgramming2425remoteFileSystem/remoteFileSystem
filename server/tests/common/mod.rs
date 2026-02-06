@@ -23,8 +23,8 @@ static LOGGER: OnceCell<Logging> = OnceCell::new();
 
 pub const TEST_USER: &str = "test_user";
 pub const TEST_PASSWORD: &str = "test_password";
-pub const TEST_USER_ID: i64 = 1;
-pub const TEST_GROUP_ID: i64 = 1;
+pub const TEST_USER_ID: i64 = 1001;
+pub const TEST_GROUP_ID: i64 = 1001;
 
 /// Ottiene un token di test legato al DB specificato
 pub async fn get_test_token(db_path: &Path) -> Result<String> {

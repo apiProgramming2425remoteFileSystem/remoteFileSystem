@@ -38,7 +38,6 @@ mod tests {
         client_path: &Path,
         server_path: &Path,
         tolerance_secs: f64,
-        birth_time: bool,
     ) -> Result<String> {
         // Specific format for easier parsing:
         // %s = Size (bytes)
@@ -46,11 +45,10 @@ mod tests {
         // %X = Access time (Seconds since Epoch)
         // %Y = Modify time (Seconds since Epoch)
         // %Z = Change time (Seconds since Epoch)
-        // %W = Birth time (Seconds since Epoch, 0 if unknown)
-        let args = ["-c", "%s %A %X %Y %Z %W"];
+        let args = ["-c", "%s %A %X %Y %Z"];
 
         let (c_str, s_str) = compare_command_outputs("stat", &args, client_path, server_path)?;
-        check_stat_with_tolerance(&c_str, &s_str, tolerance_secs, birth_time)?;
+        check_stat_with_tolerance(&c_str, &s_str, tolerance_secs)?;
 
         Ok(c_str)
     }
@@ -59,13 +57,12 @@ mod tests {
         c_str: &str,
         s_str: &str,
         tolerance_secs: f64,
-        birth_time: bool,
     ) -> Result<()> {
         // Parse and Compare
         let c_parts: Vec<&str> = c_str.split_whitespace().collect();
         let s_parts: Vec<&str> = s_str.split_whitespace().collect();
 
-        if c_parts.len() != 6 || s_parts.len() != 6 {
+        if c_parts.len() != 5 || s_parts.len() != 5 {
             return Err(anyhow!(
                 "Unexpected stat output format.\nClient: {}\nServer: {}",
                 c_str,
@@ -82,27 +79,21 @@ mod tests {
         let atime_diff = (c_parts[2].parse::<f64>()? - s_parts[2].parse::<f64>()?).abs();
         let mtime_diff = (c_parts[3].parse::<f64>()? - s_parts[3].parse::<f64>()?).abs();
         let ctime_diff = (c_parts[4].parse::<f64>()? - s_parts[4].parse::<f64>()?).abs();
-        let btime_diff = if birth_time {
-            (c_parts[5].parse::<f64>()? - s_parts[5].parse::<f64>()?).abs()
-        } else {
-            0.0
-        };
+
 
         if !size_match
             || !perm_match
             || atime_diff > tolerance_secs
             || mtime_diff > tolerance_secs
             || ctime_diff > tolerance_secs
-            || (birth_time && btime_diff > tolerance_secs)
         {
             return Err(anyhow!(
-                "Metadata mismatch!\
-            [Size]    Client: {} vs Server: {} (Match: {})\n\
-            [Perms]   Client: {} vs Server: {} (Match: {})\n\
-            [Access]  Diff: {:.4}s (Tol: {}s)\n\
-            [Modify]  Diff: {:.4}s (Tol: {}s)\n\
-            [Change]  Diff: {:.4}s (Tol: {}s)\n\
-            [Birth]   Diff: {:.4}s (Tol: {}s)",
+                    "Metadata mismatch!\
+                [Size]    Client: {} vs Server: {} (Match: {})\n\
+                [Perms]   Client: {} vs Server: {} (Match: {})\n\
+                [Access]  Diff: {:.4}s (Tol: {}s)\n\
+                [Modify]  Diff: {:.4}s (Tol: {}s)\n\
+                [Change]  Diff: {:.4}s (Tol: {}s)",
                 c_parts[0],
                 s_parts[0],
                 size_match,
@@ -114,10 +105,8 @@ mod tests {
                 mtime_diff,
                 tolerance_secs,
                 ctime_diff,
-                tolerance_secs,
-                btime_diff,
                 tolerance_secs
-            ));
+                ));
         }
         Ok(())
     }

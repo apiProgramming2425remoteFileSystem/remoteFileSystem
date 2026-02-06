@@ -489,7 +489,21 @@ impl DB {
                 .await
                 .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
         }
+        Ok(())
+    }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
+    pub async fn remove_all_x_attributes(&self, path: &str) -> Result<()> {
+        sqlx::query("DELETE FROM xattributes WHERE path = ?")
+            .bind(path)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                DatabaseError::QueryError(format!(
+                    "Error updating xattrbutes table because of {}.",
+                    e
+                ))
+            })?;
         Ok(())
     }
 
@@ -530,9 +544,71 @@ impl DB {
         .await
         .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
+
         match result {
             Some(attr) => Ok(Some(attr)),
             None => Ok(None),
         }
+    }
+
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn exchange_x_attributes(
+        &self,
+        path1: &str,
+        path2: &str,
+    ) -> Result<()> {
+        let tmp_attrs = sqlx::query_as::<_, Xattributes>(
+            "SELECT xattributes FROM xattributes WHERE path = ?"
+        )
+            .bind(path1)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
+
+        sqlx::query(
+            "UPDATE xattributes SET path = ? WHERE path = ?"
+        )
+            .bind("__tmp_exchange__") // placeholder temporaneo per evitare conflitti
+            .bind(path1)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
+        sqlx::query(
+            "UPDATE xattributes SET path = ? WHERE path = ?"
+        )
+            .bind(path1)
+            .bind(path2)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
+
+        sqlx::query(
+            "UPDATE xattributes SET path = ? WHERE path = ?"
+        )
+            .bind(path2)
+            .bind("__tmp_exchange__")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+        Ok(())
+    }
+
+
+    #[instrument(skip(self), err(level = Level::ERROR))]
+    pub async fn rename_x_attributes(
+        &self,
+        old_path: &str,
+        new_path: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE xattributes SET path = ? WHERE path = ?")
+            .bind(new_path)
+            .bind(old_path)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+        Ok(())
     }
 }

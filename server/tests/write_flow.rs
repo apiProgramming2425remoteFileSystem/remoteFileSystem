@@ -65,7 +65,8 @@ async fn test_rename_directory() -> anyhow::Result<()> {
     client.put(&url)
         .json(&serde_json::json!({
             "old_path": "/oldname",
-            "new_path": "/newname"
+            "new_path": "/newname",
+            "flags": 0
         }))
         .send().await?.error_for_status()?;
 
@@ -171,7 +172,8 @@ async fn test_move_file_between_dirs() -> anyhow::Result<()> {
     client.put(&url)
         .json(&serde_json::json!({
             "old_path": "/src/f.txt",
-            "new_path": "/dst/f.txt"
+            "new_path": "/dst/f.txt",
+            "flags": 0
         }))
         .send()
         .await?
@@ -291,6 +293,47 @@ async fn write_with_offset_beyond_eof_pads_with_zeros() -> anyhow::Result<()> {
 
     // last byte must be 'x'
     assert_eq!(data[10], b'x');
+
+    Ok(())
+}
+
+
+#[tokio::test]
+async fn rename_exchange_swaps_source_and_target() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    client.post(&client.set_url("mkdir", "/A")).send().await?.error_for_status()?;
+    client.post(&client.set_url("mkdir", "/B")).send().await?.error_for_status()?;
+
+    // metti un file in A
+    let url_write = format!("{}?offset=0", client.set_url("files", "/A/file.txt"));
+    client.put(&url_write).body(Bytes::from("x")).send().await?.error_for_status()?;
+
+    // exchange
+    let url = client.set_short_url("rename");
+    client.put(&url)
+        .json(&serde_json::json!({
+            "old_path": "/A",
+            "new_path": "/B",
+            "flags": 2 // EXCHANGE
+        }))
+        .send().await?.error_for_status()?;
+
+    // ora file deve essere in B
+    let res = client.get(&client.set_url("list", "/B"))
+        .send().await?.error_for_status()?
+        .json::<Vec<serde_json::Value>>().await?;
+
+    assert_eq!(res.len(), 1);
+    assert_eq!(res[0]["name"], "file.txt");
+
+    // A deve esistere (era B) e essere vuota
+    let res = client.get(&client.set_url("list", "/A"))
+        .send().await?.error_for_status()?
+        .json::<Vec<serde_json::Value>>().await?;
+    assert!(res.is_empty());
 
     Ok(())
 }

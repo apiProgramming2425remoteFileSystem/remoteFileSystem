@@ -1,3 +1,4 @@
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use bytes::Bytes;
 use crate::common::{Attributes, FileType, SetAttr, SetAttrRequest};
@@ -25,6 +26,8 @@ async fn test_set_and_get_xattr() -> anyhow::Result<()> {
         .send()
         .await?
         .error_for_status()?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // get xattr
     let url = client.set_long_url("xattributes", "/dir", "names", Some("user.test"));
@@ -66,6 +69,8 @@ async fn test_set_and_delete_xattr() -> anyhow::Result<()> {
         .json(&serde_json::json!({"xattributes": value_bytes}))
         .send().await?.error_for_status()?;
 
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
     // verifica xattr
     let url = client.set_long_url("xattributes", "/dir_with_xattr", "names", Some("user.test"));
     let res = client.get(&url).send().await?.error_for_status()?
@@ -74,6 +79,8 @@ async fn test_set_and_delete_xattr() -> anyhow::Result<()> {
     let returned_bytes = res["xattributes"].as_array().unwrap()
         .iter().map(|v| v.as_u64().unwrap() as u8).collect::<Vec<u8>>();
     assert_eq!(returned_bytes, b"hello");
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // delete xattr
     let url = client.set_long_url("xattributes", "/dir_with_xattr", "names", Some("user.test"));
@@ -126,6 +133,9 @@ async fn test_list_xattr_with_values() -> anyhow::Result<()> {
             .error_for_status()?;
     }
 
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+
     let url = client.set_long_url("xattributes", "/dir", "names", None);
     let res = client.get(&url)
         .send().await?
@@ -159,6 +169,8 @@ async fn test_list_xattr_after_delete() -> anyhow::Result<()> {
         .json(&serde_json::json!({"xattributes": b"hello".to_vec()}))
         .send().await?
         .error_for_status()?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // delete
     client.delete(&url).send().await?.error_for_status()?;
@@ -196,8 +208,8 @@ async fn test_get_attributes_new_directory() -> anyhow::Result<()> {
         .await?;
 
     assert_eq!(attr.kind, FileType::Directory);
-    assert_eq!(attr.uid, (common::TEST_USER_ID + 1000) as u32);
-    assert_eq!(attr.gid, (common::TEST_GROUP_ID + 1000) as u32);
+    assert_eq!(attr.uid, common::TEST_USER_ID as u32);
+    assert_eq!(attr.gid, common::TEST_GROUP_ID as u32);
     assert!(attr.nlink >= 1);
 
     Ok(())
@@ -363,3 +375,174 @@ async fn test_set_attributes_truncate_file() -> anyhow::Result<()> {
 }
 
 
+#[tokio::test]
+async fn attributes_after_delete_return_not_found() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    let url = format!("{}?offset=0", client.set_url("files", "/a.txt"));
+    client.put(&url)
+        .body(Bytes::from_static(b"data"))
+        .send().await?
+        .error_for_status()?;
+
+    client.delete(&client.set_url("files", "/a.txt"))
+        .send().await?
+        .error_for_status()?;
+
+    let resp = client.get(&client.set_url("attributes", "/a.txt"))
+        .send().await?;
+
+    assert_eq!(resp.status(), 404);
+    Ok(())
+}
+
+
+
+#[tokio::test]
+async fn xattrs_after_delete_are_gone() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    let url = format!("{}?offset=0", client.set_url("files", "/x.txt"));
+    client.put(&url)
+        .body(Bytes::from_static(b"x"))
+        .send().await?
+        .error_for_status()?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+
+    let url = client.set_long_url("xattributes", "/x.txt", "names", Some("user.test"));
+    client.put(&url)
+        .json(&serde_json::json!({"xattributes": b"v".to_vec()}))
+        .send().await?
+        .error_for_status()?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+
+    client.delete(&client.set_url("files", "/x.txt"))
+        .send().await?
+        .error_for_status()?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+
+    let resp = client.get(&url).send().await?;
+    assert_eq!(resp.status(), 404);
+
+    Ok(())
+}
+
+
+
+#[tokio::test]
+async fn attributes_survive_rename() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    // crea file
+    let url = format!("{}?offset=0", client.set_url("files", "/old.txt"));
+    client.put(&url)
+        .body(Bytes::from_static(b"hello"))
+        .send().await?
+        .error_for_status()?;
+
+    let attr_before = client.get(&client.set_url("attributes", "/old.txt"))
+        .send().await?
+        .error_for_status()?
+        .json::<Attributes>()
+        .await?;
+
+    // rename
+    let url = client.set_short_url("rename");
+    client.put(&url)
+        .json(&serde_json::json!({
+            "old_path": "/old.txt",
+            "new_path": "/new.txt",
+            "flags": 0
+        }))
+        .send().await?
+        .error_for_status()?;
+
+    // old path -> 404
+    let resp = client.get(&client.set_url("attributes", "/old.txt")).send().await?;
+    assert_eq!(resp.status(), 404);
+
+    // new path -> stessi attributes (tranne maybe timestamps)
+    let attr_after = client.get(&client.set_url("attributes", "/new.txt"))
+        .send().await?
+        .error_for_status()?
+        .json::<Attributes>()
+        .await?;
+
+    assert_eq!(attr_after.size, attr_before.size);
+    assert_eq!(attr_after.uid, attr_before.uid);
+    assert_eq!(attr_after.gid, attr_before.gid);
+    assert_eq!(attr_after.perm, attr_before.perm);
+
+    Ok(())
+}
+
+
+#[tokio::test]
+async fn xattrs_follow_rename() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    // crea file
+    let url = format!("{}?offset=0", client.set_url("files", "/a.txt"));
+    client.put(&url)
+        .body(Bytes::from_static(b"x"))
+        .send().await?
+        .error_for_status()?;
+
+    // set xattr
+    let xurl_old = client.set_long_url("xattributes", "/a.txt", "names", Some("user.test"));
+    client.put(&xurl_old)
+        .json(&serde_json::json!({"xattributes": b"hello".to_vec()}))
+        .send().await?
+        .error_for_status()?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+
+    // rename
+    let url = client.set_short_url("rename");
+    client.put(&url)
+        .json(&serde_json::json!({
+            "old_path": "/a.txt",
+            "new_path": "/b.txt",
+            "flags": 0
+        }))
+        .send().await?
+        .error_for_status()?;
+
+    // old xattr -> 404
+    let resp = client.get(&xurl_old).send().await?;
+    assert_eq!(resp.status(), 404);
+
+    // new xattr -> presente
+    let xurl_new = client.set_long_url("xattributes", "/b.txt", "names", Some("user.test"));
+    let res = client.get(&xurl_new)
+        .send().await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+
+    let bytes = res["xattributes"]
+        .as_array().unwrap()
+        .iter().map(|v| v.as_u64().unwrap() as u8)
+        .collect::<Vec<u8>>();
+
+    assert_eq!(bytes, b"hello");
+    Ok(())
+}

@@ -90,3 +90,27 @@ async fn write_file_without_permissions_fails() -> anyhow::Result<()> {
 }
 
 
+#[tokio::test]
+async fn rename_noreplace_fails_if_target_exists() -> anyhow::Result<()> {
+    let fs_root = tempfile::tempdir()?;
+    let config = common::get_config(fs_root.path());
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
+
+    // crea source e target
+    client.post(&client.set_url("mkdir", "/src")).send().await?.error_for_status()?;
+    client.post(&client.set_url("mkdir", "/dst")).send().await?.error_for_status()?;
+
+    let url = client.set_short_url("rename");
+    let resp = client.put(&url)
+        .json(&serde_json::json!({
+            "old_path": "/src",
+            "new_path": "/dst",
+            "flags": 1 // NOREPLACE
+        }))
+        .send().await?;
+
+    assert_eq!(resp.status(), 409); // o l'errore che mappi AlreadyExists -> http
+    Ok(())
+}
+
+
