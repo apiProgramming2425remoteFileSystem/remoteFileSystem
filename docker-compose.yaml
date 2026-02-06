@@ -65,7 +65,7 @@ services:
       - remote-fs-net
     volumes:
       - .:${APP_PATH}/
-      - ./mount_dir:${RFS__FILESYSTEM_ROOT} # Server FS root for testing purposes
+      # - ./mount_dir:${RFS__FILESYSTEM_ROOT} # Server FS root for testing purposes
     working_dir: ${APP_PATH}
     tty: true # Keep the terminal open
     restart: unless-stopped # Automatically restart unless stopped manually

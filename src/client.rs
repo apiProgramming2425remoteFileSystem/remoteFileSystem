@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 
@@ -58,8 +58,6 @@ impl ClientProcess {
     }
 
     pub fn wait_ready(&mut self, wait_time: Duration) -> Result<()> {
-        use std::time::{Duration, Instant};
-
         let start = Instant::now();
         let pool_interval = Duration::from_millis(50);
 
