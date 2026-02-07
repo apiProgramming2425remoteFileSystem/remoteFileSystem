@@ -8,6 +8,8 @@ pub mod daemon;
 pub mod error;
 pub mod fs_model;
 pub mod fuse;
+
+#[cfg(unix)]
 pub mod gui;
 pub mod logging;
 pub mod mount;
@@ -16,6 +18,7 @@ pub mod network;
 pub mod rw_buffer;
 mod util;
 
+#[cfg(unix)]
 use gui::Gui;
 use std::fs;
 use std::io::{self, Write};
@@ -117,7 +120,7 @@ pub fn start_unix<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result
 }
 
 #[cfg(windows)]
-fn start_windows<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
+fn start_windows<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS (Windows / WinFSP)");
 
     let _log = logging::Logging::from(&config.logging)?;

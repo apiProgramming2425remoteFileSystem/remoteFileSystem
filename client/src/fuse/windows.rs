@@ -168,11 +168,7 @@ fn fill_file_info(info: &mut FileInfo, attr: &Attributes) {
         attr.size
     };
 
-    info.creation_time = unix_to_filetime(if attr.crtime.is_zero() {
-        attr.ctime
-    } else {
-        attr.crtime
-    });
+    info.creation_time = unix_to_filetime(attr.ctime);
 
     info.last_access_time = unix_to_filetime(attr.atime);
     info.last_write_time = unix_to_filetime(attr.mtime);
@@ -284,11 +280,7 @@ impl FileSystemContext for Fs {
             file_info.allocation_size = allocation_size;
             file_info.file_size = attr.size;
 
-            file_info.creation_time = unix_to_filetime(if attr.crtime.is_zero() {
-                attr.ctime
-            } else {
-                attr.crtime
-            });
+            file_info.creation_time = unix_to_filetime(attr.ctime);
 
             file_info.last_access_time = unix_to_filetime(attr.atime);
             file_info.last_write_time = unix_to_filetime(attr.mtime);
@@ -837,7 +829,7 @@ impl From<Attributes> for FileInfo {
         info.file_size = attr.size;
         info.allocation_size = attr.blocks * attr.blksize as u64;
 
-        info.creation_time = unix_to_filetime(attr.crtime);
+        info.creation_time = unix_to_filetime(attr.ctime);
         info.last_access_time = unix_to_filetime(attr.atime);
         info.last_write_time = unix_to_filetime(attr.mtime);
         info.change_time = unix_to_filetime(attr.ctime);
