@@ -181,6 +181,29 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\$MsiName"" /qn /norestart"; \
 ;   Flags: nowait postinstall skipifsilent
 
 [Code]
+var
+  ConfigPage: TInputQueryWizardPage;
+
+// Create the Custom Configuration Page
+procedure InitializeWizard;
+begin
+  ConfigPage := CreateInputQueryPage(wpWelcome,
+    'Connection Configuration', 'Server Details',
+    'Please enter the connection details for your Remote FS.');
+
+  ConfigPage.Add('Server URL:', False);
+  
+  // Set Defaults
+  ConfigPage.Values[0] := 'http://localhost:8080';
+end;
+
+// Build the Command Line Arguments
+function GetParams(Param: String): String;
+begin
+  // format: run --server-url "URL"
+  Result := 'run --server-url "' + ConfigPage.Values[0];
+end;
+
 // Check for WinFsp
 function NeedWinFsp: Boolean;
 begin
@@ -210,17 +233,6 @@ begin
     Result := Pos('WinFsp\bin', OrigPath) = 0
   else
     Result := True
-end;
-
-// Format the Parameters Correctly
-function GetParams(Param: String): String;
-var
-  Cmd: String;
-begin
-  // Build the args string
-  Cmd := 'run';
-
-  Result := Cmd;
 end;
 
 [UninstallDelete]
