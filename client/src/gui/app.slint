@@ -1,0 +1,1362 @@
+import {
+    Button,
+    VerticalBox,
+    LineEdit,
+    Spinner,
+    ScrollView,
+    HorizontalBox,
+    Palette,
+} from "std-widgets.slint";
+
+global FontPalette {
+    in-out property <int> scale: 1;
+    // Dimensioni standard
+    in-out property <length> font-small: 12px * scale;
+    in-out property <length> font-normal: 14px * scale;
+    in-out property <length> font-medium: 18px * scale;
+    in-out property <length> font-large: 20px * scale;
+    in-out property <length> font-title: 24px * scale;
+
+    // Famiglie standard (opzionale)
+    in-out property <string> font-family-default: "sans-serif";
+    in-out property <string> font-familiy-code: "monospace";
+}
+
+export enum ViewState {
+    Welcome,
+    Home,
+    Cache,
+    MountPoint,
+}
+
+export enum Status {
+    LoggedIn,
+    NotLoggedIn,
+}
+
+export struct MountSettings {
+    mount_point: string,
+    allow_other: bool,
+    read_only: bool,
+    privileged: bool,
+}
+
+export struct CacheSettings {
+    enabled: bool,
+    use_ttl: bool,
+    ttl: int,
+    policy: string,
+    max_size: int,
+    capacity: int,
+}
+
+export struct FsSettings {
+    server_url: string,
+    foreground: bool,
+    xattr_enable: bool,
+    page_size: int,
+    max_pages: int,
+    buffer_size: int,
+}
+
+export struct LogSettings {
+    format: string,
+    level: string,
+    dir: string,
+    file: string,
+    rotation: string,
+}
+
+export struct BoolItem {
+    env: string,
+    name: string, 
+    value: bool, 
+    id_rust: string,
+}
+
+export struct IntItem {
+    env: string,
+    name: string, 
+    value: int, 
+    id_rust: string,
+}
+
+export struct StringItem {
+    env: string,
+    name: string, 
+    value: string, 
+    id_rust: string,
+}
+
+export struct ListItem {
+    name: string, 
+    id_rust: string,
+}
+
+/* UTILS */
+export component MyButton inherits Rectangle {
+    in property <string> text;
+    in property <brush> text_color;
+    in property <brush> button_color;
+    in property <length> button_width;
+    in property <length> button_height;
+    in property <bool> is_active;
+    callback on_click;
+    height: button_height;
+    width: button_width;
+    border-radius: 8px;
+    animate background { duration: 150ms; }
+    ta := TouchArea {
+        enabled: root.is_active;
+        clicked => {
+            root.on_click();
+        }
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 8px;
+        background: ta.pressed ? button_color.transparentize(0.1) : ta.has-hover ? button_color.transparentize(0.2) : button_color;
+        Text {
+            vertical-alignment: center;
+            text: root.text;
+            color: text_color;
+            font-weight: 500;
+        }
+    }
+}
+
+export component Error inherits Rectangle {
+    in property <string> error;
+    callback close;
+    background: #fffdfd37;
+    TouchArea {
+        clicked => {
+            root.close();
+        }
+    }
+
+    Rectangle {
+        width: 30%;
+        height: 20%;
+        border-radius: 8px;
+        background: #FF4E3B;
+        Text {
+            width: 100%;
+            height: 100%;
+            font-size: FontPalette.font-medium;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            text: error;
+            color: white;
+            wrap: TextWrap.word-wrap;
+        }
+    }
+}
+
+export component Loading inherits Rectangle {
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: white;
+        opacity: 60%;
+        TouchArea { }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 20px;
+        Text {
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            color: black;
+            font-size: FontPalette.font-large;
+            font-weight: 600;
+            text: "Loading...";
+        }
+    }
+}
+
+export component IntEdit inherits Rectangle {
+    in property <bool> fs_is_active;
+    in property <string> name;
+    in property <string> value;
+    in property <brush> text_color;
+    in property <length> toggle_width;
+    in property <length> toggle_height;
+    in property <brush> toggle_color;
+    in-out property <bool> is_edit_view: false;
+    in-out property <string> new_value_string;
+    in-out property <int> new_value;
+    callback on_click(int);
+    width: root.toggle_width;
+    height: is_edit_view ? root.toggle_height * 1.8 : root.toggle_height;
+    border-radius: 8px;
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: !fs_is_active;
+        clicked => {
+            root.is_edit_view = true;
+        }
+    }
+
+    background: ta.pressed ? toggle_color.transparentize(0.1) : ta.has-hover ? toggle_color.transparentize(0.2) : toggle_color;
+    HorizontalLayout {
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+
+            /* NAME */
+            HorizontalLayout {
+                alignment: center;
+                Text {
+                    vertical-alignment: center;
+                    text: root.name;
+                    color: text_color;
+                    font-weight: 500;
+                }
+            }
+            
+            /* VALUE */
+            if (!is_edit_view):
+                HorizontalLayout {
+                alignment: center;
+                Text {
+                    vertical-alignment: center;
+                    text: root.value;
+                    color: text_color.transparentize(0.3);
+                    font-weight: 600;
+                }
+            }
+            if (is_edit_view):
+                HorizontalLayout {
+                height: 40%;
+                width: 100%;
+                alignment: center;
+                spacing: 2px;
+                LineEdit {
+                    width: root.toggle_width * 0.5;
+                    height: 30%;
+                    placeholder-text: "number";
+                    input-type: InputType.number;
+                    text <=> root.new_value_string;
+                }
+
+                MyButton {
+                    is_active: true;
+                    width: root.toggle_width * 0.3;
+                    height: 20%;
+                    text: root.new_value_string != "" ? "OK" : "X";
+                    text_color: white;
+                    background: root.new_value_string != "" ? #34C759 : #FF383C;
+                    on_click => {
+                        root.is_edit_view = false;
+                        if (root.new_value_string != "") {
+                            root.on_click(root.new_value_string.to-float());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component StringEdit inherits Rectangle {
+    in property <bool> fs_is_active;
+    in property <string> name;
+    in property <string> value;
+    in property <brush> text_color;
+    in-out property <string> guide;
+    in property <length> toggle_width;
+    in property <length> toggle_height;
+    in property <brush> toggle_color;
+    in-out property <bool> is_edit_view: false;
+    in-out property <string> new_value;
+    callback on_click(string);
+    width: root.toggle_width;
+    height: is_edit_view ? root.toggle_height * 1.5 : root.toggle_height;
+    border-radius: 8px;
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: !fs_is_active;
+        clicked => {
+            root.is_edit_view = true;
+        }
+    }
+
+    background: ta.pressed ? toggle_color.transparentize(0.1) : ta.has-hover ? toggle_color.transparentize(0.2) : toggle_color;
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+
+        /* NAME */
+        HorizontalLayout {
+            alignment: center;
+            Text {
+                vertical-alignment: center;
+                text: root.name;
+                color: text_color;
+                font-weight: 500;
+            }
+        }
+
+        /* VALUE */
+        if (!is_edit_view):
+            HorizontalLayout {
+            alignment: center;
+            Text {
+                vertical-alignment: center;
+                text: root.value;
+                color: text_color.transparentize(0.3);
+                font-weight: 600;
+            }
+        }
+        if (is_edit_view):
+            HorizontalLayout {
+            alignment: center;
+            spacing: 2px;
+            LineEdit {
+                width: root.toggle_width * 0.5;
+                height: 40%;
+                placeholder-text: guide != "" ? guide : "change it";
+                font-size: FontPalette.font-small;
+                input-type: InputType.text;
+                text <=> root.new_value;
+            }
+
+            MyButton {
+                is_active: true;
+                width: root.toggle_width * 0.3;
+                height: 40%;
+                text: root.new_value != "" ? "OK" : "X";
+                text_color: white;
+                background: root.new_value != "" ? #34C759 : #FF383C;
+                on_click => {
+                    root.is_edit_view = false;
+                    if (root.new_value != "") {
+                        root.on_click(root.new_value);
+                    }
+                }
+            }
+        }
+    }
+}
+
+import { Button, VerticalBox } from "std-widgets.slint";
+
+export component DropDown inherits Rectangle {
+    in property <brush> text_color;
+    in property <length> toggle_width;
+    in property <length> toggle_height;
+    in property <brush> toggle_color;
+    in property <string> name;
+    in property <[string]> options: ["Opzione 1", "Opzione 2", "Opzione 3"];
+    in property <string> selected_value: "Opzione 1";
+    callback on_click(string);
+    private property <bool> is_open: false;
+    width: toggle_width;
+    height: toggle_height;
+    border-radius: 8px;
+    background: ta.pressed ? toggle_color.transparentize(0.1) : ta.has-hover ? toggle_color.transparentize(0.2) : toggle_color;
+    ta := TouchArea {
+        clicked => {
+            if is_open {
+                popup.close();
+                is_open = false;
+            } else {
+                popup.show();
+                is_open = true;
+            }
+        }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+
+        /* HEADER */
+        HorizontalLayout {
+            alignment: center;
+            Text {
+                vertical-alignment: center;
+                text: root.name;
+                color: text_color;
+                font-weight: 500;
+            }
+        }
+
+        /* VALUE */
+        HorizontalLayout {
+            alignment: center;
+            Text {
+                text: selected_value;
+                y: parent.height / 2 - self.height / 2;
+                color: text_color;
+                font-weight: 600;
+            }
+        }
+    }
+
+    /* POPUP */
+    popup := PopupWindow {
+        close_policy: PopupClosePolicy.close-on-click;
+        x: 0.3 * root.width;
+        y: root.y + root.height;
+        Rectangle {
+            width: 100px;
+            border-width: 5px;
+            border-radius: 8px;
+            background: white;
+            VerticalLayout {
+                spacing: 10px;
+                for option[i] in options: Rectangle {
+                    height: 30px;
+                    MyButton {
+                        text: option;
+                        text_color: option != selected_value ? black : white;
+                        button_width: 100px;
+                        button_height: 30px;
+                        button_color: option != selected_value ? #ECF0F1 : #a1a4a5;
+                        is_active: option != selected_value;
+                        on_click => {
+                            root.on_click(option);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* WELCOME PAGE */
+export component WelcomePage inherits VerticalBox {
+    padding: 20px;
+    spacing: 10px;
+    Text {
+        text: "Welcome to RemoteFileSystem!";
+        color: black;
+        font-size: FontPalette.font-large;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component ServerUnavailable inherits Rectangle {
+    callback retry();
+    height: 100%;
+    width: 100%;
+    background: #FFBF00;
+    VerticalLayout {
+        alignment: center;
+        spacing: 40px;
+        Text {
+            text: "RemoteFileSystem";
+            color: black;
+            font-size: FontPalette.font-large;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: "Server is not available at the moment!";
+            font-size: FontPalette.font-large;
+            font-weight: 600;
+            color: #FF4E3B;
+            horizontal-alignment: center;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            MyButton {
+                text: "RETRY";
+                text_color: black;
+                button_width: 100px;
+                button_height: 40px;
+                button_color: white;
+                is_active: true;
+                on_click => {
+                    root.retry();
+                }
+            }
+        }
+    }
+}
+
+/* LOGIN MANAGEMENT */
+export component LoginForm inherits Rectangle {
+    in-out property <string> username;
+    in-out property <string> password;
+    callback login(string, string);
+    VerticalLayout {
+        spacing: 20px;
+        padding: 40px;
+        alignment: center;
+        Rectangle {
+            background: rgb(0, 128, 255, 0.8);
+            border-radius: 8px;
+            drop-shadow-blur: 15px;
+            drop-shadow-color: #ffffff3b;
+            width: 50%;
+            height: 60%;
+            layout := VerticalBox {
+                padding: 20px;
+                spacing: 15px;
+                Text {
+                    text: "LOGIN";
+                    font-size: FontPalette.font-medium;
+                    font-weight: 800;
+                    horizontal-alignment: center;
+                    color: white;
+                }
+
+                // Campo Username
+                VerticalBox {
+                    padding: 0;
+                    spacing: 10px;
+                    Text {
+                        text: "Username";
+                        color: white;
+                        font-size: FontPalette.font-normal;
+                    }
+
+                    u := LineEdit {
+                        placeholder-text: "username";
+                        input-type: InputType.text;
+                        text <=> root.username;
+                    }
+                }
+
+                // Campo Password
+                VerticalBox {
+                    padding: 0;
+                    spacing: 10px;
+                    Text {
+                        text: "Password";
+                        color: white;
+                        font-size: FontPalette.font-normal;
+                    }
+
+                    p := LineEdit {
+                        placeholder-text: "••••••••";
+                        input-type: InputType.password;
+                        text <=> root.password;
+                    }
+                }
+
+                // Spazio vuoto tattico
+                Rectangle {
+                    height: 10px;
+                }
+
+                // Pulsante di Login
+                Button {
+                    text: "Login";
+                    primary: true;
+                    // Disabilita se i campi sono vuoti
+                    enabled: root.username != "" && root.password != "";
+                    clicked => {
+                        root.login(root.username, root.password);
+                        u.text = "";
+                        p.text = "";
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* DASHBOARD CONTENT */
+export component Fs inherits Rectangle {
+    in property <bool> fs_is_active;
+    in property <MountSettings> mount_settings;
+    in property <FsSettings> fs_settings;
+    callback change_bool_property(BoolItem);
+    callback change_string_property(StringItem);
+    in-out property <bool> is_more_view: false;
+    in property <[ListItem]> bool_items: [
+        { name: "Allow Other", id_rust: "allow_other" },
+        { name: "Read Only", id_rust: "read_only" },
+        { name: "Privileged", id_rust: "privileged" },
+    ];
+    background: white;
+    height: 60%;
+    width: 25%;
+    border-radius: 8px;
+    VerticalLayout {
+        alignment: start;
+        
+        /* HEADER */
+        Rectangle {
+            background: rgba(0, 128, 255, 0.5);
+            border-radius: 8px;
+            width: 100%;
+            height: 20%;
+            Text {
+                color: black;
+                font-weight: 600;
+                horizontal-alignment: center;
+                text: "FS MANAGEMENT";
+            }
+        }
+
+        /* DEFAULT VIEW */
+        if !root.is_more_view:
+            ScrollView {
+            width: 100%;
+            height: 80%;
+            VerticalLayout {
+                padding: 5px;
+                spacing: 10px;
+                alignment: center;
+
+                    /* mountpoint */
+                    HorizontalLayout {
+                    alignment: center;
+                    StringEdit {
+                        toggle_width: 170px;
+                        toggle_height: 50px;
+                        fs_is_active: fs_is_active;
+                        name: "MOUNTPOINT";
+                        value: root.mount_settings.mount-point != "" ? root.mount_settings.mount-point : "click to choose";
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        on_click(v) => {
+                            root.change_string_property({ env: "MOUNT", name: "", value: v, id_rust: "mountpoint" });
+                        }
+                    }
+                }
+
+                    /* server_url */
+                    HorizontalLayout {
+                    alignment: center;
+                    StringEdit {
+                        toggle_width: 170px;
+                        toggle_height: 50px;
+                        fs_is_active: fs_is_active;
+                        name: "SERVER URL";
+                        value: root.fs_settings.server-url != "" ? root.fs_settings.server-url : "click to choose";
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        on_click(v) => {
+                            root.change_string_property({ env: "FS", name: "", value: v, id_rust: "server_url" });
+                        }
+                    }
+                }
+
+                    /* xattr_enable */
+                    HorizontalLayout {
+                    width: 100%;
+                    alignment: center;
+                    MyButton {
+                        button_width: 100px;
+                        button_height: 40px;
+                        button_color: root.fs_settings.xattr-enable ? #FF383C : #34C759;
+                        is_active: !root.fs_is_active;
+                        text_color: white;
+                        text: root.fs_settings.xattr-enable ? "DISABLE XATTR" : "ENABLE XATTR";
+                        on_click => {
+                            root.change_bool_property({ env: "FS", name: "", value: !root.fs_settings.xattr-enable, id_rust: "xattr_enable" });
+                        }
+                    }
+                }
+
+                    /* buffer_size */
+                    HorizontalLayout {
+                    width: 100%;
+                    alignment: center;
+                    IntEdit {
+                        toggle_width: 100px;
+                        toggle_height: 40px;
+                        fs_is_active: fs_is_active;
+                        name: "BUFFER SIZE";
+                        value: root.fs_settings.buffer-size + " B";
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        on_click(n) => {
+                            root.change_string_property({ env: "FS", name: "", value: n, id_rust: "buffer_size" });
+                        }
+                    }
+                }
+
+                    /* Button to access more settings before mounting */
+                    HorizontalLayout {
+                    alignment: center;
+                    MyButton {
+                        button_width: 100px;
+                        button_height: 40px;
+                        button_color: #ECF0F1;
+                        text_color: black;
+                        text: "MORE";
+                        is_active: true;
+                        on_click => {
+                            root.is_more_view = true;
+                        }
+                    }
+                }
+            }
+        }
+               
+        /* MORE VIEW */
+        if root.is_more_view:
+            VerticalLayout {
+            alignment: center;
+            width: 100%;
+            height: 80%;
+            spacing: 10px;
+            for item in bool_items: HorizontalLayout {
+                width: 100%;
+                alignment: center;
+                MyButton {
+                    button_width: 100px;
+                    button_height: 30px;
+                    button_color: root.get_value(item.id_rust) ? #34C759 : #FF383C;
+                    is_active: !root.fs_is_active;
+                    text_color: white;
+                    text: item.name;
+                    on_click => {
+                        root.change_bool_property({
+                            env: "MOUNT",
+                            name: item.name,
+                            value: !root.get_value(item.id_rust),
+                            id_rust: item.id_rust
+                        });
+                    }
+                }
+            }
+            HorizontalLayout {
+                width: 100%;
+                alignment: center;
+                MyButton {
+                    button_width: 100px;
+                    button_height: 40px;
+                    button_color: #ECF0F1;
+                    text_color: black;
+                    text: "BACK";
+                    is_active: true;
+                    on_click => {
+                        root.is_more_view = false;
+                    }
+                }
+            }
+        }
+    }
+
+    pure function get_value(id: string) -> bool {
+        if (id == "allow_other") {
+            return mount_settings.allow_other;
+        }
+        if (id == "read_only") {
+            return mount_settings.read_only;
+        }
+        if (id == "privileged") {
+            return mount_settings.privileged;
+        }
+        return false;
+    }
+}
+
+export component Cache inherits Rectangle {
+    in property <bool> fs_is_active;
+    in property <CacheSettings> cache_settings;
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
+    background: white;
+    height: 60%;
+    width: 25%;
+    border-radius: 8px;
+    VerticalLayout {
+        alignment: start;
+
+        /* HEADER */
+        Rectangle {
+            background: rgba(0, 128, 255, 0.5);
+            border-radius: 8px;
+            width: 100%;
+            height: 20%;
+            Text {
+                color: black;
+                font-weight: 600;
+                horizontal-alignment: center;
+                text: "CACHE MANAGEMENT";
+            }
+        }
+
+        /* BUTTONS */
+        ScrollView {
+            width: 100%;
+            height: 80%;
+            VerticalLayout {
+                padding: 5px;
+                spacing: 10px;
+                alignment: center;
+
+                /* enable_cache */
+                HorizontalLayout {
+                    alignment: center;
+                    MyButton {
+                        button_width: 150px;
+                        button_height: 40px;
+                        button_color: root.cache_settings.enabled ? #FF383C : #34C759;
+                        is_active: !root.fs_is_active;
+                        text_color: white;
+                        text: root.cache_settings.enabled ? "DISABLE CACHE" : "ENABLE CACHE";
+                        on_click => {
+                            root.change_bool_property({ env: "CACHE", name: "", value: !root.cache_settings.enabled, id_rust: "cache_enabled" });
+                        }
+                    }
+                }
+
+                if root.cache_settings.enabled: 
+                    VerticalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                        
+                        /* policy */
+                        HorizontalLayout {
+                        alignment: center;
+                        DropDown {
+                            name: "CACHE POLICY";
+                            toggle_width: 150px;
+                            toggle_height: 50px;
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                            options: ["LRU", "LFU"];
+                            selected_value: root.cache_settings.policy;
+                            on_click(v) => {
+                                root.change_string_property({ env: "CACHE", name: "", value: v, id_rust: "policy" });
+                            }
+                        }
+                    }
+
+                        /* use_ttl */
+                        HorizontalLayout {
+                        alignment: center;
+                        MyButton {
+                            button_width: 120px;
+                            button_height: 30px;
+                            button_color: root.cache_settings.use_ttl ? #FF383C : #34C759;
+                            is_active: !root.fs_is_active;
+                            text_color: white;
+                            text: root.cache_settings.use_ttl ? "DISABLE TTL" : "USE TTL";
+                            on_click => {
+                                root.change_bool_property({ env: "CACHE", name: "", value: !root.cache_settings.use_ttl, id_rust: "use_ttl" });
+                            }
+                        }
+                    }
+                        
+                        /* ttl */
+                        if (root.cache_settings.enabled && root.cache_settings.use_ttl):
+                            HorizontalLayout {
+                        alignment: center;
+                        IntEdit {
+                            toggle_width: 120px;
+                            toggle_height: 30px;
+                            fs_is_active: fs_is_active;
+                            name: "TTL";
+                            value: root.cache_settings.ttl + " s";
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                            on_click(n) => {
+                                root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "ttl" });
+                            }
+                        }
+                    }
+                            
+                        /* cache_max_size */
+                        HorizontalLayout {
+                        alignment: center;
+                        IntEdit {
+                            toggle_width: 120px;
+                            toggle_height: 40px;
+                            fs_is_active: fs_is_active;
+                            name: "CACHE MAX SIZE";
+                            value: root.cache_settings.max-size + " B";
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                            on_click(n) => {
+                                root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "max_size" });
+                            }
+                        }
+                    }
+                        
+                        /* cache_capacity */
+                        HorizontalLayout {
+                        alignment: center;
+                        IntEdit {
+                            toggle_width: 120px;
+                            toggle_height: 40px;
+                            fs_is_active: fs_is_active;
+                            name: "CACHE CAPACITY";
+                            value: root.cache_settings.capacity + " entries";
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                            on_click(n) => {
+                                root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "capacity" });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component Log inherits Rectangle {
+    in property <bool> fs_is_active;
+    in property <LogSettings> log_settings;
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
+    background: white;
+    height: 60%;
+    width: 25%;
+    border-radius: 8px;
+    VerticalLayout {
+        alignment: start;
+
+        // Header
+        Rectangle {
+            background: rgba(0, 128, 255, 0.5);
+            border-radius: 8px;
+            width: 100%;
+            height: 20%;
+            Text {
+                color: black;
+                font-weight: 600;
+                horizontal-alignment: center;
+                text: "LOG MANAGEMENT";
+            }
+        }
+
+        // LOGGING SETTINGS
+        ScrollView {
+            width: 100%;
+            height: 80%;
+            VerticalLayout {
+                alignment: center;
+                padding: 5px;
+                spacing: 10px; 
+
+                /* log_dir */
+                HorizontalLayout {
+                    width: 100%;
+                    alignment: center;
+                    StringEdit {
+                        toggle_width: 170px;
+                        toggle_height: 50px;
+                        fs_is_active: fs_is_active;
+                        name: "LOG DIRECTORY";
+                        value: root.log_settings.dir == "" ? "click to choose" : root.log_settings.dir;
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        on_click(v) => {
+                            root.change_string_property({ env: "LOG", name: "", value: v, id_rust: "log_dir" });
+                        }
+                    }
+                }
+
+                /* log_file */
+                HorizontalLayout {
+                    width: 100%;
+                    alignment: center;
+                    StringEdit {
+                        toggle_width: 170px;
+                        toggle_height: 50px;
+                        fs_is_active: fs_is_active;
+                        name: "LOG FILE";
+                        value: root.log_settings.file == "" ? "click to choose" : root.log_settings.file;
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        on_click(v) => {
+                            root.change_string_property({ env: "LOG", name: "", value: v, id_rust: "log_file" });
+                        }
+                    }
+                }
+
+                /* log_format */
+                HorizontalLayout {
+                    width: 100%;
+                    alignment: center;
+                    DropDown {
+                        name: "LOG FORMAT";
+                        toggle_width: 150px;
+                        toggle_height: 50px;
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        options: ["COMPACT", "FULL", "JSON", "PRETTY"];
+                        selected_value: root.log_settings.format;
+                        on_click(v) => {
+                            root.change_string_property({ env: "LOG", name: "", value: v, id_rust: "log_format" });
+                        }
+                    }
+                }
+
+                /* log_level */
+                HorizontalLayout {
+                    width: 100%;
+                    alignment: center;
+                    DropDown {
+                        name: "LOG LEVEL";
+                        toggle_width: 150px;
+                        toggle_height: 50px;
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
+                        selected_value: root.log_settings.level;
+                        on_click(v) => {
+                            root.change_string_property({ env: "LOG", name: "", value: v, id_rust: "log_level" });
+                        }
+                    }
+                }
+
+                /* log_rotation */
+                HorizontalLayout {
+                    width: 100%;
+                    alignment: center;
+                    DropDown {
+                        name: "LOG ROTATION";
+                        toggle_width: 150px;
+                        toggle_height: 50px;
+                        text_color: black;
+                        toggle_color: #ECF0F1;
+                        options: ["MINUTELY", "HOURLY", "DAILY", "NEVER"];
+                        selected_value: root.log_settings.rotation;
+                        on_click(v) => {
+                            root.change_string_property({ env: "LOG", name: "", value: v, id_rust: "log_rotation" });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+/* HOME */
+export component Home inherits Rectangle {
+    in property <Status> status;
+    in property <bool> fs_is_active;
+    callback login(string, string);
+    callback logout();
+    callback mount();
+    callback unmount();
+    callback select_mountpoint();
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
+    callback restore_default();
+    in property <MountSettings> mount_settings;
+    in property <CacheSettings> cache_settings;
+    in property <FsSettings> fs_settings;
+    in property <LogSettings> log_settings;
+    in property <bool> show_restore_default;
+    height: 100%;
+    width: 100%;
+    VerticalBox {
+        padding: 0;
+        spacing: 0;
+
+        /* --- HEADER --- */
+        Rectangle {
+            height: 10%;
+            background: #0080FF;
+            HorizontalLayout {
+                padding: 15px;
+                height: 100%;
+                alignment: LayoutAlignment.end;
+            
+                // Titolo centrale
+                Rectangle {
+                    width: 33%;
+                    Text {
+                        text: "Remote FS";
+                        color: white;
+                        font-size: FontPalette.font-medium;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+                } 
+                
+                // Bottone a destra
+                HorizontalLayout {
+                    width: 33%;
+                    alignment: LayoutAlignment.end;
+                    padding-right: 80px;
+                    if (status == Status.LoggedIn):
+                        VerticalLayout {
+                        alignment: center;
+                        MyButton {
+                            text: "LOGOUT";
+                            text_color: white;
+                            button_color: #ff383bd4;
+                            button_width: 100px;
+                            button_height: 40px;
+                            is_active: true;
+                            on_click => {
+                                root.logout();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /* --- CONTENT --- */
+        Rectangle {
+            background: #ecf0f1;
+            height: 80%; 
+
+            /* NO LOGIN */
+            HorizontalLayout {
+                visible: status == Status.NotLoggedIn;
+                opacity: status == Status.NotLoggedIn ? 1 : 0;
+                animate opacity {
+                    duration: 500ms;
+                    easing: ease-in-out;
+                }
+                alignment: center;
+                LoginForm {
+                    login(u, p) => {
+                        root.login(u, p);
+                    }
+                }
+            }
+
+            /* MANAGEMENT DASHBOARD */
+            VerticalLayout {
+                visible: status == Status.LoggedIn;
+                opacity: status == Status.LoggedIn ? 1 : 0;
+                animate opacity {
+                    duration: 500ms;
+                    easing: ease-in-out;
+                }
+                alignment: center;
+                spacing: 20px;
+                HorizontalLayout {
+                    spacing: 40px;
+                    alignment: center;
+                    Fs {
+                        fs_is_active: fs_is_active;
+                        mount_settings: root.mount_settings;
+                        fs_settings: root.fs_settings;
+                        change_string_property(s) => {
+                            root.change_string_property(s);
+                        }
+                        change_bool_property(b) => {
+                            root.change_bool_property(b);
+                        }
+                    }
+
+                    Cache {
+                        fs_is_active: root.fs_is_active;
+                        cache_settings: root.cache_settings;
+                        change_bool_property(b) => {
+                            root.change_bool_property(b);
+                        }
+                        change_int_property(i) => {
+                            root.change_int_property(i);
+                        }
+                        change_string_property(s) => {
+                            root.change_string_property(s);
+                        }
+                    }
+
+                    Log {
+                        fs_is_active: root.fs_is_active;
+                        log_settings: root.log_settings;
+                        change_bool_property(b) => {
+                            root.change_bool_property(b);
+                        }
+                        change_int_property(i) => {
+                            root.change_int_property(i);
+                        }
+                        change_string_property(s) => {
+                            root.change_string_property(s);
+                        }
+                    }
+                }
+
+                /* CENTRAL BUTTON */
+                HorizontalLayout {
+                    height: 10%;
+                    alignment: center;
+                    spacing: 5px;
+                    if (root.fs_is_active):
+                        MyButton {
+                        text: "UNMOUNT";
+                        text_color: white;
+                        button_color: #FF383C;
+                        button_width: 100px;
+                        button_height: 40px;
+                        is_active: true;
+                        on_click => {
+                            root.unmount();
+                        }
+                    }
+                    if (!root.fs_is_active):
+                        MyButton {
+                        text: "MOUNT";
+                        text_color: white;
+                        button_color: #34C759;
+                        button_width: 100px;
+                        button_height: 40px;
+                        is_active: root.mount_settings.mount_point != "";
+                        on_click => {
+                            root.mount();
+                        }
+                    }
+                    if root.show_restore_default: 
+                    MyButton {
+                        text: "RESET";
+                        text_color: white;
+                        button_color: rgba(0, 128, 255, 0.5);
+                        button_width: 100px;
+                        button_height: 40px;
+                        is_active: true;
+                        on_click => {
+                            root.restore_default();
+                        }
+                    }
+                }
+            }
+        }
+            
+        /* --- FOOTER --- */
+        Rectangle {
+            height: 10%;
+            background: rgba(0, 128, 255, 0.5);
+            Text {
+                text: "Politecnico di Torino";
+                font-size: FontPalette.font-small;
+                color: white;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
+
+/* COMPLETE APPLICATION */
+export component App inherits Window {
+    background: white;
+    min-height: 600px;
+    min-width: 800px;
+    title: "RemoteFileSystem";
+    changed height => {
+        FontPalette.scale = round(root.height / 800px);
+    }
+    callback login(string, string);
+    callback retry();
+    callback logout();
+    callback mount();
+    callback unmount();
+    in property <ViewState> active_view: ViewState.Welcome;
+    in property <Status> status: Status.NotLoggedIn;
+    in-out property <bool> is_loading: false;
+    in-out property <bool> server_unavailable: false;
+    in-out property <string> error_message: "";
+    in-out property <bool> fs_is_active: false;
+    in-out property <bool> show_restore_default: false;
+    in property <MountSettings> mount_settings;
+    in property <CacheSettings> cache_settings;
+    in property <FsSettings> fs_settings;
+    in property <LogSettings> log_settings;
+    callback change_bool_property(BoolItem);
+    callback change_int_property(IntItem);
+    callback change_string_property(StringItem);
+    callback restore_default();
+    WelcomePage {
+        visible: active_view == ViewState.Welcome;
+        opacity: active_view == ViewState.Welcome ? 1 : 0;
+        animate opacity {
+            duration: 500ms;
+            easing: ease-in-out;
+        }
+    }
+
+    Home {
+        visible: active_view == ViewState.Home;
+        opacity: active_view == ViewState.Home ? 1 : 0;
+        animate opacity {
+            duration: 500ms;
+            easing: ease-in-out;
+        }
+        status: status;
+        fs_is_active: fs_is_active;
+        show_restore_default: show_restore_default;
+        login(u, p) => {
+            root.is_loading = true;
+            root.login(u, p);
+        }
+        logout => {
+            root.is_loading = true;
+            root.logout();
+        }
+        mount => {
+            root.is_loading = true;
+            root.mount();
+        }
+        unmount => {
+            root.is_loading = true;
+            root.unmount();
+        }
+        change_bool_property(b) => {
+            root.is_loading = true;
+            root.change_bool_property(b);
+        }
+        change_int_property(i) => {
+            root.is_loading = true;
+            root.change_int_property(i);
+        }
+        change_string_property(s) => {
+            root.is_loading = true;
+            root.change_string_property(s);
+        }
+        restore_default => {
+            root.is_loading = true;
+            root.restore_default();
+        }
+
+        /* Gs card */
+        mount_settings: root.mount_settings;
+        fs_settings: root.fs_settings;
+
+        /* Cache card */
+        cache_settings: root.cache_settings;
+
+        /* Log card */
+        log_settings: root.log_settings;
+    }
+
+    ServerUnavailable {
+        visible: server_unavailable;
+        opacity: server_unavailable ? 1 : 0;
+        animate opacity {
+            duration: 500ms;
+            easing: ease-in-out;
+        }
+        retry => {
+            root.is_loading = true;
+            root.retry()
+        };
+    }
+
+    Error {
+        visible: error_message != "";
+        opacity: error_message != "" ? 1 : 0;
+        error: error_message;
+        close => {
+            error_message = ""
+        };
+    }
+
+    if (is_loading):
+        Loading { }
+}

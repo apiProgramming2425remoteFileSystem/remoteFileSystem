@@ -207,6 +207,18 @@ pub enum NetworkError {
     Other(#[from] anyhow::Error),
 }
 
+#[derive(Error, Debug)]
+pub enum GUIError{
+    #[error("Initial rendering failed: {0}")]
+    RenderingIssue(String),
+    #[error("Initial run failed: {0}")]
+    RunningIssue(String),
+    #[error("Mount failed: {0}")]
+    MountingIssue(String),
+    #[error("Personalized config file creation failed: {0}")]
+    ConfigIssue(String),
+}
+
 /* cache uses Option for now, can't generate errors
 /// Cache related errors
 #[derive(Error, Debug)]
@@ -249,6 +261,10 @@ pub enum RfsClientError {
     #[cfg(windows)]
     #[error(transparent)]
     WinFSPError(#[from] winfsp::FspError),
+
+
+    #[error("GUI error: {0}")]
+    GUI(#[from] GUIError),
 
     //#[error("Cache error: {0}")]
     //Cache(#[from] CacheError),

@@ -141,14 +141,19 @@ impl DB {
             .await
             .map_err(|e| DatabaseError::MigrationError(e.to_string()))?;
 
+
         // TODO: add them via CLI command or with a setup script
-        /*
+        /* 
+        let db = Self { pool };
         db.create_user(1, 1, "mirko", "password").await?;
         db.create_user(2, 2, "fabrizio", "password").await?;
         db.create_user(3, 3, "iulian", "password").await?;
         db.create_user(4, 4, "test_user", "test_password").await?;
+        Ok(db)
         */
-        Ok(Self { pool })
+
+
+        Ok( Self { pool })
     }
 
     /* -- REVOKED TOKEN MANAGEMENT */

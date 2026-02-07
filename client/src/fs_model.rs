@@ -116,11 +116,14 @@ impl FileSystem {
         let buffer_capacity = config.file_system.buffer_size;
         let page_size = config.file_system.page_size;
 
-        PAGE_SIZE.set(page_size).expect("PAGE_SIZE already set");
+        // PAGE_SIZE.set(page_size).expect("PAGE_SIZE already set");
+        if let Err(e) = PAGE_SIZE.set(page_size) {
+            tracing::error!("PAGE_SIZE already set.");
+        };
 
-        MAX_PAGES
-            .set(config.cache.max_size / page_size)
-            .expect("MAX_PAGES already set");
+        if let Err(e) = MAX_PAGES.set(config.cache.max_size / page_size) {
+            tracing::error!("MAX_PAGES already set");
+        };
 
         Self {
             remote_client: Arc::new(rc),

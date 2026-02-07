@@ -19,6 +19,19 @@ ARG real_bin_name=remote_fs_client_core
 
 COPY scripts/installer_wrapper.sh /tmp/installer_wrapper.sh
 
+# Librerie Core X11
+# Gestione Tastiera (essenziale per l'input)
+# Rendering e Font (necessari per Slint)
+# Driver grafici Mesa (EGL/GLES)
+# Strumenti di sistema e debug
+# Altre librerie
+RUN apt-get update && apt-get install -y \
+    libx11-6 libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev \
+    libxkbcommon-x11-0 libxkbcommon-x11-dev \
+    libfontconfig1 libfontconfig1-dev fonts-dejavu-core \
+    libgles2-mesa-dev libegl1-mesa-dev
+# pkg-config libssl-dev ca-certificates fuse3 libfuse3-dev
+
 # Install the client using the installer wrapper script and clean up
 RUN chmod +x /tmp/installer_wrapper.sh && \
     /tmp/installer_wrapper.sh "${app_path}" "${real_bin_name}" "/usr/local/bin/remote_fs_client" && \
