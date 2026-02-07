@@ -111,16 +111,18 @@ fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attribute
 /// }
 //
 impl FileSystem {
-    #[instrument(ret(level = Level::DEBUG))]
+    #[instrument(skip(rc, config), ret(level = Level::DEBUG))]
     pub fn new<R: RemoteStorage + Debug + 'static>(rc: R, config: &RfsConfig) -> Self {
         let buffer_capacity = config.file_system.buffer_size;
         let page_size = config.file_system.page_size;
 
-        PAGE_SIZE.set(page_size).expect("PAGE_SIZE already set");
+        if let Err(e) = PAGE_SIZE.set(page_size) {
+            tracing::error!("PAGE_SIZE already set.");
+        };
 
-        MAX_PAGES
-            .set(config.cache.max_size / page_size)
-            .expect("MAX_PAGES already set");
+        if let Err(e) = MAX_PAGES.set(config.cache.max_size / page_size) {
+            tracing::error!("MAX_PAGES already set");
+        };
 
         Self {
             remote_client: Arc::new(rc),

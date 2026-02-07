@@ -48,12 +48,10 @@ services:
       RFS__MOUNT_POINT: *mount_point
       RFS__SERVER_URL: *server_url
       DISPLAY: ${DISPLAY}
-      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}
       SLINT_BACKEND: software
       WINIT_UNIX_BACKEND: x11
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}:${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}
     # command: >
     #   run --mount-point ${RFS__MOUNT_POINT} --server-url ${RFS__SERVER_URL}
     tty: true # Keep the terminal open
@@ -67,7 +65,8 @@ services:
     ipc: host               # <--- Aggiunto per la memoria condivisa X11
     environment:
       - DISPLAY=${DISPLAY}
-      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+      - WAYLAND_DISPLAY=
+      - XDG_RUNTIME_DIR=
       - SLINT_BACKEND=software
       - WINIT_UNIX_BACKEND=x11
     devices:
@@ -77,7 +76,6 @@ services:
     volumes:
       - .:${APP_PATH}/
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}:${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}
       - ./mount_dir:${RFS__FILESYSTEM_ROOT}
     working_dir: *app_path
     tty: true

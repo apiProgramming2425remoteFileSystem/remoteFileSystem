@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::{self, Write};
 use std::ops::Deref;
-use gui::start_gui;
+use gui::Gui;
 
 use rpassword::read_password;
 
@@ -54,19 +54,6 @@ pub fn start_unix<R: RemoteStorage + Debug + Clone + 'static>(config: &RfsConfig
     println!("Starting RemoteFS...");
 
     if config.no_gui {
-        // Create mountpoint directory if it doesn't exist
-        if !config.mount_point.exists() {
-            println!(
-                "Mountpoint directory {:?} does not exist. Creating it.",
-                config.mount_point
-            );
-            fs::create_dir_all(&config.mount_point).map_err(|err| {
-                RfsClientError::Other(
-                    anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
-                )
-            })?;
-        }
-
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -115,8 +102,17 @@ pub fn start_unix<R: RemoteStorage + Debug + Clone + 'static>(config: &RfsConfig
         tracing::info!("RemoteFS execution finished.");
         Ok(())
     } else {
+        // Initialize logging based on config
+        let _log = logging::Logging::from(&config.logging)?;
+
+        tracing::trace!("[TRACE]");
+        tracing::debug!("[DEBUG]");
+        tracing::info!("[INFO]");
+        tracing::warn!("[WARN]");
+        tracing::error!("[ERROR]");
+        
         let config_var: RfsConfig = config.to_owned();
-        start_gui(rc, config_var)?;
+        Gui::new(rc, config_var)?.start_gui()?;
         Ok(())
     }
 }
@@ -231,6 +227,19 @@ pub async fn run_async<R: RemoteStorage + Debug + Clone + 'static>(
         err
     })?;
     */
+
+    // Create mountpoint directory if it doesn't exist
+    if !config.mount_point.exists() {
+        println!(
+            "Mountpoint directory {:?} does not exist. Creating it.",
+            config.mount_point
+        );
+        fs::create_dir_all(&config.mount_point).map_err(|err| {
+            RfsClientError::Other(
+                anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
+            )
+        })?;
+    }
 
     // Create Filesystem
     let fs = Fs::new(rc, &config);

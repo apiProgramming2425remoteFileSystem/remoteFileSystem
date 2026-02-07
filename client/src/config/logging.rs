@@ -163,7 +163,7 @@ impl ToString for LogFormat {
     fn to_string(&self) -> String {
         match self {
             LogFormat::Full => String::from("FULL"),
-            LogFormat::Compact => String::from("COMPAT"),
+            LogFormat::Compact => String::from("COMPACT"),
             LogFormat::Pretty => String::from("PRETTY"),
             LogFormat::Json => String::from("JSON"),
         }

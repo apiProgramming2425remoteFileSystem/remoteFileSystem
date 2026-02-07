@@ -1,2 +1,2 @@
 pub mod logic;
-pub use logic::start_gui;
+pub use logic::Gui;

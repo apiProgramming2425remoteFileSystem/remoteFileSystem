@@ -214,6 +214,10 @@ pub enum GUIError{
     RenderingIssue(String),
     #[error("Initial run failed: {0}")]
     RunningIssue(String),
+    #[error("Mount failed: {0}")]
+    MountingIssue(String),
+    #[error("Personalized config file creation failed: {0}")]
+    ConfigIssue(String),
 }
 
 /* cache uses Option for now, can't generate errors
