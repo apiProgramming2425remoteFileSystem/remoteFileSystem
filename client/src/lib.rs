@@ -8,14 +8,18 @@ pub mod daemon;
 pub mod error;
 pub mod fs_model;
 pub mod fuse;
+pub mod gui;
 pub mod logging;
 pub mod mount;
 pub mod network;
+
 pub mod rw_buffer;
 mod util;
 
+use gui::Gui;
 use std::fs;
 use std::io::{self, Write};
+use std::ops::Deref;
 
 use rpassword::read_password;
 
@@ -45,71 +49,71 @@ const MAX_LOGIN_ATTEMPTS: u8 = 3;
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
 #[cfg(unix)]
-pub fn start_unix<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
+pub fn start_unix<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS...");
 
-    // Create mount point directory if it doesn't exist
-    if !config.mount_point.exists() {
-        println!(
-            "Mount point directory {:?} does not exist. Creating it.",
-            config.mount_point
-        );
-        fs::create_dir_all(&config.mount_point).map_err(|err| {
-            RfsClientError::Other(anyhow::format_err!(
-                "Could not create mount point directory: {}",
+    if config.no_gui {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| {
+                RfsClientError::Other(anyhow::format_err!(
+                    "Failed to build Tokio runtime: {}",
+                    err
+                ))
+            })?;
+
+        // Check on server health and user login
+        runtime.block_on(async {
+            println!("Checking connection to server at {}...", config.server_url);
+
+            rc.health_check().await.map_err(|err| {
+                println!("Connection to server failed: {}", err); // Write to log
                 err
-            ))
+            })?;
+
+            rc.health_check().await?;
+
+            perform_login(&rc, config).await
         })?;
+
+        drop(runtime);
+
+        // Instantiate the daemon
+        let daemon = Daemon::new().foreground(config.foreground);
+        // Initialize the daemon
+        daemon.initialize()?;
+
+        // Initialize logging based on config
+        let _log = logging::Logging::from(&config.logging)?;
+
+        tracing::trace!("[TRACE]");
+        tracing::debug!("[DEBUG]");
+        tracing::info!("[INFO]");
+        tracing::warn!("[WARN]");
+        tracing::error!("[ERROR]");
+
+        tracing::debug!("Background process started. PID: {}", std::process::id());
+
+        // Start the daemon
+        daemon.create_runtime(run_async(config.clone(), rc, daemon.clone()))?;
+
+        tracing::info!("RemoteFS execution finished.");
+        Ok(())
+    } else {
+        // Initialize logging based on config
+        let _log = logging::Logging::from(&config.logging)?;
+
+        tracing::trace!("[TRACE]");
+        tracing::debug!("[DEBUG]");
+        tracing::info!("[INFO]");
+        tracing::warn!("[WARN]");
+        tracing::error!("[ERROR]");
+
+        let config_var: RfsConfig = config.to_owned();
+        Gui::new(rc, config_var)?.start_gui()?;
+        Ok(())
     }
-
-    // let rc = RemoteClient::new(&config.server_url);
-
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| {
-            RfsClientError::Other(anyhow::format_err!(
-                "Failed to build Tokio runtime: {}",
-                err
-            ))
-        })?;
-
-    runtime.block_on(async {
-        println!("Checking connection to server at {}...", config.server_url);
-
-        rc.health_check().await.map_err(|err| {
-            println!("Connection to server failed: {}", err); // Write to log
-            err
-        })?;
-
-        rc.health_check().await?;
-
-        perform_login(&rc, config).await
-    })?;
-
-    drop(runtime);
-
-    // Instantiate the daemon
-    let daemon = Daemon::new().foreground(config.foreground);
-    // Initialize the daemon
-    daemon.initialize()?;
-
-    // Initialize logging based on config
-    let _log = logging::Logging::from(&config.logging)?;
-
-    tracing::trace!("[TRACE]");
-    tracing::debug!("[DEBUG]");
-    tracing::info!("[INFO]");
-    tracing::warn!("[WARN]");
-    tracing::error!("[ERROR]");
-
-    tracing::debug!("Background process started. PID: {}", std::process::id());
-
-    // Start the daemon
-    daemon.create_runtime(run_async(config.clone(), rc, daemon.clone()))?;
-
-    tracing::info!("RemoteFS execution finished.");
-    Ok(())
 }
 
 #[cfg(windows)]
@@ -151,7 +155,7 @@ fn start_windows<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
 ///
-pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
+pub fn start<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<()> {
     #[cfg(unix)]
     {
         start_unix(config, rc)
@@ -162,7 +166,7 @@ pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     }
 }
 
-async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<String> {
+async fn perform_login<R: RemoteStorage + Clone>(rc: &R, config: &RfsConfig) -> Result<String> {
     println!("Welcome to Remote File System. First you need to authenticate!");
 
     for i in 0..MAX_LOGIN_ATTEMPTS {
@@ -205,7 +209,7 @@ async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<S
 }
 
 #[cfg(unix)]
-pub async fn run_async<R: RemoteStorage>(config: RfsConfig, rc: R, daemon: Daemon) -> Result<()> {
+pub async fn run_async<R: RemoteStorage + Clone>(config: RfsConfig, rc: R, daemon: Daemon) -> Result<()> {
     /*
     tracing::info!("Checking connection to server at {}...", config.server_url);
 
@@ -214,6 +218,19 @@ pub async fn run_async<R: RemoteStorage>(config: RfsConfig, rc: R, daemon: Daemo
         err
     })?;
     */
+
+    // Create mountpoint directory if it doesn't exist
+    if !config.mount_point.exists() {
+        println!(
+            "Mountpoint directory {:?} does not exist. Creating it.",
+            config.mount_point
+        );
+        fs::create_dir_all(&config.mount_point).map_err(|err| {
+            RfsClientError::Other(
+                anyhow::format_err!("Could not create mountpoint directory: {}", err).into(),
+            )
+        })?;
+    }
 
     // Create Filesystem
     let fs = Fs::new(rc, &config);

@@ -1,7 +1,8 @@
 x-constants:
   mount_point: &mount_point ${RFS__MOUNT_POINT}
-  server_url: &server_url ${RFS__SERVER_URL:-http://${RFS__SERVER_HOST:-server}:${RFS__SERVER_PORT:-8080}}
-  database_path: &database_path ${DATABASE_PATH:-database/db.sqlite}
+  fs_root: &fs_root ${RFS__FILESYSTEM_ROOT}
+  server_url: &server_url http://${RFS__SERVER_HOST:-server}:${RFS__SERVER_PORT:-8080}
+  database_path: &database_path ${DATABASE_PATH}
 
 services:
   server:
@@ -18,14 +19,14 @@ services:
     environment:
       RFS__SERVER_HOST: ${RFS__SERVER_HOST:-server}
       RFS__SERVER_PORT: ${RFS__SERVER_PORT:-8080}
-      RFS__FILESYSTEM_ROOT: ${RFS__FILESYSTEM_ROOT}
+      RFS__FILESYSTEM_ROOT: *fs_root
       DATABASE_PATH: *database_path
     networks:
       - remote-fs-net
     env_file:
       - server/.env
     command: >
-      --database-path ${DATABASE_PATH} run --filesystem-root ${RFS__FILESYSTEM_ROOT} --server-host ${RFS__SERVER_HOST} --server-port ${RFS__SERVER_PORT}
+      run
 
   client:
     build:
@@ -35,6 +36,7 @@ services:
         bin_name: client # the name of the package
     container_name: remote_fs-client
     # privileged: true
+    # network: host # in case X11 does not work properly
     networks:
       - remote-fs-net
     devices:
@@ -46,6 +48,11 @@ services:
     environment:
       RFS__MOUNT_POINT: *mount_point
       RFS__SERVER_URL: *server_url
+      DISPLAY: ${DISPLAY}
+      SLINT_BACKEND: software
+      WINIT_UNIX_BACKEND: x11
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
     env_file:
       - client/.env
     # command: >
@@ -56,16 +63,22 @@ services:
   develop:
     image: rust:slim
     container_name: remote_fs-develop
-    # privileged: true
+    network_mode: host # <--- Aggiunto per vedere WSLg (:0)
+    ipc: host # <--- Aggiunto per la memoria condivisa X11
+    environment:
+      - DISPLAY=${DISPLAY}
+      - WAYLAND_DISPLAY=
+      - XDG_RUNTIME_DIR=
+      - SLINT_BACKEND=software
+      - WINIT_UNIX_BACKEND=x11
     devices:
       - /dev/fuse:/dev/fuse
     cap_add:
       - SYS_ADMIN
-    networks:
-      - remote-fs-net
     volumes:
       - .:${APP_PATH}/
-      # - ./mount_dir:${RFS__FILESYSTEM_ROOT} # Server FS root for testing purposes
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      # - ./mount_dir:${RFS__FILESYSTEM_ROOT}
     working_dir: ${APP_PATH}
     tty: true # Keep the terminal open
     restart: unless-stopped # Automatically restart unless stopped manually

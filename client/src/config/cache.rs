@@ -73,3 +73,12 @@ pub enum CachePolicy {
     Lru,
     Lfu,
 }
+
+impl ToString for CachePolicy{
+    fn to_string(&self) -> String {
+        match self {
+            CachePolicy::Lru => String::from("LRU"),
+            CachePolicy::Lfu => String::from("LFU"),
+        }
+    }
+}
