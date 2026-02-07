@@ -18,7 +18,8 @@ ARG real_bin_name=remote_fs_server_core
 COPY scripts/installer_wrapper.sh /tmp/installer_wrapper.sh
 
 # Install the server using the installer wrapper script and clean up
-RUN chmod +x /tmp/installer_wrapper.sh && \
+RUN sed -i 's/\r$//' /tmp/installer_wrapper.sh && \
+    chmod +x /tmp/installer_wrapper.sh && \
     /tmp/installer_wrapper.sh "${app_path}" "${real_bin_name}" "/usr/local/bin/remote_fs_server" && \
     rm /tmp/installer_wrapper.sh
 
