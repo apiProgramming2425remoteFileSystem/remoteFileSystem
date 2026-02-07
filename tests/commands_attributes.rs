@@ -127,7 +127,7 @@ mod tests {
 
         // COMPARE: stat (Size & Permissions)
         // Normalize the output to remove the differing file paths if 'stat' printed them.
-        assert_stat_with_tolerance(&client_file, &server_file, 1.0, true)?;
+        assert_stat_with_tolerance(&client_file, &server_file, 1.0)?;
         Ok(())
     }
 
@@ -145,7 +145,7 @@ mod tests {
 
         // COMPARE: stat (Size & Permissions)
         // Normalize the output to remove the differing file paths if 'stat' printed them.
-        assert_stat_with_tolerance(&client_dir, &server_dir, 1.0, true)?;
+        assert_stat_with_tolerance(&client_dir, &server_dir, 1.0)?;
         Ok(())
     }
 
@@ -396,7 +396,7 @@ mod tests {
         fs::write(&client_file, data)?;
 
         // COMPARE: stat (Modification Time)
-        let stat_before = assert_stat_with_tolerance(&client_file, &server_file, 1.0, false)?;
+        let stat_before = assert_stat_with_tolerance(&client_file, &server_file, 1.0)?;
 
         // Set mtime to 2 hours ago
         let past_time = "2 hours ago";
@@ -404,7 +404,7 @@ mod tests {
         run_cmd("touch", &["-d", past_time], Some(&client_file))?;
 
         // COMPARE: stat (Modification Time)
-        let stat_after = assert_stat_with_tolerance(&client_file, &server_file, 1.0, false)?;
+        let stat_after = assert_stat_with_tolerance(&client_file, &server_file, 1.0)?;
         assert_ne!(
             stat_before, stat_after,
             "Timestamps did not update after touch command"

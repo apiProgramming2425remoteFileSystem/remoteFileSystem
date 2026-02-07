@@ -145,7 +145,7 @@ impl FileSystem {
                 };
 
                 let path = entry.path();
-                let meta = match std::fs::symlink_metadata(&path) {
+                let meta = match fs::symlink_metadata(&path) {
                     Ok(m) => m,
                     Err(err) => {
                         tracing::warn!("Cannot read metadata for {:?}: {}", path, err);
@@ -196,8 +196,7 @@ impl FileSystem {
     ) -> Result<()> {
         let name = name.as_ref();
         let target = self.make_real_path(path)?.join(name);
-
-        if target.exists() {
+        if fs::symlink_metadata(&target).is_ok() {
             return Err(StorageError::AlreadyExists(format!("{:?}", target)));
         }
         fs::create_dir(&target)?;
@@ -221,7 +220,7 @@ impl FileSystem {
             return Ok(());
         }
 
-        if flags.contains(RenameFlags::NOREPLACE) && new.exists() {
+        if flags.contains(RenameFlags::NOREPLACE) && fs::symlink_metadata(&new).is_ok() {
             return Err(StorageError::AlreadyExists(new.to_string_lossy().to_string()));
         }
 
@@ -271,7 +270,7 @@ impl FileSystem {
         offset: usize,
     ) -> Result<()> {
         let real = self.make_real_path(path)?;
-        let created = !real.exists();
+        let created = !fs::symlink_metadata(&real).is_ok();
 
         let mut f = fs::OpenOptions::new()
             .write(true)
@@ -377,7 +376,7 @@ impl FileSystem {
             return Err(StorageError::PermissionDenied);
         }
 
-        let metadata = fs::metadata(&real_path)?;
+        let metadata = fs::symlink_metadata(&real_path)?;
 
         let current_atime = FileTime::from_last_access_time(&metadata);
         let current_mtime = FileTime::from_last_modification_time(&metadata);
@@ -407,7 +406,7 @@ impl FileSystem {
         operation: Operation,
     ) -> Result<bool> {
         let mut path = self.make_real_path(path)?;
-        if !path.exists() {
+        if !fs::symlink_metadata(&path).is_ok() {
             let parent = path.parent().ok_or_else(|| {
                 StorageError::NotFound(format!("Path not found: {:?}", path))
             })?;
@@ -472,7 +471,7 @@ impl FileSystem {
     ) -> Result<FileAttr> {
         let real = self.make_real_path(path)?;
 
-        if real.exists() {
+        if fs::symlink_metadata(&real).is_ok() {
             return Err(StorageError::AlreadyExists(format!("{:?}", real)));
         }
 
@@ -484,7 +483,7 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn get_fs_stats(&self, path: &str) -> Result<Stats> {
         let real = self.make_real_path(path)?;
-        if !real.exists() {
+        if !fs::symlink_metadata(&real).is_ok() {
             return Err(StorageError::InvalidPath(format!(
                 "Path {:?} does not exist",
                 path

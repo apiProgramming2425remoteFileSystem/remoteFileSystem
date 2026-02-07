@@ -89,7 +89,6 @@ mod tests {
 
 
     /// Verifies cmd fails to create symlink if target does not exist.
-    // ... funziona quando replico il comportamento
     #[test]
     fn test_cmd_symlink_broken_target() -> Result<()> {
         let (_ctx, mount_point, _server_root) = setup_e2e!();
@@ -111,7 +110,7 @@ mod tests {
         );
 
         // Symlink exists
-        assert!(link_file.exists(), "Broken symlink was not created!");
+        assert!(fs::symlink_metadata(&link_file).is_ok(), "Broken symlink was not created!");
 
         // Target does not exist (it's broken)
         assert!(!target_file.exists(), "Target should not exist");
@@ -205,7 +204,6 @@ mod tests {
     }
 
     // Verifies cmd removes symlinks correctly.
-    // ... funziona quando replico il comportamento
     #[test]
     fn test_cmd_unlink() -> Result<()> {
         let (_ctx, mount_point, server_root) = setup_e2e!();
@@ -223,13 +221,13 @@ mod tests {
 
         // Verify symlink removal on Client
         assert!(
-            !link_file.exists(),
+            !fs::symlink_metadata(&link_file).is_ok(),
             "Symlink still exists on Client after unlink"
         );
 
         // Verify symlink removal on Server
         assert!(
-            !server_link_file.exists(),
+            !fs::symlink_metadata(&server_link_file).is_ok(),
             "Symlink still exists on Server after unlink"
         );
 

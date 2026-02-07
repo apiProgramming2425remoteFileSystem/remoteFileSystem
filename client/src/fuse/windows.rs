@@ -548,23 +548,14 @@ impl FileSystemContext for Fs {
             replace_if_exists
         );
 
-        if !replace_if_exists {
-            match self
-                .rt
-                .block_on(async { self.fs.get_attributes(&new_path).await })
-            {
-                Ok(_) => {
-                    return Err(FspError::NTSTATUS(0xC0000035u32 as i32));
-                }
-                Err(_) => {
-                    // OK, proceed
-                }
-            }
+        if replace_if_exists {
+            self.rt
+                .block_on(async { self.fs.rename(&old_path, &new_path, fs_model::RenameFlags::from_bits_truncate(0)).await })?;
         }
-
-        self.rt
-            .block_on(async { self.fs.rename(&old_path, &new_path, fs_model::RenameFlags::from_bits_truncate(0)).await })?;
-
+        else {
+            self.rt
+                .block_on(async { self.fs.rename(&old_path, &new_path, fs_model::RenameFlags::NOREPLACE).await })?;
+        }
         Ok(())
     }
 

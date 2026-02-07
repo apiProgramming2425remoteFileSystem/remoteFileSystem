@@ -74,6 +74,8 @@ mod tests {
         assert_copy_cmd(&src_file, &dest_file);
         println!("Copied large file in {:.3?}", timer.elapsed());
 
+        thread::sleep(std::time::Duration::from_millis(50));
+
         // Verify Checksums
         // We calculate the checksum of the file ON THE MOUNT
         let (md5_src, md5_dest) = compare_md5(&src_file, &dest_file)?;
@@ -103,6 +105,8 @@ mod tests {
         generate_large_file(&src_file, 100)?;
         // Copy to Mount
         assert_copy_cmd(&src_file, &dest_file);
+
+        thread::sleep(std::time::Duration::from_millis(50));
 
         let (src_hash, dest_hash) = compare_md5(&src_file, &dest_file)?;
         assert_eq!(src_hash, dest_hash, "Mount file corrupted after upload");
@@ -160,6 +164,8 @@ mod tests {
 
         // Copy to Mount
         assert_copy_cmd(&src_file, &dest_file);
+
+        thread::sleep(std::time::Duration::from_millis(50));
 
         let mut original_file = File::open(&src_file)?;
         let mut file = File::open(&dest_file)?;
@@ -222,6 +228,8 @@ mod tests {
 
         // Write End
         file.write_all(b"TAIL")?;
+
+        thread::sleep(std::time::Duration::from_millis(50));
 
         // Verify Size
         let meta = fs::metadata(&file_path)?;
