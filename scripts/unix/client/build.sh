@@ -32,7 +32,7 @@ install_dependencies() {
             if [ -f /etc/debian_version ]; then
                 # Ubuntu / Debian / Mint
                 log_info "Debian/Ubuntu detected."
-                PACKAGES=("pkg-config" "fuse3" "libfuse3-dev" "libssl-dev")
+                PACKAGES=("pkg-config" "fuse3" "libfuse3-dev" "libssl-dev" "libfontconfig1" "libfontconfig1-dev" "libx11-6" "libx11-dev" "libxcursor-dev" "libxi-dev" "libxrandr-dev" "libxinerama-dev" "libxkbcommon-x11-0" "libxkbcommon-x11-dev" "fonts-dejavu-core" "libgles2-mesa-dev" "libegl1-mesa-dev" "ca-certificates")
                 install_apt_packages "${PACKAGES[@]}"
 
             # elif [ -f /etc/redhat-release ]; then
