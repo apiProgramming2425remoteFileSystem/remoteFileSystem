@@ -87,7 +87,6 @@ mod tests {
         Ok(())
     }
 
-
     /// Verifies cmd fails to create symlink if target does not exist.
     #[test]
     fn test_cmd_symlink_broken_target() -> Result<()> {
@@ -110,7 +109,10 @@ mod tests {
         );
 
         // Symlink exists
-        assert!(fs::symlink_metadata(&link_file).is_ok(), "Broken symlink was not created!");
+        assert!(
+            fs::symlink_metadata(&link_file).is_ok(),
+            "Broken symlink was not created!"
+        );
 
         // Target does not exist (it's broken)
         assert!(!target_file.exists(), "Target should not exist");

@@ -1,25 +1,24 @@
 use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use reqwest::Client;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware, RequestBuilder};
-use reqwest_retry::policies::ExponentialBackoff;
 use reqwest_retry::RetryTransientMiddleware;
+use reqwest_retry::policies::ExponentialBackoff;
+use tempfile::TempDir;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
-use tempfile::TempDir;
 
-use server::config::{LoggingConfig, RfsConfig};
-//use server::config::logging::{LogFormat, LogLevel, LogTargets};
-use server::db::DB;
-use server::logging::Logging;
-use server::run_server;
-use server::error::LoggingError;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use server::config::logging::LogTargets;
+use server::config::{LoggingConfig, RfsConfig};
+use server::db::DB;
+use server::error::LoggingError;
+use server::logging::Logging;
+use server::run_server;
 
 static LOGGER: OnceCell<Logging> = OnceCell::new();
-
 
 pub const TEST_USER: &str = "test_user";
 pub const TEST_PASSWORD: &str = "test_password";
@@ -31,7 +30,13 @@ pub async fn get_test_token(db_path: &Path) -> Result<String> {
     let db = DB::open_connection(db_path).await?;
 
     if !db.user_exists(TEST_USER).await? {
-        db.create_user(Some(TEST_USER_ID), Some(TEST_GROUP_ID), TEST_USER, TEST_PASSWORD).await?;
+        db.create_user(
+            TEST_USER,
+            TEST_PASSWORD,
+            Some(TEST_USER_ID),
+            Some(TEST_GROUP_ID),
+        )
+        .await?;
     }
 
     let token = db
@@ -46,8 +51,6 @@ pub fn init_logging(config: &LoggingConfig) -> &Logging {
     LOGGER.get_or_init(|| Logging::from(config).unwrap())
 }
 
-
-
 /// Bootstrap del server in background, ritorna logging, client HTTP e handle
 /// ora ritorna solo il client poi vedremo
 pub async fn start_server_app(
@@ -56,9 +59,10 @@ pub async fn start_server_app(
     // Logging
     let _ = init_logging(&config.logging);
 
-
     // Listener TCP
-    let lst = tokio::net::TcpListener::bind(format!("{}:{}", &config.server_host, config.server_port)).await?;
+    let lst =
+        tokio::net::TcpListener::bind(format!("{}:{}", &config.server_host, config.server_port))
+            .await?;
     let local_addr = lst.local_addr()?;
     config.server_port = local_addr.port();
     println!("Test server will start at {}", local_addr);
@@ -88,7 +92,10 @@ pub async fn start_server_app(
 
     // Client HTTP con token
     let http_client = HttpClient::new_with_token(
-        &format!("http://{}:{}/api/v1", &config.server_host, config.server_port),
+        &format!(
+            "http://{}:{}/api/v1",
+            &config.server_host, config.server_port
+        ),
         Some(&token),
     );
 
@@ -129,10 +136,7 @@ impl HttpClient {
             );
         }
 
-        let reqwest_client = Client::builder()
-            .default_headers(headers)
-            .build()
-            .unwrap();
+        let reqwest_client = Client::builder().default_headers(headers).build().unwrap();
 
         let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
         let middleware_client = ClientBuilder::new(reqwest_client)
@@ -168,7 +172,6 @@ impl HttpClient {
         url
     }
 
-
     pub fn set_url<S: AsRef<str>>(&self, api: S, path: S) -> String {
         format!(
             "{}/{}/{}",
@@ -177,7 +180,6 @@ impl HttpClient {
             urlencoding::encode(path.as_ref())
         )
     }
-
 
     pub fn set_short_url<S: AsRef<str>>(&self, api: S) -> String {
         format!("{}/{}", self.base_url, api.as_ref())
@@ -200,12 +202,15 @@ impl HttpClient {
     }
 }
 
-
 pub fn get_config(fs_root: &Path) -> RfsConfig {
     RfsConfig {
         server_host: "localhost".to_string(),
         server_port: 0,
         filesystem_root: fs_root.to_path_buf(),
+        logging: LoggingConfig {
+            log_targets: vec![LogTargets::Console],
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -222,20 +227,16 @@ impl ReadFileRequest {
     }
 }
 
-
-
 #[derive(Debug, Serialize)]
 pub struct SetAttrRequest {
     pub setattr: SetAttr,
 }
-
 
 impl SetAttrRequest {
     pub fn new(setattr: SetAttr) -> Self {
         Self { setattr }
     }
 }
-
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Serialize)]
 pub struct SetAttr {
@@ -247,8 +248,6 @@ pub struct SetAttr {
     pub gid: Option<u32>,
     /// set file or directory size.
     pub size: Option<u64>,
-    /// the lock_owner argument.
-    pub lock_owner: Option<u64>,
     /// set file or directory atime.
     pub atime: Option<Timestamp>,
     /// set file or directory mtime.
@@ -256,9 +255,6 @@ pub struct SetAttr {
     /// set file or directory ctime.
     pub ctime: Option<Timestamp>,
 }
-
-
-
 
 #[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq /*, Ord, PartialOrd, Hash */)]
 pub struct Attributes {
@@ -311,12 +307,9 @@ pub enum FileType {
     Socket,
 }
 
-
 /// A file's timestamp, according to FUSE.
 #[derive(Debug, Clone, Serialize, Deserialize, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Timestamp {
     pub sec: i64,
     pub nsec: u32,
 }
-
-

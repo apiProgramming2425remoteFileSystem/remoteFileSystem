@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
 use std::vec::Vec;
+
 use crate::cache::CacheableItem;
 
 fn get_page_size() -> usize {
@@ -177,7 +178,6 @@ impl CacheableItem for File {
         self.attributes = None;
     }
 }
-
 
 impl Debug for File {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

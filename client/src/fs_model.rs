@@ -32,8 +32,6 @@ static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
 pub static PAGE_SIZE: OnceLock<usize> = OnceLock::new();
 pub static MAX_PAGES: OnceLock<usize> = OnceLock::new();
 
-
-
 bitflags::bitflags! {
     #[derive(Debug, Copy, Clone)]
     pub struct RenameFlags: u32 {
@@ -42,7 +40,6 @@ bitflags::bitflags! {
         const WHITEOUT  = 0b0100;
     }
 }
-
 
 #[derive(Debug)]
 pub struct FileSystem {
@@ -72,9 +69,6 @@ fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
     }
 }
 
-
-
-
 /// pub async fn template_fn(&self, args) -> Result<> {
 ///     1. check args
 ///     2. if needed check cache and return result if valid
@@ -90,11 +84,11 @@ impl FileSystem {
         let page_size = config.file_system.page_size;
 
         // PAGE_SIZE.set(page_size).expect("PAGE_SIZE already set");
-        if let Err(e) = PAGE_SIZE.set(page_size) {
+        if let Err(_e) = PAGE_SIZE.set(page_size) {
             tracing::error!("PAGE_SIZE already set.");
         };
 
-        if let Err(e) = MAX_PAGES.set(config.cache.max_size / page_size) {
+        if let Err(_e) = MAX_PAGES.set(config.cache.max_size / page_size) {
             tracing::error!("MAX_PAGES already set");
         };
 
@@ -332,10 +326,9 @@ impl FileSystem {
         offset: usize,
         data: &[u8],
     ) -> Result<usize> {
-
         let path = path.as_ref();
-        let mut data_written = 0;
 
+        let data_written: usize;
         let mut uploads: Vec<(PathBuf, usize, Vec<u8>)> = Vec::new();
 
         {
@@ -356,10 +349,6 @@ impl FileSystem {
                 uploads.push((buf_path.to_path_buf(), buf_offset, buf_data.to_vec()));
                 buffer.clean();
             }
-        }
-
-        if !uploads.is_empty() {
-            self.get_permissions(path, 2).await?;
         }
 
         for (path, offset, data) in uploads {
@@ -400,7 +389,12 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn rename<P: AsRef<Path> + Debug>(&self, old_path: P, new_path: P, flags: RenameFlags) -> Result<()> {
+    pub async fn rename<P: AsRef<Path> + Debug>(
+        &self,
+        old_path: P,
+        new_path: P,
+        flags: RenameFlags,
+    ) -> Result<()> {
         let old_path_str = path_to_string(&old_path)?;
         let new_path_str = path_to_string(&new_path)?;
 
@@ -439,29 +433,6 @@ impl FileSystem {
         }
         Ok(())
     }
-
-    /*#[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn resolve_child<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
-        let path = path.as_ref();
-
-        if let Some(cache) = &self.cache
-            && let Some(item) = cache.get(path)
-            && let Some(attr) = item.get_attributes()
-        {
-            // cache hit
-            return Ok(attr);
-        }
-
-        // cache miss
-        let path_str = path_to_string(path)?;
-
-        let attributes = self.remote_client.resolve_child(&path_str).await?;
-
-        if let Some(cache) = &self.cache {
-            cache_put_attr(cache, path, attributes);
-        }
-        Ok(attributes)
-    }*/
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {

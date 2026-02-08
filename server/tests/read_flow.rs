@@ -1,13 +1,13 @@
 mod common;
+use crate::common::ReadFileRequest;
 use bytes::Bytes;
 use serde::Serialize;
-use crate::common::ReadFileRequest;
 
 #[tokio::test]
 async fn test_list_directories() -> anyhow::Result<()> {
     let fs_root = tempfile::tempdir()?;
     let config = common::get_config(fs_root.path());
-    let (client, _handle, _tmpdir)= common::start_server_app(config).await?;
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     // crea cartelle
     let url = client.set_url("mkdir", "/folderA");
@@ -18,9 +18,13 @@ async fn test_list_directories() -> anyhow::Result<()> {
 
     // lista root
     let url = client.set_url("list", "/");
-    let res = client.get(&url)
-        .send().await?.error_for_status()?
-        .json::<Vec<serde_json::Value>>().await?;
+    let res = client
+        .get(&url)
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Vec<serde_json::Value>>()
+        .await?;
 
     let names: Vec<_> = res.iter().map(|v| v["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"folderA"));
@@ -29,13 +33,11 @@ async fn test_list_directories() -> anyhow::Result<()> {
     Ok(())
 }
 
-
-
 #[tokio::test]
 async fn test_list_files() -> anyhow::Result<()> {
     let tmp_dir = tempfile::tempdir()?;
     let config = common::get_config(tmp_dir.path());
-    let (client, _handle, _tmpdir)= common::start_server_app(config).await?;
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     // Crea directory
     let url = client.set_url("mkdir", "/mydir");
@@ -44,7 +46,8 @@ async fn test_list_files() -> anyhow::Result<()> {
     // Scrivi un file
     let url_write = client.set_url("files", "/mydir/file1.txt");
     let url_with_query = format!("{}?offset=0", url_write);
-    client.put(&url_with_query)
+    client
+        .put(&url_with_query)
         .body(Bytes::from("Hello, world!"))
         .send()
         .await?
@@ -52,7 +55,8 @@ async fn test_list_files() -> anyhow::Result<()> {
 
     // Lista directory
     let url = client.set_url("list", "/mydir");
-    let res = client.get(&url)
+    let res = client
+        .get(&url)
         .send()
         .await?
         .error_for_status()?
@@ -71,20 +75,21 @@ async fn write_then_read_whole_file() -> anyhow::Result<()> {
     let config = common::get_config(fs_root.path());
     let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
-    let write_url = format!(
-        "{}?offset=0",
-        client.set_url("files", "/a.txt")
-    );
+    let write_url = format!("{}?offset=0", client.set_url("files", "/a.txt"));
 
-    client.put(&write_url)
+    client
+        .put(&write_url)
         .body(Bytes::from_static(b"hello world"))
-        .send().await?
+        .send()
+        .await?
         .error_for_status()?;
 
     let read_url = client.set_url("files", "/a.txt");
-    let data = client.get(&read_url)
+    let data = client
+        .get(&read_url)
         .json(&ReadFileRequest::new(0, 20))
-        .send().await?
+        .send()
+        .await?
         .error_for_status()?
         .bytes()
         .await?;
@@ -100,15 +105,19 @@ async fn read_with_offset_and_size() -> anyhow::Result<()> {
     let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     let url = format!("{}?offset=0", client.set_url("files", "/d.txt"));
-    client.put(&url)
+    client
+        .put(&url)
         .body(Bytes::from_static(b"0123456789"))
-        .send().await?
+        .send()
+        .await?
         .error_for_status()?;
 
     let read_url = client.set_url("files", "/d.txt");
-    let data = client.get(&read_url)
+    let data = client
+        .get(&read_url)
         .json(&ReadFileRequest::new(3, 4))
-        .send().await?
+        .send()
+        .await?
         .error_for_status()?
         .bytes()
         .await?;
@@ -116,7 +125,6 @@ async fn read_with_offset_and_size() -> anyhow::Result<()> {
     assert_eq!(&data[..], b"3456");
     Ok(())
 }
-
 
 #[tokio::test]
 async fn health_check_works() -> anyhow::Result<()> {
@@ -133,6 +141,3 @@ async fn health_check_works() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-
-

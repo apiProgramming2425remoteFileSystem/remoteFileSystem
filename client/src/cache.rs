@@ -12,13 +12,12 @@ use std::time::{Duration, Instant};
 
 use tracing::{Level, instrument};
 
-pub trait CacheableItem{
+pub trait CacheableItem {
     fn rename(&mut self, name: OsString);
     fn get_attributes(&self) -> Option<Attributes>;
 
     fn invalidate_attributes(&mut self);
 }
-
 
 #[derive(Clone, Debug)]
 pub enum CacheItem {
@@ -52,7 +51,6 @@ impl CacheableItem for CacheItem {
         }
     }
 }
-
 
 impl From<SerializableFSItem> for CacheItem {
     fn from(item: SerializableFSItem) -> Self {
@@ -260,8 +258,6 @@ impl Cache {
     }
 }
 
-
-
 #[instrument(skip(cache), ret(level = Level::DEBUG))]
 pub fn cache_write_file<P: AsRef<Path> + Debug>(
     cache: &Arc<Cache>,
@@ -300,8 +296,6 @@ pub fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attri
         cache.put(path.as_ref().to_path_buf(), item, false);
     }
 }
-
-
 
 impl Debug for Cache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

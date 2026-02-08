@@ -4,11 +4,11 @@ pub use logging::*;
 use crate::error::ConfigError;
 
 use anyhow;
+use base64::{Engine as _, engine::general_purpose};
 use clap::Parser;
 use config::{Config, Environment, File};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use base64::{engine::general_purpose, Engine as _};
 
 pub const ENV_PREFIX: &str = "RFS";
 pub const JWT_PREFIX: &str = "JWT";
@@ -181,8 +181,12 @@ pub fn load_jwt_key() -> anyhow::Result<Vec<u8>> {
         .build()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-    let key_str: String = env.get("key")
-                            .map_err(|e| anyhow::anyhow!("Missing JWT_KEY value in environment file because of {}.", e.to_string()))?;
+    let key_str: String = env.get("key").map_err(|e| {
+        anyhow::anyhow!(
+            "Missing JWT_KEY value in environment file because of {}.",
+            e
+        )
+    })?;
 
     general_purpose::STANDARD
         .decode(key_str)

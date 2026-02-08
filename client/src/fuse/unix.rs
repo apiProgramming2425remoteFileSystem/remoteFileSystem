@@ -413,7 +413,6 @@ impl PathFilesystem for Fs {
                 .await?;
         }
 
-
         let fh = self.fs.open(path, &fs_flags).await?;
 
         Ok(ReplyOpen { fh, flags })
@@ -442,16 +441,16 @@ impl PathFilesystem for Fs {
             };
             p
         };
-        let mut data_read : usize = 0;
-        let mut data : Vec<u8> = vec![];
+        let mut data_read: usize = 0;
+        let mut data: Vec<u8> = vec![];
 
         while data_read < size as usize {
             let new_data = self
                 .fs
                 .read_file(
                     &file_path,
-                    (offset as usize)+data_read,
-                    (size as usize)-data_read,
+                    (offset as usize) + data_read,
+                    (size as usize) - data_read,
                 )
                 .await?;
             if new_data.is_empty() {
@@ -635,16 +634,16 @@ impl PathFilesystem for Fs {
             p
         };
 
-        let mut data_read : usize = 0;
-        let mut data : Vec<u8> = vec![];
+        let mut data_read: usize = 0;
+        let mut data: Vec<u8> = vec![];
 
         while data_read < length as usize {
             let new_data = self
                 .fs
                 .read_file(
                     &file_in_path,
-                    (offset_in as usize)+data_read,
-                    (length as usize)-data_read,
+                    (offset_in as usize) + data_read,
+                    (length as usize) - data_read,
                 )
                 .await?;
             if new_data.is_empty() {
@@ -669,7 +668,6 @@ impl PathFilesystem for Fs {
                 )
                 .await?;
         }
-
 
         let write_data = self
             .fs
@@ -1104,13 +1102,7 @@ impl From<SetAttr> for fs_model::SetAttr {
             uid: value.uid,
             gid: value.gid,
             size: value.size,
-            lock_owner: value.lock_owner,
-
-            // Conversione del mode (permessi)
-            // Nota: Assumiamo che il mode di fuser sia un u32 che rappresenta i permessi POSIX
             mode: value.mode,
-
-            // Conversione di SystemTime in Timestamp
             atime: value.atime.map(fs_model::attributes::Timestamp::from),
             mtime: value.mtime.map(fs_model::attributes::Timestamp::from),
             ctime: value.ctime.map(fs_model::attributes::Timestamp::from),

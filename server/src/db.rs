@@ -26,7 +26,7 @@ static MIGRATOR: Migrator = sqlx::migrate!();
 #[derive(Debug)]
 pub struct DB {
     pool: SqlitePool,
-    jwt_key: Vec<u8>
+    jwt_key: Vec<u8>,
 }
 
 // TODO: create error types for hashing and token generation
@@ -60,7 +60,6 @@ async fn verify_password(password: &str, hash: &str) -> bool {
 
 #[instrument(err(level = Level::ERROR))]
 pub async fn generate_token(jwt_key: &[u8], user_id: u32, group_id: u32) -> anyhow::Result<String> {
-
     let expiration_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time has gone behind in time!")
@@ -83,8 +82,6 @@ pub async fn generate_token(jwt_key: &[u8], user_id: u32, group_id: u32) -> anyh
 }
 
 impl DB {
-    // TODO: if we want to allow custom DB path, config: &Config should be passed here
-
     /// Open a new database connection, applying migrations if necessary.
     /// Returns the database connection or an error.
     #[instrument(err(level = Level::ERROR), ret(level = Level::DEBUG))]
@@ -130,18 +127,7 @@ impl DB {
 
         let jwt_key = load_jwt_key()?;
 
-
-        // TODO: add them via CLI command or with a setup script
-        /* 
-        let db = Self { pool };
-        db.create_user(Some(1), Some(1), "mirko", "password").await?;
-        db.create_user(Some(2), Some(2), "fabrizio", "password").await?;
-        db.create_user(Some(3), Some(3), "iulian", "password").await?;
-        db.create_user(Some(4), Some(4), "test_user", "test_password").await?;
-        Ok(db)
-        */
-
-        Ok( Self { pool, jwt_key })
+        Ok(Self { pool, jwt_key })
     }
 
     pub async fn user_exists(&self, username: &str) -> Result<bool> {
@@ -204,7 +190,6 @@ impl DB {
 
     #[instrument(skip(self, token), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn verify_token(&self, token: &str) -> Result<AuthenticatedUser> {
-
         let decoding_key = DecodingKey::from_secret(self.jwt_key.as_slice());
         let mut validation = Validation::new(Algorithm::HS256);
         validation.validate_exp = true;
@@ -270,7 +255,9 @@ impl DB {
         match result {
             Some(user) => {
                 if verify_password(password, &user.password).await {
-                    let token = generate_token(&self.jwt_key.as_slice(), user.user_id, user.group_id).await?;
+                    let token =
+                        generate_token(self.jwt_key.as_slice(), user.user_id, user.group_id)
+                            .await?;
                     self.clean_revoked_token().await?;
                     Ok(Some(token))
                 } else {
@@ -290,20 +277,17 @@ impl DB {
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
         if let Some(username) = username {
-            let count_username = sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE username = ?")
-            .bind(username)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
-            
+            let count_username =
+                sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE username = ?")
+                    .bind(username)
+                    .fetch_one(&self.pool)
+                    .await
+                    .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+
             count += count_username;
         }
 
-        if count > 0 {
-            Ok(true)
-        } else {
-            Ok (false)
-        }
+        if count > 0 { Ok(true) } else { Ok(false) }
     }
 
     #[instrument(skip(self), err(level = Level::ERROR))]
@@ -320,7 +304,7 @@ impl DB {
                 .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
             Ok(max_uid + 1)
-        }else{
+        } else {
             Ok(1000)
         }
     }
@@ -328,22 +312,21 @@ impl DB {
     #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn create_user(
         &self,
-        user_id: Option<u32>,
-        group_id: Option<u32>,
         username: &str,
         password: &str,
+        user_id: Option<u32>,
+        group_id: Option<u32>,
     ) -> Result<(u32, u32)> {
-        
         let uid = match user_id {
             Some(uid) => {
                 if self.is_user_present(uid, Some(username)).await? {
-                    return Err(DatabaseError::QueryError(format!(
-                        "User with same username or uid is already exists!"
-                    )));
+                    return Err(DatabaseError::QueryError(
+                        "User with same username or uid is already exists!".to_string(),
+                    ));
                 }
 
                 uid
-            },
+            }
             None => self.get_new_uid().await?,
         };
 
@@ -579,7 +562,6 @@ impl DB {
         .await
         .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
-
         match result {
             Some(attr) => Ok(Some(attr)),
             None => Ok(None),
@@ -587,42 +569,22 @@ impl DB {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn exchange_x_attributes(
-        &self,
-        path1: &str,
-        path2: &str,
-    ) -> Result<()> {
-        let tmp_attrs = sqlx::query_as::<_, Xattributes>(
-            "SELECT xattributes FROM xattributes WHERE path = ?"
-        )
-            .bind(path1)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
-
-
-        sqlx::query(
-            "UPDATE xattributes SET path = ? WHERE path = ?"
-        )
-            .bind("__tmp_exchange__") // placeholder temporaneo per evitare conflitti
+    pub async fn exchange_x_attributes(&self, path1: &str, path2: &str) -> Result<()> {
+        sqlx::query("UPDATE xattributes SET path = ? WHERE path = ?")
+            .bind("__tmp_exchange__")
             .bind(path1)
             .execute(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
-        sqlx::query(
-            "UPDATE xattributes SET path = ? WHERE path = ?"
-        )
+        sqlx::query("UPDATE xattributes SET path = ? WHERE path = ?")
             .bind(path1)
             .bind(path2)
             .execute(&self.pool)
             .await
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
-
-        sqlx::query(
-            "UPDATE xattributes SET path = ? WHERE path = ?"
-        )
+        sqlx::query("UPDATE xattributes SET path = ? WHERE path = ?")
             .bind(path2)
             .bind("__tmp_exchange__")
             .execute(&self.pool)
@@ -631,13 +593,8 @@ impl DB {
         Ok(())
     }
 
-
     #[instrument(skip(self), err(level = Level::ERROR))]
-    pub async fn rename_x_attributes(
-        &self,
-        old_path: &str,
-        new_path: &str,
-    ) -> Result<()> {
+    pub async fn rename_x_attributes(&self, old_path: &str, new_path: &str) -> Result<()> {
         sqlx::query("UPDATE xattributes SET path = ? WHERE path = ?")
             .bind(new_path)
             .bind(old_path)

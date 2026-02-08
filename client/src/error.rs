@@ -210,7 +210,7 @@ pub enum NetworkError {
 }
 
 #[derive(Error, Debug)]
-pub enum GUIError{
+pub enum GUIError {
     #[error("Initial rendering failed: {0}")]
     RenderingIssue(String),
     #[error("Initial run failed: {0}")]
@@ -263,7 +263,6 @@ pub enum RfsClientError {
     #[cfg(windows)]
     #[error(transparent)]
     WinFSPError(#[from] winfsp::FspError),
-
 
     #[error("GUI error: {0}")]
     GUI(#[from] GUIError),

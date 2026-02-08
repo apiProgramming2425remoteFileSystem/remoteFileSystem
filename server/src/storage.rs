@@ -1,20 +1,19 @@
-use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::fs::{self, Permissions};
-use std::io::{Read, Seek, SeekFrom, Write};
-#[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
-use std::path::{Component, Path, PathBuf};
-use std::time::SystemTime;
 use filetime::FileTime;
 #[cfg(unix)]
 use nix::sys::statvfs::statvfs;
 #[cfg(unix)]
 use nix::unistd::{Gid, Uid, chown};
+use std::ffi::OsStr;
+use std::fmt::Debug;
+use std::fs;
+use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::path::{Component, Path, PathBuf};
+use std::time::SystemTime;
 use tracing::{Level, instrument};
 
 use crate::attributes::{FileAttr, FileType, Operation, Permission, SetAttr, Stats, Timestamp};
-use crate::db::DB;
 use crate::error::StorageError;
 use crate::nodes::{Directory, FSItem, File, SymLink};
 
@@ -51,8 +50,8 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
                 FileType::RegularFile
             };
 
-            let mut uid = metadata.uid();
-            let mut gid = metadata.gid();
+            let uid = metadata.uid();
+            let gid = metadata.gid();
 
             let attributes = FileAttr {
                 size: metadata.len(),
@@ -97,17 +96,6 @@ impl FileSystem {
             .collect();
 
         Ok(self.real_path.join(clean))
-    }
-
-    #[instrument(ret(level = Level::TRACE))]
-    fn split_path<P: AsRef<Path> + Debug>(path: P) -> Vec<PathBuf> {
-        let path = path.as_ref();
-        path.components()
-            .filter_map(|c| match c {
-                Component::RootDir => None, // skip the RootDir
-                _ => Some(PathBuf::from(c.as_os_str())),
-            })
-            .collect()
     }
 
     //  taking only first grade children as we use only that...
@@ -185,7 +173,6 @@ impl FileSystem {
         }
     }
 
-
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn make_dir<P: AsRef<Path> + Debug, S: AsRef<OsStr> + Debug>(
         &self,
@@ -221,7 +208,9 @@ impl FileSystem {
         }
 
         if flags.contains(RenameFlags::NOREPLACE) && fs::symlink_metadata(&new).is_ok() {
-            return Err(StorageError::AlreadyExists(new.to_string_lossy().to_string()));
+            return Err(StorageError::AlreadyExists(
+                new.to_string_lossy().to_string(),
+            ));
         }
 
         fs::rename(old, new)?;
@@ -239,7 +228,6 @@ impl FileSystem {
         Ok(())
     }
 
-
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn delete<P: AsRef<Path> + Debug>(&self, path: P) -> Result<()> {
         let real = self.make_real_path(path.as_ref())?;
@@ -251,7 +239,9 @@ impl FileSystem {
         } else if meta.is_dir() {
             let mut entries = fs::read_dir(&real)?;
             if entries.next().is_some() {
-                return Err(StorageError::DirectoryNotEmpty(path.as_ref().to_string_lossy().to_string()));
+                return Err(StorageError::DirectoryNotEmpty(
+                    path.as_ref().to_string_lossy().to_string(),
+                ));
             }
             fs::remove_dir(&real)?;
             Ok(())
@@ -270,7 +260,7 @@ impl FileSystem {
         offset: usize,
     ) -> Result<()> {
         let real = self.make_real_path(path)?;
-        let created = !fs::symlink_metadata(&real).is_ok();
+        let created = fs::symlink_metadata(&real).is_err();
 
         let mut f = fs::OpenOptions::new()
             .write(true)
@@ -281,7 +271,7 @@ impl FileSystem {
         // Write data
         f.write_all(data)?;
 
-        if created{
+        if created {
             set_owner(user_id, group_id, &real)?;
         }
 
@@ -350,7 +340,7 @@ impl FileSystem {
         if let Some(client_gid) = new_attributes.gid {
             if self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {
                 let new_uid = None;
-                let mut server_gid = client_gid;
+                let server_gid = client_gid;
                 if client_gid < 1000 {
                     return Err(StorageError::PermissionDenied);
                 }
@@ -372,7 +362,9 @@ impl FileSystem {
             }
         }
 
-        if new_attributes.mtime.is_some() && !self.is_allowed(user_id, group_id, Path::new(path), Operation::Write)?{
+        if new_attributes.mtime.is_some()
+            && !self.is_allowed(user_id, group_id, Path::new(path), Operation::Write)?
+        {
             return Err(StorageError::PermissionDenied);
         }
 
@@ -406,10 +398,10 @@ impl FileSystem {
         operation: Operation,
     ) -> Result<bool> {
         let mut path = self.make_real_path(path)?;
-        if !fs::symlink_metadata(&path).is_ok() {
-            let parent = path.parent().ok_or_else(|| {
-                StorageError::NotFound(format!("Path not found: {:?}", path))
-            })?;
+        if fs::symlink_metadata(&path).is_err() {
+            let parent = path
+                .parent()
+                .ok_or_else(|| StorageError::NotFound(format!("Path not found: {:?}", path)))?;
             path = parent.to_path_buf();
         }
 
@@ -483,7 +475,7 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn get_fs_stats(&self, path: &str) -> Result<Stats> {
         let real = self.make_real_path(path)?;
-        if !fs::symlink_metadata(&real).is_ok() {
+        if fs::symlink_metadata(&real).is_err() {
             return Err(StorageError::InvalidPath(format!(
                 "Path {:?} does not exist",
                 path

@@ -1,9 +1,9 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
-use crate::cache::CacheableItem;
-use super::Attributes;
 
+use super::Attributes;
+use crate::cache::CacheableItem;
 #[derive(Clone)]
 pub struct SymLink {
     pub name: OsString,
@@ -43,7 +43,6 @@ impl CacheableItem for SymLink {
         self.attributes = None;
     }
 }
-
 
 impl Debug for SymLink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

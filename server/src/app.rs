@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 use crate::commands::*;
 use crate::config::*;
@@ -13,11 +13,18 @@ pub async fn run() -> Result<(), RfsServerError> {
 
     let app = RfsServer::parse();
 
+    let Some(command) = app.command else {
+        RfsServer::command().print_help().map_err(|err| {
+            RfsServerError::Other(anyhow::format_err!("Failed to print help: {}", err))
+        })?;
+        return Ok(());
+    };
+
     // Initialize database connection
     let db_conn = DB::open_connection(&app.database_path).await?;
 
     // Execute the selected subcommand.
-    app.command.execute(db_conn).await
+    command.execute(db_conn).await
 }
 
 /// Application CLI
@@ -26,7 +33,7 @@ pub async fn run() -> Result<(), RfsServerError> {
 pub struct RfsServer {
     /// Subcommand to execute
     #[command(subcommand, next_help_heading = "Commands")]
-    pub command: Commands,
+    pub command: Option<Commands>,
 
     /// Path to the database file
     #[arg(
@@ -115,14 +122,6 @@ impl Commands {
                 server.await.map_err(|err| {
                     RfsServerError::Other(anyhow::format_err!("Server runtime error: {}", err))
                 })?;
-
-                // crate::run_server(
-                //     &config.server_host,
-                //     config.server_port,
-                //     &config.filesystem_root,
-                //     db,
-                // )
-                // .await?;
             }
             Commands::UserCreate(cmd) => cmd.execute_with_db(db).await?,
             Commands::UserChangeUsername(cmd) => cmd.execute_with_db(db).await?,

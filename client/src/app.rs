@@ -32,11 +32,8 @@ pub enum Commands {
     TomlGen(TomlConfigGenerator),
     /// Generate environment variable template
     EnvGen(EnvVarGenerator),
-    // REVIEW: check if these are needed
-    // /// Mount the remote filesystem
-    // Mount,
-    // /// Unmount the remote filesystem
-    // Unmount,
+    /// Unmount the remote filesystem
+    Unmount(CliUnmountArgs),
 }
 
 /// Trait for CLI commands that can be executed.
@@ -63,14 +60,7 @@ impl Executable for Commands {
             }
             Commands::TomlGen(cmd) => cmd.execute()?,
             Commands::EnvGen(cmd) => cmd.execute()?,
-            // Commands::Mount => {
-            //     // Implement mount logic here
-            //     Ok(())
-            // }
-            // Commands::Unmount => {
-            //     // Implement unmount logic here
-            //     Ok(())
-            // }
+            Commands::Unmount(cmd) => cmd.execute()?,
         }
         Ok(())
     }

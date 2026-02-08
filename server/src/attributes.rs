@@ -203,8 +203,6 @@ pub struct SetAttr {
     pub gid: Option<u32>,
     /// set file or directory size.
     pub size: Option<u64>,
-    /// the lock_owner argument.
-    pub lock_owner: Option<u64>,
     /// set file or directory atime.
     pub atime: Option<Timestamp>,
     /// set file or directory mtime.

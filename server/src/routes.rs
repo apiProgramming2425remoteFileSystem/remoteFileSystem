@@ -32,13 +32,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(health_check)
             // Authentication routes
             .service(
-                web::scope(Routes::AUTH)
-                .service(login)
-                .service(
+                web::scope(Routes::AUTH).service(login).service(
                     web::scope("")
-                    .wrap(from_fn(auth_middleware))
-                    .service(logout),
-                )
+                        .wrap(from_fn(auth_middleware))
+                        .service(logout),
+                ),
             )
             // Filesystem operations routes protected by auth middleware
             .service(
@@ -60,7 +58,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(get_x_attributes)
                     .service(list_x_attributes)
                     .service(delete_x_attributes),
-                    //.service(resolve_child)
+                //.service(resolve_child)
             ),
     )
     .default_service(web::route().to(|req: actix_web::HttpRequest| async move {
@@ -147,7 +145,7 @@ async fn make_directory(
         None => return Err(api_err!(InvalidInput, "Invalid path")),
     };
 
-    user.check_permission(&fs, &parent, Operation::Write)?;
+    user.check_permission(&fs, parent, Operation::Write)?;
 
     fs.make_dir(user.user_id, user.group_id, parent, name)?;
 
@@ -258,10 +256,9 @@ async fn rename(
     user.check_permission(&fs, &new_path, Operation::Write)?;
 
     fs.rename(&old_path, &new_path, flags)?;
-    if flags.contains(RenameFlags::EXCHANGE){
+    if flags.contains(RenameFlags::EXCHANGE) {
         pool.exchange_x_attributes(&old_path, &new_path).await?;
-    }
-    else {
+    } else {
         pool.rename_x_attributes(&old_path, &new_path).await?;
     }
 

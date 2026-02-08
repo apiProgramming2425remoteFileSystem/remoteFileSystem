@@ -53,11 +53,7 @@ mod tests {
         Ok(c_str)
     }
 
-    fn check_stat_with_tolerance(
-        c_str: &str,
-        s_str: &str,
-        tolerance_secs: f64,
-    ) -> Result<()> {
+    fn check_stat_with_tolerance(c_str: &str, s_str: &str, tolerance_secs: f64) -> Result<()> {
         // Parse and Compare
         let c_parts: Vec<&str> = c_str.split_whitespace().collect();
         let s_parts: Vec<&str> = s_str.split_whitespace().collect();

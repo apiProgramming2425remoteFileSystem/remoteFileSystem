@@ -65,7 +65,6 @@ pub struct CacheCliArgs {
     pub max_size: Option<usize>,
 }
 
-// REVIEW: add ttl here ans set it as default. Remove no_ttl from CLI args?
 #[derive(Debug, Default, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CachePolicy {
@@ -74,11 +73,11 @@ pub enum CachePolicy {
     Lfu,
 }
 
-impl ToString for CachePolicy{
-    fn to_string(&self) -> String {
+impl std::fmt::Display for CachePolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CachePolicy::Lru => String::from("LRU"),
-            CachePolicy::Lfu => String::from("LFU"),
+            CachePolicy::Lru => write!(f, "LRU"),
+            CachePolicy::Lfu => write!(f, "LFU"),
         }
     }
 }

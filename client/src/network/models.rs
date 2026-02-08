@@ -100,7 +100,11 @@ pub struct RenameRequest {
 
 impl RenameRequest {
     pub fn new(old_path: String, new_path: String, flags: RenameFlags) -> Self {
-        RenameRequest { old_path, new_path, flags: flags.bits() }
+        RenameRequest {
+            old_path,
+            new_path,
+            flags: flags.bits(),
+        }
     }
 }
 

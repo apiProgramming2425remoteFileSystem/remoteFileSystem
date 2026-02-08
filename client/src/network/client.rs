@@ -13,7 +13,7 @@ use super::RemoteStorage;
 use super::middleware::*;
 use super::models::*;
 use crate::error::{FuseError, NetworkError};
-use crate::fs_model::{Attributes, Stats, attributes::SetAttr, RenameFlags};
+use crate::fs_model::{Attributes, RenameFlags, Stats, attributes::SetAttr};
 
 type Result<T> = std::result::Result<T, NetworkError>;
 
@@ -135,7 +135,7 @@ impl RemoteStorage for RemoteClient {
         .await
     }
 
-    // ATTRIBUTE
+    // ATTRIBUTES
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn get_attributes(&self, path: &str) -> Result<Attributes> {
         let url = self.set_url("attributes", path);
@@ -252,15 +252,13 @@ impl RemoteStorage for RemoteClient {
 
     #[instrument(skip(self, data), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn write_file(&self, path: &str, offset: usize, data: &[u8]) -> Result<Attributes> {
-        use reqwest::header::CONTENT_TYPE;
-
         let url = self.set_url("files", path);
 
         let resp = self
             .http_client
             .put(url)
             .query(&[("offset", &offset.to_string())])
-            .header(CONTENT_TYPE, "application/octet-stream")
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
             .body(data.to_vec())
             .send()
             .await?;
@@ -293,14 +291,6 @@ impl RemoteStorage for RemoteClient {
 
         handle_response(resp, |_| async { Ok(()) }).await
     }
-
-    /*#[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    async fn resolve_child(&self, path: &str) -> Result<Attributes> {
-        let url = self.set_url("attributes/directory", path);
-        let resp = self.http_client.get(url).send().await?;
-
-        handle_response(resp, |r| r.json()).await
-    }*/
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn create_symlink(&self, path: &str, target: &str) -> Result<Attributes> {

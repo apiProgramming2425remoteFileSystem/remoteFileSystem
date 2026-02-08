@@ -3,21 +3,14 @@ use crate::fs_model;
 use crate::fs_model::attributes::Timestamp;
 use crate::fs_model::{Attributes, FileType, SetAttr};
 use crate::fuse::Fs;
-use crate::network::models::{ItemType, SerializableFSItem};
 use std::cell::Cell;
 use std::ffi::OsString;
-use std::ffi::{OsStr, c_void};
+use std::ffi::c_void;
 use std::hash::{Hash, Hasher};
 use std::io::ErrorKind;
 use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::instrument;
 use windows::Win32::Foundation::*;
-use windows::Win32::Storage::FileSystem::{
-    DELETE, FILE_APPEND_DATA, FILE_EXECUTE, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
-    FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
-};
 use windows_sys::Wdk::Storage::FileSystem::{
     FILE_CREATE, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_IF,
 };
@@ -31,11 +24,9 @@ use winfsp::filesystem::{DirInfo, DirMarker, FileSecurity, ModificationDescripto
 use winfsp::{
     Result, U16CStr,
     filesystem::{FileInfo, FileSystemContext, OpenFileInfo},
-    host::FileSystemHost,
 };
 
 const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
-const HELLO_DATA: &[u8] = b"Hello from MockFS!\r\n";
 
 macro_rules! fslog {
     ($name:expr, $($arg:expr),*) => {
@@ -108,30 +99,6 @@ pub fn winfsp_path_to_pathbuf(path: &U16CStr) -> Result<PathBuf> {
     Ok(PathBuf::from(s))
 }
 
-fn mask_from_access(granted_access: u32) -> u32 {
-    let mut mask = 0;
-
-    // READ → R_OK (4)
-    if granted_access & (FILE_READ_DATA.0 | FILE_READ_ATTRIBUTES.0) != 0 {
-        mask |= 4;
-    }
-
-    // WRITE → W_OK (2)
-    if granted_access
-        & (FILE_WRITE_DATA.0 | FILE_APPEND_DATA.0 | FILE_WRITE_ATTRIBUTES.0 | DELETE.0)
-        != 0
-    {
-        mask |= 2;
-    }
-
-    // EXECUTE → X_OK (1)
-    if granted_access & FILE_EXECUTE.0 != 0 {
-        mask |= 1;
-    }
-
-    mask
-}
-
 const WINDOWS_EPOCH_DIFF: u64 = 11644473600; // seconds
 
 fn unix_to_filetime(ts: Timestamp) -> u64 {
@@ -179,8 +146,8 @@ fn fill_file_info(info: &mut FileInfo, attr: &Attributes) {
     info.ea_size = 0;
 }
 
-type FILE_ACCESS_RIGHTS = u32;
-type FILE_FLAGS_AND_ATTRIBUTES = u32;
+type FileAccessRights = u32;
+type FileFlagsAndAttributes = u32;
 
 pub struct Handle {
     path: PathBuf,
@@ -194,7 +161,7 @@ impl FileSystemContext for Fs {
         &self,
         file_name: &U16CStr,
         create_options: u32,
-        _granted_access: FILE_ACCESS_RIGHTS,
+        _granted_access: FileAccessRights,
         file_info: &mut OpenFileInfo,
     ) -> Result<Self::FileContext> {
         self.rt.block_on(async {
@@ -311,12 +278,11 @@ impl FileSystemContext for Fs {
             let mut start = 0usize;
 
             // --- Marker handling (NAME-based) ---
-            if !marker.is_none() {
-                if let Some(name) = marker.inner_as_cstr().and_then(|s| s.to_string().ok()) {
-                    if let Some(pos) = items.iter().position(|e| e.name == name) {
-                        start = pos + 1;
-                    }
-                }
+            if !marker.is_none()
+                && let Some(name) = marker.inner_as_cstr().and_then(|s| s.to_string().ok())
+                && let Some(pos) = items.iter().position(|e| e.name == name)
+            {
+                start = pos + 1;
             }
 
             // --- Emit entries ---
@@ -339,8 +305,8 @@ impl FileSystemContext for Fs {
         &self,
         file_name: &U16CStr,
         create_options: u32,
-        granted_access: FILE_ACCESS_RIGHTS,
-        _file_attributes: FILE_FLAGS_AND_ATTRIBUTES,
+        granted_access: FileAccessRights,
+        _file_attributes: FileFlagsAndAttributes,
         _security_descriptor: Option<&[c_void]>,
         _allocation_size: u64,
         extra_buffer: Option<&[u8]>,
@@ -431,16 +397,16 @@ impl FileSystemContext for Fs {
         let _ = self.rt.block_on(async {
             self.fs.flush_write_buffer().await.ok();
 
-            if let Some(name) = file_name {
-                if let Ok(path) = winfsp_path_to_pathbuf(name) {
-                    fslog!(
-                        "cleanup",
-                        "path={:?} delete_pending={}",
-                        path,
-                        context.delete_on_close.get()
-                    );
-                    self.fs.cache_invalidate(path);
-                }
+            if let Some(name) = file_name
+                && let Ok(path) = winfsp_path_to_pathbuf(name)
+            {
+                fslog!(
+                    "cleanup",
+                    "path={:?} delete_pending={}",
+                    path,
+                    context.delete_on_close.get()
+                );
+                self.fs.cache_invalidate(path);
             }
 
             Ok::<(), ()>(())
@@ -474,7 +440,7 @@ impl FileSystemContext for Fs {
             let dst = unsafe {
                 std::slice::from_raw_parts_mut(
                     buf.as_mut_ptr() as *mut u8,
-                    buf.len() * std::mem::size_of::<c_void>(),
+                    buf.len() * std::mem::size_of_val(buf),
                 )
             };
 
@@ -497,7 +463,7 @@ impl FileSystemContext for Fs {
     fn overwrite(
         &self,
         context: &Self::FileContext,
-        _file_attributes: FILE_FLAGS_AND_ATTRIBUTES,
+        _file_attributes: FileFlagsAndAttributes,
         _replace_file_attributes: bool,
         allocation_size: u64,
         _extra_buffer: Option<&[u8]>,
@@ -541,12 +507,21 @@ impl FileSystemContext for Fs {
         );
 
         if replace_if_exists {
-            self.rt
-                .block_on(async { self.fs.rename(&old_path, &new_path, fs_model::RenameFlags::from_bits_truncate(0)).await })?;
-        }
-        else {
-            self.rt
-                .block_on(async { self.fs.rename(&old_path, &new_path, fs_model::RenameFlags::NOREPLACE).await })?;
+            self.rt.block_on(async {
+                self.fs
+                    .rename(
+                        &old_path,
+                        &new_path,
+                        fs_model::RenameFlags::from_bits_truncate(0),
+                    )
+                    .await
+            })?;
+        } else {
+            self.rt.block_on(async {
+                self.fs
+                    .rename(&old_path, &new_path, fs_model::RenameFlags::NOREPLACE)
+                    .await
+            })?;
         }
         Ok(())
     }
@@ -555,7 +530,7 @@ impl FileSystemContext for Fs {
         &self,
         context: &Self::FileContext,
         _file_attributes: u32,
-        creation_time: u64,
+        _creation_time: u64,
         last_access_time: u64,
         last_write_time: u64,
         last_change_time: u64,
@@ -651,8 +626,8 @@ impl FileSystemContext for Fs {
         context: &Self::FileContext,
         buffer: &[u8],
         offset: u64,
-        write_to_eof: bool,
-        constrained_io: bool,
+        _write_to_eof: bool,
+        _constrained_io: bool,
         file_info: &mut FileInfo,
     ) -> Result<u32> {
         self.rt.block_on(async {
@@ -691,74 +666,78 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
-    fn set_volume_label(&self, volume_label: &U16CStr, volume_info: &mut VolumeInfo) -> Result<()> {
+    fn set_volume_label(
+        &self,
+        _volume_label: &U16CStr,
+        volume_info: &mut VolumeInfo,
+    ) -> Result<()> {
         volume_info.set_volume_label("remote FS");
         Ok(())
     }
 
-    fn get_stream_info(&self, context: &Self::FileContext, buffer: &mut [u8]) -> Result<u32> {
+    fn get_stream_info(&self, _context: &Self::FileContext, _buffer: &mut [u8]) -> Result<u32> {
         Ok(0)
     }
 
     fn get_reparse_point_by_name(
         &self,
-        file_name: &U16CStr,
-        is_directory: bool,
-        buffer: &mut [u8],
+        _file_name: &U16CStr,
+        _is_directory: bool,
+        _buffer: &mut [u8],
     ) -> Result<u64> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
     fn get_reparse_point(
         &self,
-        context: &Self::FileContext,
-        file_name: &U16CStr,
-        buffer: &mut [u8],
+        _context: &Self::FileContext,
+        _file_name: &U16CStr,
+        _buffer: &mut [u8],
     ) -> Result<u64> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
     fn set_reparse_point(
         &self,
-        context: &Self::FileContext,
-        file_name: &U16CStr,
-        buffer: &[u8],
+        _context: &Self::FileContext,
+        _file_name: &U16CStr,
+        _buffer: &[u8],
     ) -> Result<()> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
     fn delete_reparse_point(
         &self,
-        context: &Self::FileContext,
-        file_name: &U16CStr,
-        buffer: &[u8],
+        _context: &Self::FileContext,
+        _file_name: &U16CStr,
+        _buffer: &[u8],
     ) -> Result<()> {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
     fn get_extended_attributes(
         &self,
-        context: &Self::FileContext,
-        buffer: &mut [u8],
+        _context: &Self::FileContext,
+        _buffer: &mut [u8],
     ) -> Result<u32> {
         Ok(0)
     }
 
     fn set_extended_attributes(
         &self,
-        context: &Self::FileContext,
-        buffer: &[u8],
-        file_info: &mut FileInfo,
+        _context: &Self::FileContext,
+        _buffer: &[u8],
+        _file_info: &mut FileInfo,
     ) -> Result<()> {
         Err(FspError::NTSTATUS(0xC00000BBu32 as i32))
     }
 
     fn control(
         &self,
-        context: &Self::FileContext,
-        control_code: u32,
-        input: &[u8],
-        output: &mut [u8],
+        _context: &Self::FileContext,
+        _control_code: u32,
+        _input: &[u8],
+        _output: &mut [u8],
     ) -> Result<u32> {
         Err(FspError::NTSTATUS(0xC0000010u32 as i32))
     }

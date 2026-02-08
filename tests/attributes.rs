@@ -5,12 +5,9 @@ use anyhow::Result;
 mod common;
 use common::*;
 
-
-
 #[cfg(unix)]
 mod tests {
     use super::*;
-    use std::io::ErrorKind;
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
     use std::time::{Duration, SystemTime};
@@ -154,9 +151,7 @@ mod tests {
         {
             use std::io::Write;
 
-            let mut f = fs::OpenOptions::new()
-                .write(true)
-                .open(&file_path)?;
+            let mut f = fs::OpenOptions::new().write(true).open(&file_path)?;
 
             // Even if this "succeeds", it must not persist
             let _ = f.write_all(b"EVIL WRITE");

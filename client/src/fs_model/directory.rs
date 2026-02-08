@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
 use std::vec::Vec;
+
 use crate::cache::CacheableItem;
 
 #[derive(Clone)]
@@ -49,7 +50,6 @@ impl CacheableItem for Directory {
         self.attributes = None;
     }
 }
-
 
 impl Debug for Directory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

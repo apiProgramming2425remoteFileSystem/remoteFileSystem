@@ -47,6 +47,8 @@ pub struct RfsConfig {
     pub username: Option<String>,
     /// Run in foreground without daemonizing    
     pub foreground: bool,
+    /// GUI availability
+    pub gui_enabled: bool,
     /// Mount configuration
     pub mount: MountConfig,
     /// Filesystem configuration
@@ -55,8 +57,6 @@ pub struct RfsConfig {
     pub cache: CacheConfig,
     /// Logging configuration
     pub logging: LoggingConfig,
-    /// GUI availability
-    pub no_gui: bool,
 }
 
 impl Default for RfsConfig {
@@ -70,7 +70,7 @@ impl Default for RfsConfig {
             file_system: FsConfig::default(),
             cache: CacheConfig::default(),
             logging: LoggingConfig::default(),
-            no_gui: false,
+            gui_enabled: true,
         }
     }
 }
@@ -102,6 +102,11 @@ pub struct RfsCliArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub foreground: Option<bool>,
 
+    /// Disable GUI
+    #[arg(long = "no-gui", num_args = 0, default_missing_value = "false")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gui_enabled: Option<bool>,
+
     /// Optional username for authentication
     #[arg(short, long, env = "RFS__USERNAME")]
     pub username: Option<String>,
@@ -125,10 +130,6 @@ pub struct RfsCliArgs {
     #[command(flatten)]
     #[command(next_help_heading = "Logging Configuration")]
     pub logging: LoggingCliArgs,
-
-    /// use GUI to configure the file system
-    #[arg(short, long, default_value_t = false)]
-    pub no_gui: bool,
 }
 
 pub trait ConfigModule {
@@ -206,6 +207,11 @@ impl ConfigModule for RfsConfig {
         self.file_system.finalize();
         self.cache.finalize();
         self.logging.finalize();
+
+        // Force foreground if GUI is enabled
+        if self.gui_enabled {
+            self.foreground = true;
+        }
     }
 
     fn validate(&self) -> std::result::Result<(), String> {

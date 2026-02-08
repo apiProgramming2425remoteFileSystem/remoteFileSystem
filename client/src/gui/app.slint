@@ -570,10 +570,11 @@ export component LoginForm inherits Rectangle {
 
 /* DASHBOARD CONTENT */
 export global Round {
-    pure function format_MB(bytes: int) -> float {
+    public pure function format_MB(bytes: int) -> float {
         return Math.round(bytes / (1024 * 1024) * 100) / 100;
     }
 }
+
 export component Fs inherits Rectangle {
     in property <bool> fs_is_active;
     in property <MountSettings> mount_settings;
@@ -664,7 +665,7 @@ export component Fs inherits Rectangle {
                         text_color: black;
                         toggle_color: #ECF0F1;
                         on_click(n) => {
-                            root.change_string_property({ env: "FS", name: "", value: n*1024*1024, id_rust: "buffer_size" });
+                            root.change_string_property({ env: "FS", name: "", value: n * 1024 * 1024, id_rust: "buffer_size" });
                         }
                     }
                 }
@@ -841,20 +842,20 @@ export component Cache inherits Rectangle {
                     /* ttl */
                     if (root.cache_settings.use_ttl):
                         HorizontalLayout {
-                            alignment: center;
-                            IntEdit {
-                                toggle_width: 120px;
-                                toggle_height: 40px;
-                                fs_is_active: fs_is_active;
-                                name: "TTL";
-                                value: root.cache_settings.ttl + " s";
-                                text_color: black;
-                                toggle_color: #ECF0F1;
-                                on_click(n) => {
-                                    root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "ttl" });
-                                }
+                        alignment: center;
+                        IntEdit {
+                            toggle_width: 120px;
+                            toggle_height: 40px;
+                            fs_is_active: fs_is_active;
+                            name: "TTL";
+                            value: root.cache_settings.ttl + " s";
+                            text_color: black;
+                            toggle_color: #ECF0F1;
+                            on_click(n) => {
+                                root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "ttl" });
                             }
                         }
+                    }
                             
                     /* cache_max_size */
                     HorizontalLayout {
@@ -868,7 +869,7 @@ export component Cache inherits Rectangle {
                             text_color: black;
                             toggle_color: #ECF0F1;
                             on_click(n) => {
-                                root.change_int_property({ env: "CACHE", name: "", value: n*1024*1024, id_rust: "max_size" });
+                                root.change_int_property({ env: "CACHE", name: "", value: n * 1024 * 1024, id_rust: "max_size" });
                             }
                         }
                     }

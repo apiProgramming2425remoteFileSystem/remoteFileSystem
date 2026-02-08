@@ -132,7 +132,6 @@ impl MountOptions {
         MountOptionsBuilder::new()
     }
 
-    // TODO: add config-driven options
     /// Create MountOptions from Config using builder
     pub fn from(config: &MountConfig) -> Self {
         MountOptionsBuilder::new()

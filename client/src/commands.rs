@@ -207,3 +207,39 @@ fn ensure_extension<P: AsRef<Path>>(path: &P, ext: &str) -> Result<PathBuf, Comm
     new_path.set_extension(ext);
     Ok(new_path)
 }
+
+#[derive(Debug, Clone, Parser)]
+pub struct CliUnmountArgs {
+    /// Mount point to unmount
+    #[arg(short, long)]
+    pub mount_point: PathBuf,
+}
+
+impl Executable for CliUnmountArgs {
+    type Error = CommandError;
+
+    fn execute(&self) -> Result<(), Self::Error> {
+        use std::process::Command;
+
+        let candidates: &[(&str, &[&str])] = &[
+            ("umount", &["-l"]),
+            ("fusermount3", &["-u", "-z"]),
+            ("fusermount", &["-u", "-z"]),
+        ];
+
+        for (cmd, args) in candidates {
+            let mut command = Command::new(cmd);
+            for a in *args {
+                command.arg(a);
+            }
+            command.arg(&self.mount_point);
+            if command.spawn().is_ok() {
+                return Ok(());
+            }
+        }
+
+        Err(CommandError::ExecutionFailed(
+            "No suitable lazy-unmount command available".to_string(),
+        ))
+    }
+}

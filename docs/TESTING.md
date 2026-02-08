@@ -19,7 +19,8 @@ You need FUSE headers installed on your machine.
 We use specific tools for speed and coverage. Install them globally:
 
 ```bash
-cargo install cargo-nextest cargo-llvm-cov
+cargo install --locked cargo-nextest
+cargo install cargo-llvm-cov
 ```
 
 ---

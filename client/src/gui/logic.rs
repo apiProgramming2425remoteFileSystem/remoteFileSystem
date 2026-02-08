@@ -3,14 +3,11 @@ slint::slint! {
     export { App, ViewState }
 }
 
-use std::{fmt::Debug, fs, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
-use crate::commands::TomlFormatter;
-use crate::config::Formatter;
-use crate::fuse::Fs;
-use crate::mount::{MountOptions, MountPoint};
+use crate::mount::MountOptions;
 use crate::{
-    config::RfsConfig, daemon::Daemon, error::GUIError, logging, network::RemoteStorage, run_async,
+    config::RfsConfig, daemon::Daemon, error::GUIError, network::RemoteStorage, run_async,
 };
 use slint::{SharedString, Weak};
 use tokio::{runtime::Runtime, sync::Mutex};
@@ -37,10 +34,7 @@ async fn health_check<R: RemoteStorage + Clone>(
         // 1. asyncronous call
         let result = rc_thread.health_check().await;
 
-        let is_ok = match result {
-            Ok(_) => true,
-            Err(_) => false,
-        };
+        let is_ok = result.is_ok();
 
         // 2. result management and ui upgrade
         let _ = slint::invoke_from_event_loop(move || {
@@ -60,7 +54,7 @@ async fn health_check<R: RemoteStorage + Clone>(
             }
         });
 
-        return is_ok;
+        is_ok
     });
 
     handle.await.unwrap()
@@ -71,13 +65,13 @@ fn load_config(ui: &App, config_: Arc<Mutex<RfsConfig>>) -> Result<(), GUIError>
     let config = &status_config;
 
     let log_dir = if let Some(dir) = &config.logging.log_dir {
-        String::from(dir.to_string_lossy().into_owned())
+        dir.to_string_lossy().into_owned()
     } else {
         String::from("")
     };
 
     let log_file = if let Some(file) = &config.logging.log_file {
-        String::from(file.to_string_lossy().into_owned())
+        file.to_string_lossy().into_owned()
     } else {
         String::from("")
     };
@@ -152,7 +146,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
         })
     }
 
-    pub fn start_gui(mut self) -> Result<(), GUIError> {
+    pub fn start_gui(self) -> Result<(), GUIError> {
         let ui_weak = Arc::new(self.ui.as_weak());
 
         /* OPENING LOGIC */
@@ -206,7 +200,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                                 Ok(_) => {
                                     // Load configuration
                                     if let Err(e) = load_config(&ui, config) {
-                                        ui.set_error_message(format!("{}", e.to_string()).into());
+                                        ui.set_error_message(e.to_string().into());
                                     }
 
                                     ui.set_is_loading(false);
@@ -309,17 +303,6 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                 *lock = Some(daemon.clone());
             }
 
-            // 2. Logging (foreground = true)
-            let _ = fs::File::create("/tmp/remote-fs.out").map_err(|err| {
-                GUIError::MountingIssue(format!("Failed to create stdout log file: {}", err))
-            });
-            let _ = fs::File::create("/tmp/remote-fs.err").map_err(|err| {
-                GUIError::MountingIssue(format!("Failed to create stderr log file: {}", err))
-            });
-
-            // 3. Mounting
-            let _fs = Fs::new(rc_mount.clone(), &config);
-
             let _mount_options = MountOptions::from(&config.mount);
 
             tracing::info!("Starting FUSE runtime...");
@@ -350,7 +333,6 @@ impl<R: RemoteStorage + Clone> Gui<R> {
             });
         });
 
-        let rc_unmount = self.rc.clone();
         let ui_unmount = ui_weak.clone();
         let daemon_unmount = self.daemon.clone();
         self.ui.on_unmount(move || {
@@ -370,7 +352,8 @@ impl<R: RemoteStorage + Clone> Gui<R> {
         /* CONFIGURATION MANAGEMENT -> add input validation */
         let config_string = self.config.clone();
         let ui_string = ui_weak.clone();
-        self.ui.on_change_string_property(move |object: StringItem| {
+        self.ui
+            .on_change_string_property(move |object: StringItem| {
                 match object.env.as_str() {
                     "MOUNT" => match object.id_rust.as_str() {
                         "mountpoint" => {
@@ -378,7 +361,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                             config.mount_point = PathBuf::from(object.value.as_str());
                         }
                         "config_file" => {
-                            let mut config = config_string.blocking_lock();
+                            let _config = config_string.blocking_lock();
                         }
                         _ => (),
                     },
@@ -480,7 +463,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                         ui.set_show_restore_default(true);
                         ui.set_is_loading(false);
                         if let Err(e) = load_config(&ui, config_inner) {
-                            ui.set_error_message(format!("{}", e.to_string()).into());
+                            ui.set_error_message(e.to_string().into());
                         }
                     }
                 });
@@ -534,7 +517,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                     ui.set_is_loading(false);
                     ui.set_show_restore_default(true);
                     if let Err(e) = load_config(&ui, config_inner) {
-                        ui.set_error_message(format!("{}", e.to_string()).into());
+                        ui.set_error_message(e.to_string().into());
                     }
                 }
             });
@@ -613,7 +596,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                     ui.set_is_loading(false);
                     ui.set_show_restore_default(true);
                     if let Err(e) = load_config(&ui, config_inner){
-                        ui.set_error_message(format!("{}", e.to_string()).into());
+                        ui.set_error_message(e.to_string().into());
                     }
                 }
             });
@@ -628,11 +611,8 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                 if let Some(ui) = ui_inner.upgrade() {
                     ui.set_is_loading(false);
                     ui.set_show_restore_default(false);
-                    if let Err(e) = load_config(
-                        &ui,
-                        Arc::new(Mutex::new(config_inner)),
-                    ) {
-                        ui.set_error_message(format!("{}", e.to_string()).into());
+                    if let Err(e) = load_config(&ui, Arc::new(Mutex::new(config_inner))) {
+                        ui.set_error_message(e.to_string().into());
                     }
                 }
             });

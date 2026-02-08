@@ -1,28 +1,28 @@
 mod common;
-use bytes::Bytes;
 use crate::common::{SetAttr, SetAttrRequest};
+use bytes::Bytes;
 
 #[tokio::test]
 async fn test_invalid_url() -> anyhow::Result<()> {
     let tmp_dir = tempfile::tempdir()?;
     let config = common::get_config(tmp_dir.path());
-    let (client, _handle, _tmpdir)= common::start_server_app(config).await?;
-
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     // URL inesistente
-    let resp = client.get(&client.set_short_url("nonexistent")).send().await?;
+    let resp = client
+        .get(&client.set_short_url("nonexistent"))
+        .send()
+        .await?;
     assert_eq!(resp.status(), 400);
 
     Ok(())
 }
 
-
 #[tokio::test]
 async fn test_invalid_path_list() -> anyhow::Result<()> {
     let tmp_dir = tempfile::tempdir()?;
     let config = common::get_config(tmp_dir.path());
-    let (client, _handle, _tmpdir)= common::start_server_app(config).await?;
-
+    let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     // path non valido per list
     let url = client.set_url("list", "/path/nonexistent");
@@ -31,7 +31,6 @@ async fn test_invalid_path_list() -> anyhow::Result<()> {
 
     Ok(())
 }
-
 
 #[tokio::test]
 async fn write_on_nonexistent_path_returns_not_found() -> anyhow::Result<()> {
@@ -44,9 +43,11 @@ async fn write_on_nonexistent_path_returns_not_found() -> anyhow::Result<()> {
         client.set_url("files", "/no/such/dir/file.txt")
     );
 
-    let resp = client.put(&url)
+    let resp = client
+        .put(&url)
         .body(Bytes::from_static(b"data"))
-        .send().await?;
+        .send()
+        .await?;
 
     assert_eq!(resp.status(), 404);
     Ok(())
@@ -60,7 +61,8 @@ async fn write_file_without_permissions_fails() -> anyhow::Result<()> {
 
     // create file
     let url = format!("{}?offset=0", client.set_url("files", "/ro.txt"));
-    client.put(&url)
+    client
+        .put(&url)
         .body(Bytes::from_static(b"data"))
         .send()
         .await?
@@ -72,7 +74,8 @@ async fn write_file_without_permissions_fails() -> anyhow::Result<()> {
         mode: Some(0o400),
         ..Default::default()
     });
-    client.put(&attr_url)
+    client
+        .put(&attr_url)
         .json(&req)
         .send()
         .await?
@@ -80,7 +83,8 @@ async fn write_file_without_permissions_fails() -> anyhow::Result<()> {
 
     // try to write again
     let url = format!("{}?offset=0", client.set_url("files", "/ro.txt"));
-    let resp = client.put(&url)
+    let resp = client
+        .put(&url)
         .body(Bytes::from_static(b"x"))
         .send()
         .await?;
@@ -89,7 +93,6 @@ async fn write_file_without_permissions_fails() -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn rename_noreplace_fails_if_target_exists() -> anyhow::Result<()> {
     let fs_root = tempfile::tempdir()?;
@@ -97,20 +100,28 @@ async fn rename_noreplace_fails_if_target_exists() -> anyhow::Result<()> {
     let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     // crea source e target
-    client.post(&client.set_url("mkdir", "/src")).send().await?.error_for_status()?;
-    client.post(&client.set_url("mkdir", "/dst")).send().await?.error_for_status()?;
+    client
+        .post(&client.set_url("mkdir", "/src"))
+        .send()
+        .await?
+        .error_for_status()?;
+    client
+        .post(&client.set_url("mkdir", "/dst"))
+        .send()
+        .await?
+        .error_for_status()?;
 
     let url = client.set_short_url("rename");
-    let resp = client.put(&url)
+    let resp = client
+        .put(&url)
         .json(&serde_json::json!({
             "old_path": "/src",
             "new_path": "/dst",
             "flags": 1 // NOREPLACE
         }))
-        .send().await?;
+        .send()
+        .await?;
 
     assert_eq!(resp.status(), 409); // o l'errore che mappi AlreadyExists -> http
     Ok(())
 }
-
-

@@ -118,7 +118,7 @@ impl ClientProcess {
                 return meta.dev() != parent_dev;
             }
 
-            return false;
+            false
         }
 
         // TODO: Implement for Windows if needed

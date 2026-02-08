@@ -41,15 +41,14 @@ impl Executable for UserCreateCommand {
 
     async fn execute_with_db(&self, db: DB) -> Result<(), Self::Error> {
         println!("Creating user: {}", self.username);
-        let (uid, gid) = db.create_user(
-            self.user_id,
-            self.group_id,
-            &self.username,
-            &self.password,
-        )
-        .await
-        .map_err(|err| CommandError::ExecutionFailed(err.to_string()))?;
-        println!("User '{}' created successfully with user_id {} and group_id {}.", self.username, uid, gid);
+        let (uid, gid) = db
+            .create_user(&self.username, &self.password, self.user_id, self.group_id)
+            .await
+            .map_err(|err| CommandError::ExecutionFailed(err.to_string()))?;
+        println!(
+            "User '{}' created successfully with user_id {} and group_id {}.",
+            self.username, uid, gid
+        );
         Ok(())
     }
 }

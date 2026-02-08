@@ -1,7 +1,7 @@
 mod common;
 
 use crate::common::{HttpClient, TEST_PASSWORD, TEST_USER};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[tokio::test]
 async fn login_with_valid_credentials_succeeds() -> anyhow::Result<()> {
@@ -10,7 +10,8 @@ async fn login_with_valid_credentials_succeeds() -> anyhow::Result<()> {
     let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     let url = client.set_short_url("auth/login");
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&LoginRequest::new(TEST_USER.into(), TEST_PASSWORD.into()))
         .send()
         .await?;
@@ -22,7 +23,6 @@ async fn login_with_valid_credentials_succeeds() -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn login_with_wrong_password_fails() -> anyhow::Result<()> {
     let fs_root = tempfile::tempdir()?;
@@ -30,10 +30,12 @@ async fn login_with_wrong_password_fails() -> anyhow::Result<()> {
     let (client, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     let url = client.set_short_url("auth/login");
-    let resp = client.post(&url)
-        .json(
-            &LoginRequest::new(TEST_USER.into(), "wrong_password".into())
-        )
+    let resp = client
+        .post(&url)
+        .json(&LoginRequest::new(
+            TEST_USER.into(),
+            "wrong_password".into(),
+        ))
         .send()
         .await?;
 
@@ -46,14 +48,10 @@ async fn access_without_token_is_unauthorized() -> anyhow::Result<()> {
     let fs_root = tempfile::tempdir()?;
     let config = common::get_config(fs_root.path());
 
-    let (_client_with_token, _handle, _tmpdir) =
-        common::start_server_app(config).await?;
+    let (_client_with_token, _handle, _tmpdir) = common::start_server_app(config).await?;
 
     // nuovo client SENZA token, ma stessa base_url
-    let client = HttpClient::new_with_token(
-        &_client_with_token.base_url,
-        None,
-    );
+    let client = HttpClient::new_with_token(&_client_with_token.base_url, None);
 
     let url = client.set_url("list", "/");
     let resp = client.get(&url).send().await?;
@@ -62,19 +60,15 @@ async fn access_without_token_is_unauthorized() -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn access_with_fake_token_is_unauthorized() -> anyhow::Result<()> {
     let fs_root = tempfile::tempdir()?;
     let config = common::get_config(fs_root.path());
 
-    let (_client_with_token, _handle, _tmpdir) =
-        common::start_server_app(config).await?;
+    let (_client_with_token, _handle, _tmpdir) = common::start_server_app(config).await?;
 
-    let client = HttpClient::new_with_token(
-        &_client_with_token.base_url,
-        Some("this.is.a.fake.token"),
-    );
+    let client =
+        HttpClient::new_with_token(&_client_with_token.base_url, Some("this.is.a.fake.token"));
 
     let url = client.set_url("list", "/");
     let resp = client.get(&url).send().await?;
@@ -101,7 +95,6 @@ async fn logout_revokes_token() -> anyhow::Result<()> {
     assert_eq!(resp.status(), 401);
     Ok(())
 }
-
 
 #[derive(Debug, Serialize)]
 pub struct LoginRequest {

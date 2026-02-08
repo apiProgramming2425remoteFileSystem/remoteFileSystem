@@ -53,11 +53,7 @@ mod tests {
         Ok(c_str)
     }
 
-    fn check_stat_with_tolerance(
-        c_str: &str,
-        s_str: &str,
-        tolerance_secs: f64,
-    ) -> Result<()> {
+    fn check_stat_with_tolerance(c_str: &str, s_str: &str, tolerance_secs: f64) -> Result<()> {
         // Parse and Compare
         let c_parts: Vec<&str> = c_str.split_whitespace().collect();
         let s_parts: Vec<&str> = s_str.split_whitespace().collect();
@@ -80,7 +76,6 @@ mod tests {
         let mtime_diff = (c_parts[3].parse::<f64>()? - s_parts[3].parse::<f64>()?).abs();
         let ctime_diff = (c_parts[4].parse::<f64>()? - s_parts[4].parse::<f64>()?).abs();
 
-
         if !size_match
             || !perm_match
             || atime_diff > tolerance_secs
@@ -88,7 +83,7 @@ mod tests {
             || ctime_diff > tolerance_secs
         {
             return Err(anyhow!(
-                    "Metadata mismatch!\
+                "Metadata mismatch!\
                 [Size]    Client: {} vs Server: {} (Match: {})\n\
                 [Perms]   Client: {} vs Server: {} (Match: {})\n\
                 [Access]  Diff: {:.4}s (Tol: {}s)\n\
@@ -106,7 +101,7 @@ mod tests {
                 tolerance_secs,
                 ctime_diff,
                 tolerance_secs
-                ));
+            ));
         }
         Ok(())
     }

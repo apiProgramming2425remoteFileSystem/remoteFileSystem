@@ -109,9 +109,9 @@ async fn wait_ready(wait_time: Duration) -> Result<()> {
     Ok(())
 }
 
-pub fn get_config(mountpoint: &Path) -> RfsConfig {
+pub fn get_config(mount_point: &Path) -> RfsConfig {
     RfsConfig {
-        mount_point: mountpoint.to_path_buf(),
+        mount_point: mount_point.to_path_buf(),
         username: Some("test_user".to_string()),
         logging: LoggingConfig {
             log_targets: vec![LogTargets::Console],

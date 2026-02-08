@@ -136,7 +136,7 @@ impl FromStr for LogTargets {
     }
 }
 
-impl std::fmt::Display for LogTargets {
+impl Display for LogTargets {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             LogTargets::None => "none",
@@ -159,15 +159,15 @@ pub enum LogFormat {
     Json,
 }
 
-impl ToString for LogFormat {
-    fn to_string(&self) -> String {
+impl Display for LogFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LogFormat::Full => String::from("FULL"),
-            LogFormat::Compact => String::from("COMPACT"),
-            LogFormat::Pretty => String::from("PRETTY"),
-            LogFormat::Json => String::from("JSON"),
+            LogFormat::Full => write!(f, "FULL"),
+            LogFormat::Compact => write!(f, "COMPACT"),
+            LogFormat::Pretty => write!(f, "PRETTY"),
+            LogFormat::Json => write!(f, "JSON"),
         }
-    }    
+    }
 }
 
 /// Log verbosity levels
@@ -221,13 +221,13 @@ pub enum LogRotation {
     Never,
 }
 
-impl ToString for LogRotation{
-    fn to_string(&self) -> String {
+impl Display for LogRotation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LogRotation::Minutely => String::from("MINUTELY"),
-            LogRotation::Hourly => String::from("HOURLY"),
-            LogRotation::Daily => String::from("DAILY"),
-            LogRotation::Never => String::from("NEVER"),
+            LogRotation::Minutely => write!(f, "MINUTELY"),
+            LogRotation::Hourly => write!(f, "HOURLY"),
+            LogRotation::Daily => write!(f, "DAILY"),
+            LogRotation::Never => write!(f, "NEVER"),
         }
     }
 }
