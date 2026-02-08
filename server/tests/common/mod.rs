@@ -23,15 +23,15 @@ static LOGGER: OnceCell<Logging> = OnceCell::new();
 
 pub const TEST_USER: &str = "test_user";
 pub const TEST_PASSWORD: &str = "test_password";
-pub const TEST_USER_ID: i64 = 1001;
-pub const TEST_GROUP_ID: i64 = 1001;
+pub const TEST_USER_ID: u32 = 1001;
+pub const TEST_GROUP_ID: u32 = 1001;
 
 /// Ottiene un token di test legato al DB specificato
 pub async fn get_test_token(db_path: &Path) -> Result<String> {
     let db = DB::open_connection(db_path).await?;
 
     if !db.user_exists(TEST_USER).await? {
-        db.create_user(TEST_USER_ID, TEST_GROUP_ID, TEST_USER, TEST_PASSWORD).await?;
+        db.create_user(Some(TEST_USER_ID), Some(TEST_GROUP_ID), TEST_USER, TEST_PASSWORD).await?;
     }
 
     let token = db

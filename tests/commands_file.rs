@@ -104,7 +104,6 @@ mod tests {
                 mtime_diff,
                 tolerance_secs,
                 ctime_diff,
-                tolerance_secs,
                 tolerance_secs
             ));
         }

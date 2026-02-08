@@ -40,27 +40,16 @@ impl Executable for UserCreateCommand {
     type Error = CommandError;
 
     async fn execute_with_db(&self, db: DB) -> Result<(), Self::Error> {
-        let Some(user_id) = self.user_id else {
-            return Err(CommandError::ExecutionFailed(
-                "User ID must be specified for user creation.".to_string(),
-            ));
-        };
-        let Some(group_id) = self.group_id else {
-            return Err(CommandError::ExecutionFailed(
-                "Group ID must be specified for user creation.".to_string(),
-            ));
-        };
-
         println!("Creating user: {}", self.username);
-        db.create_user(
-            user_id as i64,
-            group_id as i64,
+        let (uid, gid) = db.create_user(
+            self.user_id,
+            self.group_id,
             &self.username,
             &self.password,
         )
         .await
         .map_err(|err| CommandError::ExecutionFailed(err.to_string()))?;
-        println!("User '{}' created successfully.", self.username);
+        println!("User '{}' created successfully with user_id {} and group_id {}.", self.username, uid, gid);
         Ok(())
     }
 }

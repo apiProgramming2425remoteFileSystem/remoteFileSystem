@@ -21,8 +21,6 @@ services:
       RFS__SERVER_PORT: ${RFS__SERVER_PORT:-8080}
       RFS__FILESYSTEM_ROOT: *fs_root
       DATABASE_PATH: *database_path
-    networks:
-      - remote-fs-net
     env_file:
       - server/.env
     command: >
@@ -37,8 +35,6 @@ services:
     container_name: remote_fs-client
     # privileged: true
     # network: host # in case X11 does not work properly
-    networks:
-      - remote-fs-net
     devices:
       - /dev/fuse:/dev/fuse
     cap_add:
@@ -85,7 +81,3 @@ services:
 
 volumes:
   remote_fs_data:
-
-
-networks:
-  remote-fs-net:

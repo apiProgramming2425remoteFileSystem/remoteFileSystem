@@ -51,7 +51,6 @@ export struct CacheSettings {
 }
 
 export struct FsSettings {
-    server_url: string,
     foreground: bool,
     xattr_enable: bool,
     page_size: int,
@@ -227,7 +226,7 @@ export component IntEdit inherits Rectangle {
                 Text {
                     vertical-alignment: center;
                     text: root.value;
-                    color: text_color.transparentize(0.3);
+                    color: text_color;
                     font-weight: 600;
                 }
             }
@@ -241,7 +240,7 @@ export component IntEdit inherits Rectangle {
                     width: root.toggle_width * 0.5;
                     height: 30%;
                     placeholder-text: "number";
-                    input-type: InputType.number;
+                    input-type: InputType.decimal;
                     text <=> root.new_value_string;
                 }
 
@@ -311,7 +310,7 @@ export component StringEdit inherits Rectangle {
             Text {
                 vertical-alignment: center;
                 text: root.value;
-                color: text_color.transparentize(0.3);
+                color: text_color;
                 font-weight: 600;
             }
         }
@@ -345,8 +344,6 @@ export component StringEdit inherits Rectangle {
         }
     }
 }
-
-import { Button, VerticalBox } from "std-widgets.slint";
 
 export component DropDown inherits Rectangle {
     in property <brush> text_color;
@@ -572,6 +569,11 @@ export component LoginForm inherits Rectangle {
 }
 
 /* DASHBOARD CONTENT */
+export global Round {
+    pure function format_MB(bytes: int) -> float {
+        return Math.round(bytes / (1024 * 1024) * 100) / 100;
+    }
+}
 export component Fs inherits Rectangle {
     in property <bool> fs_is_active;
     in property <MountSettings> mount_settings;
@@ -615,8 +617,8 @@ export component Fs inherits Rectangle {
                 spacing: 10px;
                 alignment: center;
 
-                    /* mountpoint */
-                    HorizontalLayout {
+                /* mountpoint */
+                HorizontalLayout {
                     alignment: center;
                     StringEdit {
                         toggle_width: 170px;
@@ -632,25 +634,8 @@ export component Fs inherits Rectangle {
                     }
                 }
 
-                    /* server_url */
-                    HorizontalLayout {
-                    alignment: center;
-                    StringEdit {
-                        toggle_width: 170px;
-                        toggle_height: 50px;
-                        fs_is_active: fs_is_active;
-                        name: "SERVER URL";
-                        value: root.fs_settings.server-url != "" ? root.fs_settings.server-url : "click to choose";
-                        text_color: black;
-                        toggle_color: #ECF0F1;
-                        on_click(v) => {
-                            root.change_string_property({ env: "FS", name: "", value: v, id_rust: "server_url" });
-                        }
-                    }
-                }
-
-                    /* xattr_enable */
-                    HorizontalLayout {
+                /* xattr_enable */
+                HorizontalLayout {
                     width: 100%;
                     alignment: center;
                     MyButton {
@@ -666,8 +651,8 @@ export component Fs inherits Rectangle {
                     }
                 }
 
-                    /* buffer_size */
-                    HorizontalLayout {
+                /* buffer_size */
+                HorizontalLayout {
                     width: 100%;
                     alignment: center;
                     IntEdit {
@@ -675,17 +660,17 @@ export component Fs inherits Rectangle {
                         toggle_height: 40px;
                         fs_is_active: fs_is_active;
                         name: "BUFFER SIZE";
-                        value: root.fs_settings.buffer-size + " B";
+                        value: Round.format_MB(root.fs_settings.buffer-size) + " MB";
                         text_color: black;
                         toggle_color: #ECF0F1;
                         on_click(n) => {
-                            root.change_string_property({ env: "FS", name: "", value: n, id_rust: "buffer_size" });
+                            root.change_string_property({ env: "FS", name: "", value: n*1024*1024, id_rust: "buffer_size" });
                         }
                     }
                 }
 
-                    /* Button to access more settings before mounting */
-                    HorizontalLayout {
+                /* MORE BUTTON */
+                HorizontalLayout {
                     alignment: center;
                     MyButton {
                         button_width: 100px;
@@ -714,7 +699,7 @@ export component Fs inherits Rectangle {
                 alignment: center;
                 MyButton {
                     button_width: 100px;
-                    button_height: 30px;
+                    button_height: 40px;
                     button_color: root.get_value(item.id_rust) ? #34C759 : #FF383C;
                     is_active: !root.fs_is_active;
                     text_color: white;
@@ -729,6 +714,8 @@ export component Fs inherits Rectangle {
                     }
                 }
             }
+
+            /* BACK BUTTON */
             HorizontalLayout {
                 width: 100%;
                 alignment: center;
@@ -818,8 +805,8 @@ export component Cache inherits Rectangle {
                     alignment: center;
                     spacing: 10px;
                         
-                        /* policy */
-                        HorizontalLayout {
+                    /* policy */
+                    HorizontalLayout {
                         alignment: center;
                         DropDown {
                             name: "CACHE POLICY";
@@ -835,12 +822,12 @@ export component Cache inherits Rectangle {
                         }
                     }
 
-                        /* use_ttl */
-                        HorizontalLayout {
+                    /* use_ttl */
+                    HorizontalLayout {
                         alignment: center;
                         MyButton {
                             button_width: 120px;
-                            button_height: 30px;
+                            button_height: 40px;
                             button_color: root.cache_settings.use_ttl ? #FF383C : #34C759;
                             is_active: !root.fs_is_active;
                             text_color: white;
@@ -851,43 +838,43 @@ export component Cache inherits Rectangle {
                         }
                     }
                         
-                        /* ttl */
-                        if (root.cache_settings.enabled && root.cache_settings.use_ttl):
-                            HorizontalLayout {
-                        alignment: center;
-                        IntEdit {
-                            toggle_width: 120px;
-                            toggle_height: 30px;
-                            fs_is_active: fs_is_active;
-                            name: "TTL";
-                            value: root.cache_settings.ttl + " s";
-                            text_color: black;
-                            toggle_color: #ECF0F1;
-                            on_click(n) => {
-                                root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "ttl" });
+                    /* ttl */
+                    if (root.cache_settings.use_ttl):
+                        HorizontalLayout {
+                            alignment: center;
+                            IntEdit {
+                                toggle_width: 120px;
+                                toggle_height: 40px;
+                                fs_is_active: fs_is_active;
+                                name: "TTL";
+                                value: root.cache_settings.ttl + " s";
+                                text_color: black;
+                                toggle_color: #ECF0F1;
+                                on_click(n) => {
+                                    root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "ttl" });
+                                }
                             }
                         }
-                    }
                             
-                        /* cache_max_size */
-                        HorizontalLayout {
+                    /* cache_max_size */
+                    HorizontalLayout {
                         alignment: center;
                         IntEdit {
                             toggle_width: 120px;
                             toggle_height: 40px;
                             fs_is_active: fs_is_active;
                             name: "CACHE MAX SIZE";
-                            value: root.cache_settings.max-size + " B";
+                            value: Round.format_MB(root.cache_settings.max-size) + " MB";
                             text_color: black;
                             toggle_color: #ECF0F1;
                             on_click(n) => {
-                                root.change_int_property({ env: "CACHE", name: "", value: n, id_rust: "max_size" });
+                                root.change_int_property({ env: "CACHE", name: "", value: n*1024*1024, id_rust: "max_size" });
                             }
                         }
                     }
                         
-                        /* cache_capacity */
-                        HorizontalLayout {
+                    /* cache_capacity */
+                    HorizontalLayout {
                         alignment: center;
                         IntEdit {
                             toggle_width: 120px;
@@ -1258,7 +1245,7 @@ export component App inherits Window {
     callback mount();
     callback unmount();
     in property <ViewState> active_view: ViewState.Welcome;
-    in property <Status> status: Status.NotLoggedIn;
+    in-out property <Status> status: Status.NotLoggedIn;
     in-out property <bool> is_loading: false;
     in-out property <bool> server_unavailable: false;
     in-out property <string> error_message: "";

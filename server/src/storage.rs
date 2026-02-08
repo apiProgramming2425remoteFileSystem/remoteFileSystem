@@ -74,9 +74,9 @@ fn get_attributes_by_path<P: AsRef<Path> + Debug>(path: P) -> Result<FileAttr> {
     }
 }
 
-fn set_owner(user_id: i64, group_id: i64, path: &PathBuf) -> Result<()> {
-    let new_uid = Some(Uid::from_raw(user_id as u32));
-    let new_gid = Some(Gid::from_raw(group_id as u32));
+fn set_owner(user_id: u32, group_id: u32, path: &PathBuf) -> Result<()> {
+    let new_uid = Some(Uid::from_raw(user_id));
+    let new_gid = Some(Gid::from_raw(group_id));
     chown(path, new_uid, new_gid).map_err(|e| StorageError::Other(e.into()))?;
     Ok(())
 }
@@ -189,8 +189,8 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn make_dir<P: AsRef<Path> + Debug, S: AsRef<OsStr> + Debug>(
         &self,
-        user_id: i64,
-        group_id: i64,
+        user_id: u32,
+        group_id: u32,
         path: P,
         name: S,
     ) -> Result<()> {
@@ -263,8 +263,8 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn write_file<P: AsRef<Path> + Debug>(
         &self,
-        user_id: i64,
-        group_id: i64,
+        user_id: u32,
+        group_id: u32,
         path: P,
         data: &[u8],
         offset: usize,
@@ -325,8 +325,8 @@ impl FileSystem {
     pub fn set_attributes(
         &self,
         path: &str,
-        user_id: i64,
-        group_id: i64,
+        user_id: u32,
+        group_id: u32,
         new_attributes: SetAttr,
     ) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
@@ -400,8 +400,8 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub fn is_allowed(
         &self,
-        user_id: i64,
-        group_id: i64,
+        user_id: u32,
+        group_id: u32,
         path: &Path,
         operation: Operation,
     ) -> Result<bool> {
@@ -417,8 +417,8 @@ impl FileSystem {
         let permissions = Permission::try_from(attributes.perm as u16)
             .map_err(|_| StorageError::MetadataError("Error during conversion.".to_string()))?;
 
-        let owner_uid = attributes.uid as i64;
-        let owner_gid = attributes.gid as i64;
+        let owner_uid = attributes.uid;
+        let owner_gid = attributes.gid;
 
         // if path owner is root, it means it has not been created by any user, so everyone can access to it
         if owner_uid == 0 {

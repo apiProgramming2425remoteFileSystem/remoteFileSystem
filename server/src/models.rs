@@ -103,16 +103,16 @@ pub struct SymlinkRequest {
 /* AUTHENTICATION MANAGEMENT */
 #[derive(Debug, FromRow)]
 pub struct User {
-    pub user_id: i64,
-    pub group_id: i64,
+    pub user_id: u32,
+    pub group_id: u32,
     pub username: String,
     pub password: String,
 }
 
 #[derive(Debug, FromRow)]
 pub struct PartialUser {
-    pub user_id: i64,
-    pub group_id: i64,
+    pub user_id: u32,
+    pub group_id: u32,
     pub username: String,
 }
 
@@ -132,8 +132,8 @@ impl Debug for LoginBody {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Claims {
-    pub user_id: i64,
-    pub group_id: i64,
+    pub user_id: u32,
+    pub group_id: u32,
     pub token_id: String,
     pub exp: usize,
 }
@@ -151,8 +151,8 @@ impl Token {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AuthenticatedUser {
-    pub user_id: i64,
-    pub group_id: i64,
+    pub user_id: u32,
+    pub group_id: u32,
     pub token_id: String,
     pub expiration_time: i64,
 }

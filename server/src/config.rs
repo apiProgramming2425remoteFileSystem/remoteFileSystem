@@ -8,8 +8,10 @@ use clap::Parser;
 use config::{Config, Environment, File};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use base64::{engine::general_purpose, Engine as _};
 
 pub const ENV_PREFIX: &str = "RFS";
+pub const JWT_PREFIX: &str = "JWT";
 pub const ENV_SEPARATOR: &str = "__";
 pub const DEFAULT_DATABASE_PATH: &str = "database/db.sqlite";
 pub const DEFAULT_CONFIG_FILE: &str = "server_config.toml";
@@ -171,4 +173,18 @@ impl Formatter for TomlFormatter {
     fn format<T: Serialize>(&self, value: &T) -> std::result::Result<String, String> {
         toml::to_string_pretty(value).map_err(|err| format!("Failed to serialize to TOML: {}", err))
     }
+}
+
+pub fn load_jwt_key() -> anyhow::Result<Vec<u8>> {
+    let env = Config::builder()
+        .add_source(Environment::with_prefix(JWT_PREFIX).separator(ENV_SEPARATOR))
+        .build()
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    let key_str: String = env.get("key")
+                            .map_err(|e| anyhow::anyhow!("Missing JWT_KEY value in environment file because of {}.", e.to_string()))?;
+
+    general_purpose::STANDARD
+        .decode(key_str)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
 }

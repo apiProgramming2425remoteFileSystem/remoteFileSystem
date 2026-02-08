@@ -15,19 +15,13 @@ use crate::{
 use slint::{SharedString, Weak};
 use tokio::{runtime::Runtime, sync::Mutex};
 
-#[derive(PartialEq, Eq)]
-enum ConfigStatus {
-    Personalized,
-    NotPersonalized,
-}
-
 pub struct Gui<R: RemoteStorage + Clone> {
     ui: App,
     rc: R,
     rt: Arc<Runtime>,
     daemon: Arc<Mutex<Option<Daemon>>>,
     default_config: RfsConfig,
-    config: Arc<Mutex<(ConfigStatus, RfsConfig)>>,
+    config: Arc<Mutex<RfsConfig>>,
 }
 
 /* UTIL FUNCTIONS */
@@ -72,18 +66,9 @@ async fn health_check<R: RemoteStorage + Clone>(
     handle.await.unwrap()
 }
 
-fn load_config(ui: &App, config_: Arc<Mutex<(ConfigStatus, RfsConfig)>>) -> Result<(), GUIError> {
+fn load_config(ui: &App, config_: Arc<Mutex<RfsConfig>>) -> Result<(), GUIError> {
     let status_config = config_.blocking_lock();
-    let config = &status_config.1;
-
-    // Load personalized config into personalized_file.toml
-    if status_config.0 == ConfigStatus::Personalized {
-        // let toml_string = TomlFormatter::format(config).map_err(|e| GUIError::ConfigIssue(e.to_string()));
-
-        let path = PathBuf::from("/config/personalized.toml");
-
-        //fs::write(path, toml_string).map_err(|e| GUIError::ConfigIssue(e.to_string()))?;
-    }
+    let config = &status_config;
 
     let log_dir = if let Some(dir) = &config.logging.log_dir {
         String::from(dir.to_string_lossy().into_owned())
@@ -127,7 +112,6 @@ fn load_config(ui: &App, config_: Arc<Mutex<(ConfigStatus, RfsConfig)>>) -> Resu
         foreground: config.foreground,
         max_pages: config.file_system.max_pages as i32,
         page_size: config.file_system.page_size as i32,
-        server_url: SharedString::from(&config.server_url),
         xattr_enable: config.file_system.xattr_enable,
     });
     ui.set_log_settings(LogSettings {
@@ -164,11 +148,11 @@ impl<R: RemoteStorage + Clone> Gui<R> {
             rt: Arc::new(rt),
             daemon: Arc::new(Mutex::new(None)),
             default_config: config.clone(),
-            config: Arc::new(Mutex::new((ConfigStatus::NotPersonalized, config.clone()))),
+            config: Arc::new(Mutex::new(config.clone())),
         })
     }
 
-    pub fn start_gui(self) -> Result<(), GUIError> {
+    pub fn start_gui(mut self) -> Result<(), GUIError> {
         let ui_weak = Arc::new(self.ui.as_weak());
 
         /* OPENING LOGIC */
@@ -316,7 +300,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
             let rc_thread = rc_mount.clone();
 
             // 1. Extract config informations
-            let config = config_arc.blocking_lock().1.clone();
+            let config = config_arc.blocking_lock().clone();
 
             let daemon = Daemon::new();
 
@@ -386,13 +370,12 @@ impl<R: RemoteStorage + Clone> Gui<R> {
         /* CONFIGURATION MANAGEMENT -> add input validation */
         let config_string = self.config.clone();
         let ui_string = ui_weak.clone();
-        self.ui
-            .on_change_string_property(move |object: StringItem| {
+        self.ui.on_change_string_property(move |object: StringItem| {
                 match object.env.as_str() {
                     "MOUNT" => match object.id_rust.as_str() {
                         "mountpoint" => {
                             let mut config = config_string.blocking_lock();
-                            config.1.mount_point = PathBuf::from(object.value.as_str());
+                            config.mount_point = PathBuf::from(object.value.as_str());
                         }
                         "config_file" => {
                             let mut config = config_string.blocking_lock();
@@ -404,20 +387,13 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                             let mut config = config_string.blocking_lock();
                             match object.value.as_str() {
                                 "LRU" => {
-                                    config.1.cache.policy = crate::config::CachePolicy::Lru;
+                                    config.cache.policy = crate::config::CachePolicy::Lru;
                                 }
                                 "LFU" => {
-                                    config.1.cache.policy = crate::config::CachePolicy::Lfu;
+                                    config.cache.policy = crate::config::CachePolicy::Lfu;
                                 }
                                 _ => (),
                             }
-                        }
-                        _ => (),
-                    },
-                    "FS" => match object.id_rust.as_str() {
-                        "server_url" => {
-                            let mut config = config_string.blocking_lock();
-                            config.1.server_url = String::from(object.value.as_str());
                         }
                         _ => (),
                     },
@@ -426,16 +402,16 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                             let mut config = config_string.blocking_lock();
                             match object.value.as_str() {
                                 "COMPACT" => {
-                                    config.1.logging.log_format = crate::config::LogFormat::Compact;
+                                    config.logging.log_format = crate::config::LogFormat::Compact;
                                 }
                                 "FULL" => {
-                                    config.1.logging.log_format = crate::config::LogFormat::Full;
+                                    config.logging.log_format = crate::config::LogFormat::Full;
                                 }
                                 "JSON" => {
-                                    config.1.logging.log_format = crate::config::LogFormat::Json;
+                                    config.logging.log_format = crate::config::LogFormat::Json;
                                 }
                                 "PRETTY" => {
-                                    config.1.logging.log_format = crate::config::LogFormat::Pretty;
+                                    config.logging.log_format = crate::config::LogFormat::Pretty;
                                 }
                                 _ => (),
                             }
@@ -444,48 +420,48 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                             let mut config = config_string.blocking_lock();
                             match object.value.as_str() {
                                 "DEBUG" => {
-                                    config.1.logging.log_level = crate::config::LogLevel::Debug;
+                                    config.logging.log_level = crate::config::LogLevel::Debug;
                                 }
                                 "ERROR" => {
-                                    config.1.logging.log_level = crate::config::LogLevel::Error;
+                                    config.logging.log_level = crate::config::LogLevel::Error;
                                 }
                                 "INFO" => {
-                                    config.1.logging.log_level = crate::config::LogLevel::Info;
+                                    config.logging.log_level = crate::config::LogLevel::Info;
                                 }
                                 "TRACE" => {
-                                    config.1.logging.log_level = crate::config::LogLevel::Trace;
+                                    config.logging.log_level = crate::config::LogLevel::Trace;
                                 }
                                 "WARN" => {
-                                    config.1.logging.log_level = crate::config::LogLevel::Warn;
+                                    config.logging.log_level = crate::config::LogLevel::Warn;
                                 }
                                 _ => (),
                             }
                         }
                         "log_dir" => {
                             let mut config = config_string.blocking_lock();
-                            config.1.logging.log_dir = Some(PathBuf::from(object.value.as_str()));
+                            config.logging.log_dir = Some(PathBuf::from(object.value.as_str()));
                         }
                         "log_file" => {
                             let mut config = config_string.blocking_lock();
-                            config.1.logging.log_file = Some(PathBuf::from(object.value.as_str()));
+                            config.logging.log_file = Some(PathBuf::from(object.value.as_str()));
                         }
                         "log_rotation" => {
                             let mut config = config_string.blocking_lock();
                             match object.value.as_str() {
                                 "MINUTELY" => {
-                                    config.1.logging.log_rotation =
+                                    config.logging.log_rotation =
                                         Some(crate::config::LogRotation::Minutely);
                                 }
                                 "HOURLY" => {
-                                    config.1.logging.log_rotation =
+                                    config.logging.log_rotation =
                                         Some(crate::config::LogRotation::Hourly);
                                 }
                                 "DAILY" => {
-                                    config.1.logging.log_rotation =
+                                    config.logging.log_rotation =
                                         Some(crate::config::LogRotation::Daily);
                                 }
                                 "NEVER" => {
-                                    config.1.logging.log_rotation =
+                                    config.logging.log_rotation =
                                         Some(crate::config::LogRotation::Never);
                                 }
                                 _ => (),
@@ -517,33 +493,33 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                 "MOUNT" => match object.id_rust.as_str() {
                     "allow_other" => {
                         let mut config = config_bool.blocking_lock();
-                        config.1.mount.allow_other = object.value;
+                        config.mount.allow_other = object.value;
                     }
                     "read_only" => {
                         let mut config = config_bool.blocking_lock();
-                        config.1.mount.read_only = object.value;
+                        config.mount.read_only = object.value;
                     }
                     "privileged" => {
                         let mut config = config_bool.blocking_lock();
-                        config.1.mount.privileged = object.value;
+                        config.mount.privileged = object.value;
                     }
                     _ => (),
                 },
                 "CACHE" => match object.id_rust.as_str() {
                     "cache_enabled" => {
                         let mut config = config_bool.blocking_lock();
-                        config.1.cache.enabled = object.value;
+                        config.cache.enabled = object.value;
                     }
                     "use_ttl" => {
                         let mut config = config_bool.blocking_lock();
-                        config.1.cache.use_ttl = object.value;
+                        config.cache.use_ttl = object.value;
                     }
                     _ => (),
                 },
                 "FS" => match object.id_rust.as_str() {
                     "xattr_enable" => {
                         let mut config = config_bool.blocking_lock();
-                        config.1.file_system.xattr_enable = object.value;
+                        config.file_system.xattr_enable = object.value;
                     }
                     _ => (),
                 },
@@ -572,24 +548,24 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                     match object.id_rust.as_str() {
                         "max_size" => {
                             let mut config = config_int.blocking_lock();
-                            let capacity = config.1.cache.capacity;
-                            if capacity * object.value as usize <= 1024*1026*1024 {
-                                config.1.cache.max_size = object.value as usize;
+                            let capacity = config.cache.capacity;
+                            if capacity * object.value as usize <= 1024*1024*1024 {
+                                config.cache.max_size = object.value as usize;
                             }else {
                                 let ui_inner = ui_int.clone();
                                 let _ = slint::invoke_from_event_loop(move || {
                                     if let Some(ui) = ui_inner.upgrade() {
                                         ui.set_is_loading(false);
-                                        ui.set_error_message(format!("Considering the actual cache capacity and 1 GB cache limit, your maximum entry size can be {} B.", 1024*1024*1024/capacity).into())
+                                        ui.set_error_message(format!("Considering the actual cache capacity and 1 GB cache limit, your maximum entry size can be {:.2} MB.", (1024 as f64) / (capacity as f64)).into())
                                     }
                                 });
                             }
                         },
                         "capacity" => {
                             let mut config = config_int.blocking_lock();
-                            let max_size = config.1.cache.max_size;
-                            if max_size * object.value as usize <= 1024*1026*1024 {
-                                config.1.cache.max_size = object.value as usize;
+                            let max_size = config.cache.max_size;
+                            if max_size * object.value as usize <= 1024*1024*1024 {
+                                config.cache.capacity = object.value as usize;
                             }else {
                                 let ui_inner = ui_int.clone();
                                 let _ = slint::invoke_from_event_loop(move || {
@@ -602,7 +578,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                         },
                         "ttl" => {
                             let mut config = config_int.blocking_lock();
-                            config.1.cache.ttl = object.value as u64;
+                            config.cache.ttl = object.value as u64;
                         },
                         _ => (),
                     }
@@ -612,7 +588,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                         "buffer_size" => {
                             if object.value < 5 {
                                 let mut config = config_int.blocking_lock();
-                                config.1.file_system.buffer_size = object.value as usize;
+                                config.file_system.buffer_size = object.value as usize;
                             }else{
                                 let ui_inner = ui_int.clone();
                                 let _ = slint::invoke_from_event_loop(move || {
@@ -654,7 +630,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
                     ui.set_show_restore_default(false);
                     if let Err(e) = load_config(
                         &ui,
-                        Arc::new(Mutex::new((ConfigStatus::NotPersonalized, config_inner))),
+                        Arc::new(Mutex::new(config_inner)),
                     ) {
                         ui.set_error_message(format!("{}", e.to_string()).into());
                     }
@@ -674,6 +650,13 @@ impl<R: RemoteStorage + Clone> Drop for Gui<R> {
     fn drop(&mut self) {
         let daemon_clone = self.daemon.clone();
         unmount(daemon_clone);
+
+        if self.ui.get_status() == Status::LoggedIn {
+            let rc_clone = self.rc.clone();
+            self.rt.spawn(async move {
+                let _ = rc_clone.logout().await;
+            });
+        }
     }
 }
 
