@@ -12,9 +12,9 @@ use crate::{
 use slint::{SharedString, Weak};
 use tokio::{runtime::Runtime, sync::Mutex};
 
-pub struct Gui<R: RemoteStorage + Clone> {
+pub struct Gui<R: RemoteStorage> {
     ui: App,
-    rc: R,
+    rc: Arc<R>,
     rt: Arc<Runtime>,
     daemon: Arc<Mutex<Option<Daemon>>>,
     default_config: RfsConfig,
@@ -22,8 +22,8 @@ pub struct Gui<R: RemoteStorage + Clone> {
 }
 
 /* UTIL FUNCTIONS */
-async fn health_check<R: RemoteStorage + Clone>(
-    rc: R,
+async fn health_check<R: RemoteStorage>(
+    rc: Arc<R>,
     ui_weak: Arc<Weak<App>>,
     rt: Arc<Runtime>,
 ) -> bool {
@@ -128,7 +128,7 @@ fn unmount(daemon: Arc<Mutex<Option<Daemon>>>) {
     }
 }
 
-impl<R: RemoteStorage + Clone> Gui<R> {
+impl<R: RemoteStorage> Gui<R> {
     pub fn new(rc: R, config: RfsConfig) -> Result<Self, GUIError> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -138,7 +138,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
 
         Ok(Gui {
             ui,
-            rc,
+            rc: Arc::new(rc),
             rt: Arc::new(rt),
             daemon: Arc::new(Mutex::new(None)),
             default_config: config.clone(),
@@ -626,7 +626,7 @@ impl<R: RemoteStorage + Clone> Gui<R> {
     }
 }
 
-impl<R: RemoteStorage + Clone> Drop for Gui<R> {
+impl<R: RemoteStorage> Drop for Gui<R> {
     fn drop(&mut self) {
         let daemon_clone = self.daemon.clone();
         unmount(daemon_clone);

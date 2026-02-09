@@ -79,7 +79,7 @@ fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
 //
 impl FileSystem {
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn new<R: RemoteStorage>(rc: R, config: &RfsConfig) -> Self {
+    pub fn new<R: RemoteStorage>(rc: Arc<R>, config: &RfsConfig) -> Self {
         let buffer_capacity = config.file_system.buffer_size;
         let page_size = config.file_system.page_size;
 
@@ -93,7 +93,7 @@ impl FileSystem {
         };
 
         Self {
-            remote_client: Arc::new(rc),
+            remote_client: rc,
             file_handlers: RwLock::new(HashMap::new()),
             xattributes_enabled: config.file_system.xattr_enable,
             read_buffer: RwLock::new(ReadBuffer::new(buffer_capacity)),

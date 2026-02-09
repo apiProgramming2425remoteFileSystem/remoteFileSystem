@@ -23,6 +23,8 @@ use gui::Gui;
 #[cfg(unix)]
 use std::fs;
 use std::io::{self, Write};
+#[cfg(unix)]
+use std::sync::Arc;
 
 use rpassword::read_password;
 
@@ -48,12 +50,12 @@ const MAX_LOGIN_ATTEMPTS: u8 = 3;
 /// Starts the daemon in background, unless the option `--foreground` is set.
 ///
 /// ## Arguments
-/// - `config`: Configuration for the daemon. For configuration options, see [`Config`][crate::config::Config].
+/// - `config`: Configuration for the daemon. For configuration options, see [`RfsConfig`][crate::config::RfsConfig].
 /// ### Returns
 /// - `Ok(())`: if the execution was successful.
-/// - `Err(_)`: if an error occurred during execution. Returns [`ClientError`][crate::error::ClientError].
+/// - `Err(_)`: if an error occurred during execution. Returns [`RfsClientError`][crate::error::RfsClientError].
 ///
-pub fn start<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<()> {
+pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     #[cfg(unix)]
     {
         start_unix(config, rc)
@@ -65,7 +67,7 @@ pub fn start<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<()> 
 }
 
 #[cfg(unix)]
-pub fn start_unix<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<()> {
+pub fn start_unix<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS...");
 
     if config.gui_enabled {
@@ -127,7 +129,7 @@ pub fn start_unix<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result
         }
 
         // Start the daemon
-        daemon.create_runtime(run_async(config.clone(), rc, daemon.clone()))?;
+        daemon.create_runtime(run_async(config.clone(), Arc::new(rc), daemon.clone()))?;
 
         tracing::info!("RemoteFS execution finished.");
         Ok(())
@@ -135,7 +137,7 @@ pub fn start_unix<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result
 }
 
 #[cfg(windows)]
-fn start_windows<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<()> {
+fn start_windows<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS (Windows / WinFSP)");
 
     let _log = logging::Logging::from(&config.logging)?;
@@ -162,7 +164,7 @@ fn start_windows<R: RemoteStorage + Clone>(config: &RfsConfig, rc: R) -> Result<
     Ok(())
 }
 
-async fn perform_login<R: RemoteStorage + Clone>(rc: &R, config: &RfsConfig) -> Result<String> {
+async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<String> {
     println!("Welcome to Remote File System. First you need to authenticate!");
 
     for i in 0..MAX_LOGIN_ATTEMPTS {
@@ -205,9 +207,9 @@ async fn perform_login<R: RemoteStorage + Clone>(rc: &R, config: &RfsConfig) -> 
 }
 
 #[cfg(unix)]
-pub async fn run_async<R: RemoteStorage + Clone>(
+pub async fn run_async<R: RemoteStorage>(
     config: RfsConfig,
-    rc: R,
+    rc: Arc<R>,
     daemon: Daemon,
 ) -> Result<()> {
     // Create mount point directory if it doesn't exist
@@ -252,21 +254,17 @@ pub async fn run_async<R: RemoteStorage + Clone>(
         // Ends when a shutdown signal is received
         _ = daemon.wait_for_shutdown() => {
             tracing::info!("Shutdown signal received via Daemon.");
-            if config.foreground {
-                tracing::info!("Running in foreground, waiting for mount session to end gracefully.");
-                if let Err(e) = mount_point.unmount().await {
-                    tracing::error!("Error during unmount: {}", e);
+
+            match mount_point.unmount().await {
+                Ok(_) => tracing::info!("Unmounted successfully on shutdown."),
+                Err(_) => {
+                    tracing::error!("Error during unmount on shutdown. Attempting lazy unmount.");
+                    // Attempt lazy unmount, exiting immediately.
+                    match  mount_point.lazy_unmount().await {
+                        Ok(_) => tracing::info!("Lazy unmount successful."),
+                        Err(e) => tracing::error!("Error during lazy unmount: {}", e)
+                    }
                 }
-            } else {
-                tracing::info!("Running in background, attempting lazy unmount (detach).");
-                // Attempt lazy unmount, exiting immediately.
-                if let Err(e) = mount_point.lazy_unmount().await {
-                    tracing::error!("Error during lazy unmount: {}", e);
-                    // Fallback to graceful unmount
-                    tracing::warn!("Lazy unmount failed: {}. Falling back to graceful unmount.", e);
-                    if let Err(e) = mount_point.unmount().await {
-                        tracing::error!("Error during graceful unmount: {}", e);
-                }}
             }
         }
     };

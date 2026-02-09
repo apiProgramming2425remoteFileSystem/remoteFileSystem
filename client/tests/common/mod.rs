@@ -1,5 +1,8 @@
 use anyhow::{Result, anyhow};
-use std::path::{Path, PathBuf};
+use mockall::predicate::*;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tempfile::TempDir;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_test::assert_ok;
@@ -7,11 +10,12 @@ use tokio_test::assert_ok;
 use client::config::logging::LogTargets;
 use client::config::{LoggingConfig, RfsConfig};
 use client::daemon::Daemon;
+use client::fs_model::attributes::{Attributes, FileType, Timestamp};
 use client::logging::Logging;
 use client::network::MockRemoteStorage;
 use client::run_async;
 
-pub const TEST_TIMEOUT: Duration = Duration::from_secs(5);
+const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Install a global panic hook that forcefully unmounts the FUSE filesystem in case of a panic.
 /// Call this function as the FIRST thing in your test.
@@ -39,7 +43,8 @@ pub fn register_fuse_panic_hook(mount_path: PathBuf) {
 }
 
 pub struct AppController {
-    // pub mount_dir: TempDir,
+    _tmp_dir: TempDir,
+    pub mount_point: PathBuf,
     _logger: Logging,
     daemon: Daemon,
     app_handle: JoinHandle<()>,
@@ -47,8 +52,32 @@ pub struct AppController {
 
 impl AppController {
     /// Starts the client application with the provided configuration and mock storage.
-    pub async fn start(config: RfsConfig, mock: MockRemoteStorage) -> Result<Self> {
-        register_fuse_panic_hook(config.mount_point.to_path_buf());
+    pub async fn start(mut config: RfsConfig, mut mock: MockRemoteStorage) -> Result<Self> {
+        let mount_dir = tempfile::tempdir()?;
+        let mount_point = mount_dir.path().join(&config.mount_point);
+
+        config.mount_point = mount_point.clone();
+        register_fuse_panic_hook(config.mount_point.clone());
+
+        // MOCK ROOT METADATA
+        // Must allow the kernel to look up the root attributes ("/")
+        // so that `wait_ready` (fs::metadata) succeeds.
+        mock.expect_get_attributes().with(eq("/")).returning(|_| {
+            Ok(Attributes {
+                size: 4096, // Standard directory size
+                blocks: 1,
+                atime: Timestamp::new(0, 0),
+                mtime: Timestamp::new(0, 0),
+                ctime: Timestamp::new(0, 0),
+                kind: FileType::Directory, // Root is always a directory
+                perm: 0o755,
+                nlink: 2,
+                uid: 1000,
+                gid: 1000,
+                rdev: 0,
+                blksize: 4096,
+            })
+        });
 
         // Initialize logging based on config
         let _logger = Logging::from(&config.logging)?;
@@ -59,7 +88,7 @@ impl AppController {
 
         // Clone the daemon handle for the app task
         let daemon_handle = daemon.clone();
-
+        let mock = Arc::new(mock);
         // Spawn the core application logic in a separate Tokio task.
         // This allows the test logic to run concurrently in the main thread.
         let app_handle = tokio::spawn(async move {
@@ -72,8 +101,10 @@ impl AppController {
         });
 
         // Wait for the client to start
-        wait_ready(Duration::from_millis(50)).await?;
+        wait_ready(Duration::from_millis(500)).await?;
         Ok(Self {
+            _tmp_dir: mount_dir,
+            mount_point,
             _logger,
             daemon,
             app_handle,
@@ -109,10 +140,12 @@ async fn wait_ready(wait_time: Duration) -> Result<()> {
     Ok(())
 }
 
-pub fn get_config(mount_point: &Path) -> RfsConfig {
+pub fn get_config() -> RfsConfig {
     RfsConfig {
-        mount_point: mount_point.to_path_buf(),
+        mount_point: PathBuf::from("test_rfs_mount"),
         username: Some("test_user".to_string()),
+        foreground: true,
+        gui_enabled: false,
         logging: LoggingConfig {
             log_targets: vec![LogTargets::Console],
             ..Default::default()

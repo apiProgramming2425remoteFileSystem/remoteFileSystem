@@ -84,8 +84,11 @@ pub async fn generate_token(jwt_key: &[u8], user_id: u32, group_id: u32) -> anyh
 impl DB {
     /// Open a new database connection, applying migrations if necessary.
     /// Returns the database connection or an error.
-    #[instrument(err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn open_connection<P: AsRef<Path> + Debug>(database_path: P) -> Result<Self> {
+    #[instrument(skip(jwt_key), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    pub async fn open_connection<P: AsRef<Path> + Debug>(
+        database_path: P,
+        jwt_key: &[u8],
+    ) -> Result<Self> {
         // // costruisce un path assoluto relativo alla root del crate
         // let manifest = env!("CARGO_MANIFEST_DIR");
         let mut db_path = database_path.as_ref().to_path_buf();
@@ -125,9 +128,10 @@ impl DB {
             .await
             .map_err(|e| DatabaseError::MigrationError(e.to_string()))?;
 
-        let jwt_key = load_jwt_key()?;
-
-        Ok(Self { pool, jwt_key })
+        Ok(Self {
+            pool,
+            jwt_key: jwt_key.to_vec(),
+        })
     }
 
     pub async fn user_exists(&self, username: &str) -> Result<bool> {

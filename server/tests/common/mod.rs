@@ -20,6 +20,7 @@ use server::run_server;
 
 static LOGGER: OnceCell<Logging> = OnceCell::new();
 
+pub const TEST_JWT_KEY: &[u8] = b"test_jwt_key_for_unit_tests_only";
 pub const TEST_USER: &str = "test_user";
 pub const TEST_PASSWORD: &str = "test_password";
 pub const TEST_USER_ID: u32 = 1001;
@@ -27,7 +28,7 @@ pub const TEST_GROUP_ID: u32 = 1001;
 
 /// Ottiene un token di test legato al DB specificato
 pub async fn get_test_token(db_path: &Path) -> Result<String> {
-    let db = DB::open_connection(db_path).await?;
+    let db = DB::open_connection(db_path, TEST_JWT_KEY).await?;
 
     if !db.user_exists(TEST_USER).await? {
         db.create_user(
@@ -71,7 +72,7 @@ pub async fn start_server_app(
     // DB temporaneo
     let tmp_dir = tempfile::tempdir()?;
     let db_path = tmp_dir.path().join("test-db.sqlite");
-    let db_conn = DB::open_connection(&db_path).await?;
+    let db_conn = DB::open_connection(&db_path, TEST_JWT_KEY).await?;
 
     // Avvio server in background
     let filesystem_root = config.filesystem_root.clone();

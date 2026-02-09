@@ -168,9 +168,9 @@ async fn test_example_flow() -> Result<()> {
     let app_controller = common::AppController::start(config, mock).await?;
 
     // 4. Execution
-    // Use `run_with_watchdog` to ensure the app doesn't crash.
+    // Use `run_with_timeout` to ensure the app doesn't crash.
     // Use tokio::fs to perform file operations on the mounted filesystem, because it async and non-blocking.
-    let meta = common::run_with_watchdog(&mut app_handle, tokio::fs::metadata(mount_point.join("file"))).await?;
+    let meta = app_controller.run_with_timeout(tokio::fs::metadata(mount_point.join("file"))).await??;
     assert!(meta.is_file());
 
     // 5. Shutdown (Uses notify_one to avoid races)

@@ -3,6 +3,8 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+use std::sync::Arc;
+
 #[cfg(windows)]
 pub use windows::*;
 
@@ -19,7 +21,7 @@ pub struct Fs {
 }
 
 impl Fs {
-    pub fn new<R: RemoteStorage>(rc: R, config: &RfsConfig) -> Self {
+    pub fn new<R: RemoteStorage>(rc: Arc<R>, config: &RfsConfig) -> Self {
         Self {
             fs: FileSystem::new(rc, config),
             #[cfg(windows)]

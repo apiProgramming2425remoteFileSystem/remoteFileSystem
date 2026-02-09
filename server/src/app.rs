@@ -20,8 +20,13 @@ pub async fn run() -> Result<(), RfsServerError> {
         return Ok(());
     };
 
+    // Load JWT key for authentication
+    let jwt_key = load_jwt_key().map_err(|err| {
+        RfsServerError::Other(anyhow::format_err!("Failed to load JWT key: {}", err))
+    })?;
+
     // Initialize database connection
-    let db_conn = DB::open_connection(&app.database_path).await?;
+    let db_conn = DB::open_connection(&app.database_path, &jwt_key).await?;
 
     // Execute the selected subcommand.
     command.execute(db_conn).await

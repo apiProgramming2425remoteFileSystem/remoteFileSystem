@@ -38,6 +38,7 @@ impl ClientProcess {
         cmd.arg("--mount-point").arg(mount_point);
         cmd.arg("--server-url").arg(server_url);
         cmd.arg("--foreground");
+        cmd.arg("--no-gui");
         cmd.arg("--username").arg(DEFAULT_USER);
         cmd.env("RFS__PASSWORD", DEFAULT_PASS);
 
