@@ -188,6 +188,7 @@ export component IntEdit inherits Rectangle {
     in-out property <bool> is_edit_view: false;
     in-out property <string> new_value_string;
     in-out property <int> new_value;
+    in-out property <string> guide;
     callback on_click(int);
     width: root.toggle_width;
     height: is_edit_view ? root.toggle_height * 1.8 : root.toggle_height;
@@ -239,7 +240,7 @@ export component IntEdit inherits Rectangle {
                 LineEdit {
                     width: root.toggle_width * 0.5;
                     height: 30%;
-                    placeholder-text: "number";
+                    placeholder-text: guide;
                     input-type: InputType.decimal;
                     text <=> root.new_value_string;
                 }
@@ -662,6 +663,7 @@ export component Fs inherits Rectangle {
                         fs_is_active: fs_is_active;
                         name: "BUFFER SIZE";
                         value: Round.format_MB(root.fs_settings.buffer-size) + " MB";
+                        guide: "12.3";
                         text_color: black;
                         toggle_color: #ECF0F1;
                         on_click(n) => {
@@ -849,6 +851,7 @@ export component Cache inherits Rectangle {
                             fs_is_active: fs_is_active;
                             name: "TTL";
                             value: root.cache_settings.ttl + " s";
+                            guide: "123";
                             text_color: black;
                             toggle_color: #ECF0F1;
                             on_click(n) => {
@@ -866,6 +869,7 @@ export component Cache inherits Rectangle {
                             fs_is_active: fs_is_active;
                             name: "CACHE MAX SIZE";
                             value: Round.format_MB(root.cache_settings.max-size) + " MB";
+                            guide: "12.3";
                             text_color: black;
                             toggle_color: #ECF0F1;
                             on_click(n) => {
@@ -883,6 +887,7 @@ export component Cache inherits Rectangle {
                             fs_is_active: fs_is_active;
                             name: "CACHE CAPACITY";
                             value: root.cache_settings.capacity + " entries";
+                            guide: "123";
                             text_color: black;
                             toggle_color: #ECF0F1;
                             on_click(n) => {
@@ -1208,7 +1213,7 @@ export component Home inherits Rectangle {
                         button_color: rgba(0, 128, 255, 0.5);
                         button_width: 100px;
                         button_height: 40px;
-                        is_active: true;
+                        is_active: !root.fs_is_active;
                         on_click => {
                             root.restore_default();
                         }

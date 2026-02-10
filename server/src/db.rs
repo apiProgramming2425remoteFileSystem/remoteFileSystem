@@ -15,7 +15,6 @@ use sqlx::{
 use tracing::{Level, instrument};
 use uuid::Uuid;
 
-use crate::config::load_jwt_key;
 use crate::error::DatabaseError;
 use crate::models::{AuthenticatedUser, Claims, ListXattributes, PartialUser, User, Xattributes};
 
@@ -273,22 +272,26 @@ impl DB {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR))]
-    async fn is_user_present(&self, user_id: u32, username: Option<&str>) -> Result<bool> {
-        let mut count = sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+    async fn is_user_present(&self, user_id: Option<u32>, username: Option<&str>) -> Result<bool> {
+        let mut count = 0;
+
+        if let Some(uid) = user_id {
+            count += 
+                sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE user_id = ?")
+                    .bind(uid)
+                    .fetch_one(&self.pool)
+                    .await
+                    .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+        }
+        
 
         if let Some(username) = username {
-            let count_username =
+            count +=
                 sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE username = ?")
                     .bind(username)
                     .fetch_one(&self.pool)
                     .await
                     .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
-
-            count += count_username;
         }
 
         if count > 0 { Ok(true) } else { Ok(false) }
@@ -321,17 +324,20 @@ impl DB {
         user_id: Option<u32>,
         group_id: Option<u32>,
     ) -> Result<(u32, u32)> {
-        let uid = match user_id {
-            Some(uid) => {
-                if self.is_user_present(uid, Some(username)).await? {
-                    return Err(DatabaseError::QueryError(
-                        "User with same username or uid is already exists!".to_string(),
-                    ));
-                }
+        let is_user_present = self.is_user_present(user_id, Some(username)).await?;
 
-                uid
-            }
-            None => self.get_new_uid().await?,
+        let uid = match is_user_present {
+            true => {
+                return Err(DatabaseError::QueryError(
+                    "User with given username or uid already exists!".to_string(),
+                ));
+            },
+            false => {
+                match user_id {
+                    Some(uid) => uid,
+                    None => self.get_new_uid().await?,
+                }
+            },
         };
 
         let gid = match group_id {
@@ -375,7 +381,7 @@ impl DB {
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn delete_user(&self, user_id: u32) -> Result<()> {
-        let is_present = self.is_user_present(user_id, None).await?;
+        let is_present = self.is_user_present(Some(user_id), None).await?;
 
         if is_present {
             return Err(DatabaseError::QueryError(format!(
@@ -395,7 +401,7 @@ impl DB {
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn edit_username(&self, user_id: u32, username: &str) -> Result<()> {
-        let is_present = self.is_user_present(user_id, Some(username)).await?;
+        let is_present = self.is_user_present(Some(user_id), Some(username)).await?;
 
         if is_present {
             return Err(DatabaseError::QueryError(format!(
@@ -439,7 +445,7 @@ impl DB {
 
     #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn edit_password(&self, user_id: u32, password: &str) -> Result<()> {
-        let is_present = self.is_user_present(user_id, None).await?;
+        let is_present = self.is_user_present(Some(user_id), None).await?;
 
         if is_present {
             return Err(DatabaseError::QueryError(format!(
@@ -464,7 +470,7 @@ impl DB {
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn edit_group_id(&self, user_id: u32, group_id: u32) -> Result<()> {
-        let is_present = self.is_user_present(user_id, None).await?;
+        let is_present = self.is_user_present(Some(user_id), None).await?;
 
         if is_present {
             sqlx::query("UPDATE users WHERE user_id = ? SET group_id = ?")
