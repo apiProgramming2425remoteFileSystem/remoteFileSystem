@@ -7,8 +7,9 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 
 use tracing::{Level, instrument};
 
@@ -139,11 +140,9 @@ impl Cache {
         }))
     }
 
-    fn invalidate_parents<P: AsRef<Path>>(&self, path: P) {
+    async fn invalidate_parents<P: AsRef<Path>>(&self, path: P) {
         let parents = parent_paths(path.as_ref());
-        let Ok(mut map) = self.entries.write() else {
-            return;
-        };
+        let mut map = self.entries.write().await;
 
         for p in parents {
             map.remove(&p);
@@ -151,10 +150,8 @@ impl Cache {
     }
 
     #[instrument(skip(self), ret(level = Level::DEBUG))]
-    pub fn get<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
-        let Ok(mut map) = self.entries.write() else {
-            return None;
-        };
+    pub async fn get<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
+        let mut map = self.entries.write().await;
         let key = path.as_ref();
 
         let entry = map.get_mut(key)?;
@@ -171,15 +168,13 @@ impl Cache {
     }
 
     #[instrument(skip(self))]
-    pub fn put<P: AsRef<Path> + Debug>(
+    pub async fn put<P: AsRef<Path> + Debug>(
         &self,
         path: P,
         item: CacheItem,
         invalidate_attributes: bool,
     ) {
-        let Ok(mut map) = self.entries.write() else {
-            return;
-        };
+        let mut map = self.entries.write().await;
         let key = path.as_ref();
 
         if let Some(entry) = map.get_mut(key) {
@@ -207,12 +202,10 @@ impl Cache {
     }
 
     #[instrument(skip(self))]
-    pub fn put_new<P: AsRef<Path> + Debug>(&self, path: P, item: CacheItem) {
-        self.invalidate_parents(&path);
+    pub async fn put_new<P: AsRef<Path> + Debug>(&self, path: P, item: CacheItem) {
+        self.invalidate_parents(&path).await;
 
-        let Ok(mut map) = self.entries.write() else {
-            return;
-        };
+        let mut map = self.entries.write().await;
         let key = path.as_ref().to_path_buf();
 
         if map.len() >= self.capacity
@@ -225,22 +218,18 @@ impl Cache {
     }
 
     #[instrument(skip(self), ret(level = Level::DEBUG))]
-    pub fn remove<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
+    pub async fn remove<P: AsRef<Path> + Debug>(&self, path: P) -> Option<CacheItem> {
         let removed = {
-            let Ok(mut map) = self.entries.write() else {
-                return None;
-            };
+            let mut map = self.entries.write().await;
             map.remove(path.as_ref()).map(|e| e.item)
         };
-        self.invalidate_parents(path);
+        self.invalidate_parents(path).await;
         removed
     }
 
     #[instrument(skip(self))]
-    pub fn invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
-        let Ok(mut map) = self.entries.write() else {
-            return;
-        };
+    pub async fn invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
+        let mut map = self.entries.write().await;
         map.remove(path.as_ref()).map(|e| e.item);
     }
 
@@ -258,8 +247,8 @@ impl Cache {
     }
 }
 
-#[instrument(skip(cache), ret(level = Level::DEBUG))]
-pub fn cache_write_file<P: AsRef<Path> + Debug>(
+#[instrument(skip(cache, data))]
+pub async fn cache_write_file<P: AsRef<Path> + Debug>(
     cache: &Arc<Cache>,
     path: P,
     offset: usize,
@@ -269,16 +258,22 @@ pub fn cache_write_file<P: AsRef<Path> + Debug>(
     if let Some(name) = path.as_ref().file_name() {
         let mut file = File::new(name.to_os_string(), None);
         file.write_content(offset, data);
-        cache.put(
-            path.as_ref().to_path_buf(),
-            CacheItem::File(file),
-            invalidate_attributes,
-        );
+        cache
+            .put(
+                path.as_ref().to_path_buf(),
+                CacheItem::File(file),
+                invalidate_attributes,
+            )
+            .await;
     }
 }
 
-#[instrument(skip(cache), ret(level = Level::DEBUG))]
-pub fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attributes: Attributes) {
+#[instrument(skip(cache))]
+pub async fn cache_put_attr<P: AsRef<Path> + Debug>(
+    cache: &Arc<Cache>,
+    path: P,
+    attributes: Attributes,
+) {
     if let Some(name) = path.as_ref().file_name() {
         let item = match attributes.kind {
             FileType::Directory => {
@@ -293,13 +288,13 @@ pub fn cache_put_attr<P: AsRef<Path> + Debug>(cache: &Arc<Cache>, path: P, attri
             _ => CacheItem::File(File::new(name.to_os_string(), Some(attributes))),
         };
 
-        cache.put(path.as_ref().to_path_buf(), item, false);
+        cache.put(path.as_ref().to_path_buf(), item, false).await;
     }
 }
 
 impl Debug for Cache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Ok(map) = self.entries.write() else {
+        let Ok(map) = self.entries.try_read() else {
             return write!(f, "--");
         };
         let mut result = String::from("\n");

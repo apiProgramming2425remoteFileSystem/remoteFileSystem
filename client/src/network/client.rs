@@ -136,7 +136,7 @@ impl RemoteStorage for RemoteClient {
     }
 
     // ATTRIBUTES
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::DEBUG), ret(level = Level::DEBUG))]
     async fn get_attributes(&self, path: &str) -> Result<Attributes> {
         let url = self.set_url("attributes", path);
         let resp = self.http_client.get(url).send().await?;
@@ -175,7 +175,7 @@ impl RemoteStorage for RemoteClient {
         .await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn set_x_attributes(&self, path: &str, name: &str, xattributes: &[u8]) -> Result<()> {
         let url = self.set_long_url("xattributes", path, "names", Some(name));
 
@@ -239,7 +239,7 @@ impl RemoteStorage for RemoteClient {
         handle_response(resp, |r| r.json()).await
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn read_file(&self, path: &str, offset: usize, size: usize) -> Result<Vec<u8>> {
         let url = self.set_url("files", path);
         let read_file = ReadFileRequest::new(offset, size);

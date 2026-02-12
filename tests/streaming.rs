@@ -6,11 +6,13 @@ mod tests {
     use crate::setup_e2e;
 
     use anyhow::{Result, anyhow};
+    use rstest::rstest;
     use std::fs::{self, File};
     use std::io::{Read, Seek, SeekFrom, Write};
     use std::path::Path;
     use std::process::Command;
     use std::thread;
+    use tempfile::NamedTempFile;
 
     /// Helper to calculate MD5 checksum
     fn compare_md5<P: AsRef<Path>>(src: P, dest: P) -> Result<(String, String)> {
@@ -52,68 +54,73 @@ mod tests {
     }
 
     /// LARGE FILE INTEGRITY
-    /// Creates a large file (50MB), copies it to the mount
+    /// Creates a large file, copies it to the mount
     /// and verifies checksums to ensure no corruption during transfer.
     /// This tests the Client's read/write streaming logic.
-    #[test]
-    fn test_large_file_integrity() -> Result<()> {
+    #[rstest]
+    #[case(1)]
+    #[case(10)]
+    #[case(50)]
+    #[case(100)]
+    fn test_large_file_integrity(#[case] size_mb: usize) -> Result<()> {
         // Setup system
         let (_ctx, mount_point, _server_root) = setup_e2e!();
 
         let file_name = "large_test.bin";
-        let src_file = std::env::temp_dir().join(file_name);
+
+        let tmp_file = NamedTempFile::new()?;
+        let src_file = tmp_file.path();
         let dest_file = mount_point.join(file_name);
 
-        // Generate 50MB random file
+        // Generate random file of specified size
         let timer = std::time::Instant::now();
-        generate_large_file(Path::new(&src_file), 50)?;
+        generate_large_file(src_file, size_mb)?;
         println!("Generated large file in {:.3?}", timer.elapsed());
 
         // Copy to Fuse Mount
         let timer = std::time::Instant::now();
-        assert_copy_cmd(&src_file, &dest_file);
+        assert_copy_cmd(src_file, &dest_file);
         println!("Copied large file in {:.3?}", timer.elapsed());
-
-        thread::sleep(std::time::Duration::from_millis(50));
 
         // Verify Checksums
         // We calculate the checksum of the file ON THE MOUNT
-        let (md5_src, md5_dest) = compare_md5(&src_file, &dest_file)?;
+        let (md5_src, md5_dest) = compare_md5(src_file, &dest_file)?;
 
         assert_eq!(
             md5_src, md5_dest,
             "File corruption detected during large transfer"
         );
 
-        fs::remove_file(&src_file)?;
-
         Ok(())
     }
 
     /// LARGE UPLOAD (Write)
-    /// Writes a 100MB file to the mount and verifies integrity on the server.
+    /// Writes a file to the mount and verifies integrity on the server.
     /// This tests the Client's `write` loop and chunking logic.
-    #[test]
-    fn test_large_file_upload_integrity() -> Result<()> {
+    #[rstest]
+    #[case(1)]
+    #[case(10)]
+    #[case(50)]
+    #[case(100)]
+    fn test_large_file_upload_integrity(#[case] size_mb: usize) -> Result<()> {
         let (_ctx, mount_point, server_root) = setup_e2e!();
 
-        let src_file = std::env::temp_dir().join("source_100mb.bin");
+        let tmp_file = NamedTempFile::new()?;
+        let src_file = tmp_file.path();
         let file_name = "dest_100mb.bin";
         let dest_file = mount_point.join(file_name);
 
-        // Generate 100MB source
-        generate_large_file(&src_file, 100)?;
+        // Generate source file of specified size
+        generate_large_file(src_file, size_mb)?;
         // Copy to Mount
-        assert_copy_cmd(&src_file, &dest_file);
+        assert_copy_cmd(src_file, &dest_file);
 
-        thread::sleep(std::time::Duration::from_millis(50));
-
-        let (src_hash, dest_hash) = compare_md5(&src_file, &dest_file)?;
+        let (src_hash, dest_hash) = compare_md5(src_file, &dest_file)?;
         assert_eq!(src_hash, dest_hash, "Mount file corrupted after upload");
 
         // Verify Integrity on Server Backing Store
         let server_file = server_root.join(file_name);
-        let (src_hash, server_hash) = compare_md5(&src_file, &server_file)?;
+        let (src_hash, server_hash) = compare_md5(src_file, &server_file)?;
         assert_eq!(src_hash, server_hash, "Upload corrupted the file content");
 
         assert_eq!(
@@ -121,30 +128,57 @@ mod tests {
             "Mount and Server files differ after upload"
         );
 
-        fs::remove_file(&src_file)?;
-
         Ok(())
     }
 
     /// LARGE DOWNLOAD (Read)
-    /// Reads a 100MB file from the server.
+    /// Reads a file from the server.
     /// This tests the Client's `read` loop and cache handling.
-    #[test]
-    fn test_large_file_download_integrity() -> Result<()> {
+    #[rstest]
+    #[case(1)]
+    #[case(10)]
+    #[case(50)]
+    #[case(100)]
+    fn test_large_file_download_integrity(#[case] size_mb: usize) -> Result<()> {
         let (_ctx, mount_point, server_root) = setup_e2e!();
 
         // Setup: Create file directly on Server
         let file_name = "server_data.bin";
         let server_file = server_root.join(file_name);
-        generate_large_file(&server_file, 50)?; // 50MB
+        generate_large_file(&server_file, size_mb)?;
 
-        // Action: Read from Mount
         let client_file = mount_point.join(file_name);
 
-        let (server_hash, client_hash) = compare_md5(&server_file, &client_file)?;
+        let tmp_file = NamedTempFile::new()?;
+        let local_download_path = tmp_file.path();
+
+        // Action 1: "Download" it by copying to local disk
+        // This stresses the FUSE read buffer heavily by interleaving FUSE reads and local OS writes.
+        let timer = std::time::Instant::now();
+        assert_copy_cmd(&client_file, local_download_path);
+        println!("Downloaded large file locally in {:.3?}", timer.elapsed());
+
+        // Verify integrity of the downloaded file
+        let (server_hash, downloaded_hash) =
+            compare_md5(&server_file, &local_download_path.to_path_buf())?;
         assert_eq!(
-            server_hash, client_hash,
-            "Download corrupted the file content"
+            server_hash, downloaded_hash,
+            "Download corrupted the file content during copy"
+        );
+
+        // Action 2: Hash directly from the mount (Second Read)
+        // Since 50MB likely exceeds the FUSE client's RAM cache, reading it a second
+        // time ensures that cache eviction works flawlessly without serving stale data.
+        let timer = std::time::Instant::now();
+        let (_, direct_hash) = compare_md5(&server_file, &client_file)?;
+        println!(
+            "Hashed large file directly from FUSE mount in {:.3?}",
+            timer.elapsed()
+        );
+
+        assert_eq!(
+            server_hash, direct_hash,
+            "Second read (in-place hash) corrupted the file content"
         );
 
         Ok(())
@@ -158,16 +192,15 @@ mod tests {
         let (_ctx, mount_point, _server_root) = setup_e2e!();
 
         let file_name = "seek_test.txt";
-        let src_file = std::env::temp_dir().join(file_name);
+        let tmp_file1 = NamedTempFile::new()?;
+        let src_file = tmp_file1.path();
         let dest_file = mount_point.join(file_name);
-        generate_large_file(&src_file, 50)?;
+        generate_large_file(src_file, 50)?;
 
         // Copy to Mount
-        assert_copy_cmd(&src_file, &dest_file);
+        assert_copy_cmd(src_file, &dest_file);
 
-        thread::sleep(std::time::Duration::from_millis(50));
-
-        let mut original_file = File::open(&src_file)?;
+        let mut original_file = File::open(src_file)?;
         let mut file = File::open(&dest_file)?;
 
         for offset in [0, 10, 500] {
@@ -187,24 +220,30 @@ mod tests {
             );
         }
 
-        // Read from offset 500
         for offset in [500, 10, 1] {
             original_file.seek(SeekFrom::End(-offset))?;
             let mut buffer = [0u8; 5];
-            original_file.read_exact(&mut buffer)?;
+            let n_orig = original_file.read(&mut buffer)?;
 
             file.seek(SeekFrom::End(-offset))?;
             let mut client_buffer = [0u8; 5];
-            file.read_exact(&mut client_buffer)?;
+            let n_client = file.read(&mut client_buffer)?;
 
+            // Verify we read the same amount of bytes
             assert_eq!(
-                &buffer, &client_buffer,
+                n_orig, n_client,
+                "Read different amount of bytes at -{}",
+                offset
+            );
+
+            // Verify the data matches up to the amount read
+            assert_eq!(
+                &buffer[..n_orig],
+                &client_buffer[..n_client],
                 "Data mismatch at offset -{}",
                 offset
             );
         }
-
-        fs::remove_file(&src_file)?;
 
         Ok(())
     }
@@ -229,7 +268,8 @@ mod tests {
         // Write End
         file.write_all(b"TAIL")?;
 
-        thread::sleep(std::time::Duration::from_millis(50));
+        // Block until FUSE finishes flushing the buffers to the server!
+        file.sync_all()?;
 
         // Verify Size
         let meta = fs::metadata(&file_path)?;
@@ -261,11 +301,12 @@ mod tests {
         let file2 = mount_point.join("stream2.bin");
 
         // Create sources
-        let src1 = std::env::temp_dir().join("src1.bin");
-        let src2 = std::env::temp_dir().join("src2.bin");
+        let tmp_file1 = NamedTempFile::new()?;
+        let src1 = tmp_file1.path().to_path_buf();
+        let tmp_file2 = NamedTempFile::new()?;
+        let src2 = tmp_file2.path().to_path_buf();
         generate_large_file(&src1, 20)?;
         generate_large_file(&src2, 20)?;
-
         let src1_clone = src1.clone();
         let file1_clone = file1.clone();
 
@@ -280,14 +321,45 @@ mod tests {
         t1.join().unwrap();
 
         // Verify both files
-        let (s1_hash, d1_hash) = compare_md5(&src1, &file1)?;
+        let (s1_hash, d1_hash) = compare_md5(src1, file1)?;
         assert_eq!(s1_hash, d1_hash, "Concurrent stream 1 corrupted");
 
-        let (s2_hash, d2_hash) = compare_md5(&src2, &file2)?;
+        let (s2_hash, d2_hash) = compare_md5(src2, file2)?;
         assert_eq!(s2_hash, d2_hash, "Concurrent stream 2 corrupted");
 
-        fs::remove_file(&src1)?;
-        fs::remove_file(&src2)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_concurrent_mixed_streaming() -> Result<()> {
+        let (_ctx, mount_point, server_root) = setup_e2e!();
+
+        // Setup Write File
+        let write_src = NamedTempFile::new()?;
+        generate_large_file(write_src.path(), 20)?;
+        let write_dest = mount_point.join("stream_write.bin");
+
+        // Setup Read File (Exists on server)
+        let read_server = server_root.join("stream_read.bin");
+        generate_large_file(&read_server, 20)?;
+        let read_mount = mount_point.join("stream_read.bin");
+        let read_dest = NamedTempFile::new()?;
+
+        let write_src_path = write_src.path().to_path_buf();
+
+        // Thread 1: Heavily write to the FUSE mount
+        let t1 = thread::spawn(move || {
+            assert_copy_cmd(&write_src_path, &write_dest);
+        });
+
+        // Main Thread: Heavily read from the FUSE mount
+        assert_copy_cmd(&read_mount, read_dest.path());
+
+        // Join and Assert
+        t1.join().expect("Write thread panicked");
+
+        let (s_read, d_read) = compare_md5(read_server, read_dest.path().to_path_buf())?;
+        assert_eq!(s_read, d_read, "Concurrent read corrupted");
 
         Ok(())
     }

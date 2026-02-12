@@ -4,9 +4,9 @@ mod common;
 mod tests {
     use super::common::*;
     use crate::setup_e2e;
+    use remote_fs_core::{DEFAULT_GID, DEFAULT_UID};
 
     use anyhow::{Result, anyhow};
-    use nix::unistd::{getgid, getuid};
     use std::fs;
     use std::path::Path;
     use std::process::Command;
@@ -263,9 +263,9 @@ mod tests {
         fs::write(&client_file, data)?;
 
         // Get REAL user ID (works for root or normal user)
-        let uid = getuid();
-        let gid = getgid();
-        let user_group = format!("{}:{}", uid, gid);
+        // Uses the UID and GID, that are saved on the Server side when the file is created
+        // To ensure we have permission to change ownership.
+        let user_group = format!("{}:{}", DEFAULT_UID, DEFAULT_GID);
 
         // ACTION: chown <current>:<current> <file>
         run_cmd("chown", &[&user_group], Some(&client_file))?;
@@ -280,13 +280,6 @@ mod tests {
 
     #[test]
     fn test_cmd_chown_security_check_file() -> Result<()> {
-        // Check if we are Root
-        let uid = getuid().as_raw();
-        if uid == 0 {
-            println!("Skipping security check: Running as root allows chown.");
-            return Ok(());
-        }
-
         let (_ctx, mount_point, _server_root) = setup_e2e!();
         let client_file = mount_point.join("security.txt");
         let data = "Data for chmod test.";
@@ -309,13 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cmd_chown_as_root_to_nobody_file() -> Result<()> {
-        let uid = getuid().as_raw();
-        // Only run this test if we ARE root
-        if uid != 0 {
-            return Ok(());
-        }
-
+    fn test_cmd_chown_to_nobody_file() -> Result<()> {
         let (_ctx, mount_point, server_root) = setup_e2e!();
         let filename = "root_to_nobody.txt";
         let client_file = mount_point.join(filename);
@@ -328,20 +315,21 @@ mod tests {
         // A safer bet for generic testing is usually UID 1000 or 65534.
         let target_user = "1000:1000";
 
-        // ACTION: Root gives file to UID 1000
-        run_cmd("chown", &[target_user], Some(&client_file))?;
+        // ACTION: gives file to UID 1000
+        let mut cmd = Command::new("chown");
+        cmd.args(&[target_user]).arg(&client_file);
 
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        let status = cmd.status()?;
+        assert!(
+            !status.success(),
+            "Security Breach: Root user changed file owner to non-root user!"
+        );
 
         // VERIFY
         let (c_out, s_out) =
             compare_command_outputs("stat", &["-c", "%u %g"], &client_file, &server_file)?;
 
-        assert_eq!(
-            c_out.trim(),
-            "1000 1000",
-            "Ownership did not update to 1000"
-        );
+        assert_ne!(c_out.trim(), "1000 1000", "Ownership did update to 1000");
         assert_eq!(c_out, s_out, "Server did not receive ownership change");
 
         Ok(())
@@ -359,9 +347,11 @@ mod tests {
         fs::create_dir(&client_dir)?;
 
         // Get REAL user ID (works for root or normal user)
-        let uid = getuid();
-        let gid = getgid();
-        let user_group = format!("{}:{}", uid, gid);
+        // Uses the UID and GID, that are saved on the Server side when the file is created
+        // To ensure we have permission to change ownership.
+        let user_group = format!("{}:{}", DEFAULT_UID, DEFAULT_GID);
+
+        assert_stat_with_tolerance(&client_dir, &server_dir, 1.0)?;
 
         // ACTION: chown <current>:<current> <dir>
         run_cmd("chown", &[&user_group], Some(&client_dir))?;

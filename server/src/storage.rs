@@ -250,7 +250,7 @@ impl FileSystem {
         }
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR))]
+    #[instrument(skip(self, data), err(level = Level::ERROR))]
     pub fn write_file<P: AsRef<Path> + Debug>(
         &self,
         user_id: u32,
@@ -281,7 +281,7 @@ impl FileSystem {
         Ok(())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub fn read_file<P: AsRef<Path> + Debug>(
         &self,
         path: P,
@@ -297,7 +297,7 @@ impl FileSystem {
         Ok(buffer)
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::DEBUG), ret(level = Level::DEBUG))]
     pub fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
         let target = Path::new(&real_path);
@@ -333,22 +333,37 @@ impl FileSystem {
             }
         }
 
-        if new_attributes.uid.is_some() {
-            return Err(StorageError::PermissionDenied);
-        }
-
-        if let Some(client_gid) = new_attributes.gid {
-            if self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {
-                let new_uid = None;
-                let server_gid = client_gid;
-                if client_gid < 1000 {
-                    return Err(StorageError::PermissionDenied);
-                }
-                let new_gid = Some(Gid::from_raw(server_gid));
-
-                chown(&real_path, new_uid, new_gid).map_err(|e| StorageError::Other(e.into()))?;
-            } else {
+        if new_attributes.uid.is_some() || new_attributes.gid.is_some() {
+            if !self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {
                 return Err(StorageError::PermissionDenied);
+            }
+
+            let metadata = get_attributes_by_path(&real_path)?;
+
+            let resolve = |req: Option<u32>, current: u32, is_member: bool| {
+                match req {
+                    Some(r) if r == current => Ok(None), // No-Op: Always allowed
+                    Some(r) if user_id == 0 || is_member => Ok(Some(r)), // Root or Valid Member: Allowed
+                    Some(_) => Err(StorageError::PermissionDenied),      // Anything else: Denied
+                    None => Ok(None),
+                }
+            };
+
+            // Resolve UID: Only Root can change it
+            let target_uid = resolve(new_attributes.uid, metadata.uid, false)?.map(Uid::from_raw);
+
+            // Resolve GID: Root or User must be member of target group (can check supplementary groups)
+            let target_gid = resolve(
+                new_attributes.gid,
+                metadata.gid,
+                new_attributes.gid == Some(group_id),
+            )?
+            .map(Gid::from_raw);
+
+            // Perform the syscall only if something actually changed
+            if target_uid.is_some() || target_gid.is_some() {
+                chown(&real_path, target_uid, target_gid)
+                    .map_err(|e| StorageError::Other(e.into()))?;
             }
         }
 

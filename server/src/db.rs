@@ -276,22 +276,19 @@ impl DB {
         let mut count = 0;
 
         if let Some(uid) = user_id {
-            count += 
-                sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE user_id = ?")
-                    .bind(uid)
-                    .fetch_one(&self.pool)
-                    .await
-                    .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+            count += sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE user_id = ?")
+                .bind(uid)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
         }
-        
 
         if let Some(username) = username {
-            count +=
-                sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE username = ?")
-                    .bind(username)
-                    .fetch_one(&self.pool)
-                    .await
-                    .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
+            count += sqlx::query_scalar::<_, u8>("SELECT COUNT(*) FROM users WHERE username = ?")
+                .bind(username)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
         }
 
         if count > 0 { Ok(true) } else { Ok(false) }
@@ -331,12 +328,10 @@ impl DB {
                 return Err(DatabaseError::QueryError(
                     "User with given username or uid already exists!".to_string(),
                 ));
-            },
-            false => {
-                match user_id {
-                    Some(uid) => uid,
-                    None => self.get_new_uid().await?,
-                }
+            }
+            false => match user_id {
+                Some(uid) => uid,
+                None => self.get_new_uid().await?,
             },
         };
 
@@ -578,7 +573,7 @@ impl DB {
         }
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn exchange_x_attributes(&self, path1: &str, path2: &str) -> Result<()> {
         sqlx::query("UPDATE xattributes SET path = ? WHERE path = ?")
             .bind("__tmp_exchange__")

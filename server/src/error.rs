@@ -97,7 +97,7 @@ pub enum LoggingError {
 #[derive(Error, Debug)]
 pub enum StorageError {
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
 
     #[error("Not Found: {0}")]
     NotFound(String),
@@ -229,6 +229,19 @@ impl From<DatabaseError> for ApiError {
                 api_err!(InternalError, "Database query error: {}", err)
             }
             DatabaseError::Other(err) => api_err!(InternalError, "Database other error: {}", err),
+        }
+    }
+}
+
+impl From<std::io::Error> for StorageError {
+    fn from(value: std::io::Error) -> Self {
+        match value.kind() {
+            std::io::ErrorKind::NotFound => Self::NotFound(value.to_string()),
+            std::io::ErrorKind::AlreadyExists => Self::AlreadyExists(value.to_string()),
+            std::io::ErrorKind::PermissionDenied => Self::PermissionDenied,
+            std::io::ErrorKind::DirectoryNotEmpty => Self::DirectoryNotEmpty(value.to_string()),
+            std::io::ErrorKind::Unsupported => Self::UnsupportedOperation(value.to_string()),
+            _ => Self::Io(value),
         }
     }
 }

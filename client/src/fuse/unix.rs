@@ -87,7 +87,7 @@ impl PathFilesystem for Fs {
     #[instrument(skip(self))]
     async fn forget(&self, req: Request, parent: &OsStr, nlookup: u64) -> () {
         let path = Path::new(parent);
-        self.fs.cache_invalidate(path);
+        self.fs.cache_invalidate(path).await;
     }
 
     /// get file fs_model.
@@ -105,7 +105,7 @@ impl PathFilesystem for Fs {
             PathBuf::from(p)
         } else {
             let Some(fh) = fh else {
-                return Err(FuseError::NotFound("File handle".to_string()).into());
+                return Err(libc::ESTALE.into());
             };
             let Ok(Some(p)) = self.fs.get_path_from_fh(fh).await else {
                 return Err(FuseError::InvalidFileHandle(fh).into());
@@ -134,7 +134,13 @@ impl PathFilesystem for Fs {
         let path = if let Some(p) = path {
             PathBuf::from(p)
         } else {
-            return Err(libc::EINVAL.into());
+            let Some(fh) = fh else {
+                return Err(libc::ESTALE.into());
+            };
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh).await else {
+                return Err(FuseError::InvalidFileHandle(fh).into());
+            };
+            p
         };
 
         let attributes = self
@@ -424,7 +430,7 @@ impl PathFilesystem for Fs {
     /// read system call will reflect the return value of this operation. `fh` will contain the
     /// value set by the open method, or will be undefined if the open method didn\'t set any value.
     /// when `path` is None, it means the path may be deleted.
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     async fn read(
         &self,
         req: Request,
@@ -471,7 +477,7 @@ impl PathFilesystem for Fs {
     /// `write_flags` contains [`FUSE_WRITE_CACHE`](crate::raw::flags::FUSE_WRITE_CACHE), means the
     /// write operation is a delay write.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, data), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     async fn write(
         &self,
         req: Request,
@@ -495,13 +501,7 @@ impl PathFilesystem for Fs {
 
         let write_data = self
             .fs
-            .write_file(
-                &file_path,
-                &fs_flags,
-                offset as usize,
-                data,
-                // &self.auth_token,
-            )
+            .write_file(&file_path, &fs_flags, offset as usize, data)
             .await?;
 
         Ok(ReplyWrite {
@@ -531,6 +531,15 @@ impl PathFilesystem for Fs {
         fh: u64,
         lock_owner: u64,
     ) -> FuseResult<()> {
+        let _file_path = if let Some(p) = path {
+            PathBuf::from(p)
+        } else {
+            let Ok(Some(p)) = self.fs.get_path_from_fh(fh).await else {
+                return Err(FuseError::InvalidInput("Invalid file handle".to_string()).into());
+            };
+            p
+        };
+
         self.fs.flush_write_buffer().await?;
         Ok(())
     }
@@ -593,7 +602,7 @@ impl PathFilesystem for Fs {
             p
         };
 
-        self.fs.cache_invalidate(&file_path);
+        self.fs.cache_invalidate(&file_path).await;
         Ok(())
     }
 
@@ -881,7 +890,7 @@ impl PathFilesystem for Fs {
         datasync: bool,
     ) -> FuseResult<()> {
         let path = Path::new(path);
-        self.fs.cache_invalidate(path);
+        self.fs.cache_invalidate(path).await;
         Ok(())
     }
 
@@ -1058,7 +1067,7 @@ impl PathFilesystem for Fs {
     async fn batch_forget(&self, req: Request, paths: &[&OsStr]) -> () {
         for path in paths {
             let path = Path::new(path);
-            self.fs.cache_invalidate(path);
+            self.fs.cache_invalidate(path).await;
         }
     }
 }
@@ -1121,7 +1130,6 @@ impl From<fuse3::Timestamp> for fs_model::Timestamp {
 
 impl From<FuseError> for Errno {
     fn from(value: FuseError) -> Self {
-        tracing::error!("{}", value);
         match value {
             // --- Authentication ---
             FuseError::Unauthorized(_) => libc::EACCES.into(),
@@ -1159,7 +1167,6 @@ impl From<FuseError> for Errno {
 
 impl From<FsModelError> for Errno {
     fn from(value: FsModelError) -> Self {
-        tracing::error!("{}", value);
         match value {
             FsModelError::NotFound(_) => libc::ENOENT.into(),
             FsModelError::PermissionDenied(_) => libc::EACCES.into(),

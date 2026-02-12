@@ -27,7 +27,7 @@ impl ReadBuffer {
         self.capacity
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, data))]
     pub fn fill<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) {
         self.path = path.as_ref().to_path_buf();
         self.offset = offset;
@@ -36,7 +36,7 @@ impl ReadBuffer {
         self.valid_up_to = to_copy;
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    #[instrument(skip(self))]
     pub fn read<P: AsRef<Path> + Debug>(&self, path: P, offset: usize, len: usize) -> Vec<u8> {
         if path.as_ref() != self.path
             || offset < self.offset
@@ -88,7 +88,7 @@ impl WriteBuffer {
         self.path == path.as_ref() && self.offset + self.valid_up_to == offset
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, data), ret(level = Level::DEBUG))]
     pub fn write<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) -> usize {
         let path = path.as_ref();
 
@@ -115,14 +115,14 @@ impl WriteBuffer {
         self.valid_up_to >= self.capacity
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    #[instrument(skip(self))]
     pub fn clean(&mut self) {
         self.path = PathBuf::new();
         self.offset = 0;
         self.valid_up_to = 0
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    #[instrument(skip(self))]
     pub fn get_content(&self) -> (&Path, usize, &[u8]) {
         (&self.path, self.offset, &self.buffer[..self.valid_up_to])
     }

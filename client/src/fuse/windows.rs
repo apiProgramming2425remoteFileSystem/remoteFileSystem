@@ -406,7 +406,7 @@ impl FileSystemContext for Fs {
                     path,
                     context.delete_on_close.get()
                 );
-                self.fs.cache_invalidate(path);
+                self.fs.cache_invalidate(path).await;
             }
 
             Ok::<(), ()>(())

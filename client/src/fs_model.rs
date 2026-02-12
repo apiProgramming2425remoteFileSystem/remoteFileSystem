@@ -3,8 +3,8 @@ use std::convert::TryFrom;
 use std::ffi::OsString;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{Level, instrument};
@@ -29,8 +29,8 @@ pub use sym_link::*;
 type Result<T> = std::result::Result<T, FsModelError>;
 
 static CURRENT_FH: AtomicU64 = AtomicU64::new(1);
-pub static PAGE_SIZE: OnceLock<usize> = OnceLock::new();
-pub static MAX_PAGES: OnceLock<usize> = OnceLock::new();
+pub static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
+pub static MAX_PAGES: AtomicUsize = AtomicUsize::new(0);
 
 bitflags::bitflags! {
     #[derive(Debug, Copy, Clone)]
@@ -83,14 +83,8 @@ impl FileSystem {
         let buffer_capacity = config.file_system.buffer_size;
         let page_size = config.file_system.page_size;
 
-        // PAGE_SIZE.set(page_size).expect("PAGE_SIZE already set");
-        if let Err(_e) = PAGE_SIZE.set(page_size) {
-            tracing::error!("PAGE_SIZE already set.");
-        };
-
-        if let Err(_e) = MAX_PAGES.set(config.cache.max_size / page_size) {
-            tracing::error!("MAX_PAGES already set");
-        };
+        PAGE_SIZE.store(page_size, Ordering::SeqCst);
+        MAX_PAGES.store(config.cache.max_size / page_size, Ordering::SeqCst);
 
         Self {
             remote_client: rc,
@@ -127,7 +121,7 @@ impl FileSystem {
         let path = path.as_ref();
 
         if let Some(cache) = &self.cache
-            && let Some(CacheItem::Directory(dir)) = cache.get(path)
+            && let Some(CacheItem::Directory(dir)) = cache.get(path).await
         {
             let mut all_children = Vec::new();
             let mut cache_hit = true;
@@ -135,7 +129,7 @@ impl FileSystem {
             if let Some(children) = &dir.children {
                 for child in children {
                     let child_path = path.join(child);
-                    if let Some(item) = cache.get(&child_path) {
+                    if let Some(item) = cache.get(&child_path).await {
                         let Ok(serializable) = SerializableFSItem::try_from(&item) else {
                             cache_hit = false;
                             break;
@@ -191,10 +185,12 @@ impl FileSystem {
             Some(children_names),
         );
         if let Some(cache) = &self.cache {
-            cache.put(path, CacheItem::Directory(dir), false);
+            cache.put(path, CacheItem::Directory(dir), false).await;
             for element in &elements {
                 let child_path = path.join(&element.name);
-                cache.put(&child_path, CacheItem::from(element.clone()), false);
+                cache
+                    .put(&child_path, CacheItem::from(element.clone()), false)
+                    .await;
             }
         }
         let mut result = Vec::new();
@@ -221,7 +217,7 @@ impl FileSystem {
         Ok(list_items)
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, data), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn create_file<P: AsRef<Path> + Debug>(
         &self,
         path: P,
@@ -239,7 +235,7 @@ impl FileSystem {
 
         if let (Some(name), Some(cache)) = (path.file_name(), &self.cache) {
             let item = CacheItem::File(File::new(name.to_os_string(), Some(attr)));
-            cache.put_new(path, item);
+            cache.put_new(path, item).await;
         }
         Ok(attr)
     }
@@ -267,7 +263,7 @@ impl FileSystem {
         Ok(())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn read_file<P: AsRef<Path> + Debug>(
         &self,
         path: P,
@@ -276,8 +272,15 @@ impl FileSystem {
     ) -> Result<Vec<u8>> {
         let path = path.as_ref();
 
+        if let Ok(attr) = self.get_attributes(path).await
+            && offset >= attr.size as usize
+        {
+            // requested offset is beyond file size, return empty data
+            return Ok(vec![]);
+        }
+
         if let Some(cache) = &self.cache
-            && let Some(CacheItem::File(file)) = cache.get(path)
+            && let Some(CacheItem::File(file)) = cache.get(path).await
         {
             let data = file.read(offset, size);
             if !data.is_empty() {
@@ -292,7 +295,7 @@ impl FileSystem {
             if !data.is_empty() {
                 // buffer hit
                 if let Some(cache) = &self.cache {
-                    cache_write_file(cache, path, offset, &data, false);
+                    cache_write_file(cache, path, offset, &data, false).await;
                 }
                 return Ok(data);
             }
@@ -312,13 +315,13 @@ impl FileSystem {
             buffer.fill(path, offset, &data);
         }
         if let Some(cache) = &self.cache {
-            cache_write_file(cache, path, offset, &data, false);
+            cache_write_file(cache, path, offset, &data, false).await;
         }
         let end = data.len().min(size);
         Ok(data[..end].to_vec())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, data), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn write_file<P: AsRef<Path> + Debug>(
         &self,
         path: P,
@@ -351,21 +354,31 @@ impl FileSystem {
             }
         }
 
+        let mut handles = Vec::new();
+
         for (path, offset, data) in uploads {
             let cache = self.cache.clone();
             let client = self.remote_client.clone();
-            tokio::spawn(async move {
-                if client
+            let handle = tokio::spawn(async move {
+                client
                     .write_file(path.to_string_lossy().as_ref(), offset, &data)
-                    .await
-                    .is_err()
-                {
-                    return;
-                };
+                    .await?;
+
                 if let Some(cache_thread) = cache {
-                    cache_write_file(&cache_thread, &path, offset, &data, true);
+                    cache_write_file(&cache_thread, &path, offset, &data, true).await;
                 }
+
+                Ok::<(), FsModelError>(())
             });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(())) => (),
+                Ok(Err(e)) => return Err(e),
+                Err(tokio_err) => return Err(FsModelError::Other(tokio_err.into())),
+            }
         }
 
         Ok(data_written)
@@ -382,7 +395,7 @@ impl FileSystem {
                 Some(attr),
                 Some(vec![]),
             ));
-            cache.put_new(path, item);
+            cache.put_new(path, item).await;
         }
 
         Ok(attr)
@@ -405,16 +418,16 @@ impl FileSystem {
         if let Some(cache) = &self.cache {
             match flags {
                 f if f.contains(RenameFlags::EXCHANGE) => {
-                    cache.remove(old_path);
-                    cache.remove(new_path);
+                    cache.remove(old_path).await;
+                    cache.remove(new_path).await;
                 }
                 _ => {
-                    let old_item = cache.remove(old_path);
+                    let old_item = cache.remove(old_path).await;
                     if let Some(name) = new_path.as_ref().file_name()
                         && let Some(mut item) = old_item
                     {
                         item.rename(name.to_os_string());
-                        cache.put_new(new_path, item);
+                        cache.put_new(new_path, item).await;
                     }
                 }
             }
@@ -429,17 +442,17 @@ impl FileSystem {
 
         self.remote_client.remove(&path_str).await?;
         if let Some(cache) = &self.cache {
-            cache.remove(path);
+            cache.remove(path).await;
         }
         Ok(())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), err(level = Level::DEBUG), ret(level = Level::DEBUG))]
     pub async fn get_attributes<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
         let path = path.as_ref();
 
         if let Some(cache) = &self.cache
-            && let Some(item) = cache.get(path)
+            && let Some(item) = cache.get(path).await
             && let Some(attr) = item.get_attributes()
         {
             // cache hit
@@ -451,7 +464,7 @@ impl FileSystem {
         let attributes = self.remote_client.get_attributes(&path_str).await?;
 
         if let Some(cache) = &self.cache {
-            cache_put_attr(cache, path, attributes);
+            cache_put_attr(cache, path, attributes).await;
         }
         Ok(attributes)
     }
@@ -472,7 +485,7 @@ impl FileSystem {
             .await?;
 
         if let Some(cache) = &self.cache {
-            cache_put_attr(cache, path, attributes);
+            cache_put_attr(cache, path, attributes).await;
         }
         Ok(attributes)
     }
@@ -485,7 +498,7 @@ impl FileSystem {
         Ok(())
     }
 
-    #[instrument(skip(self), err(level = Level::ERROR))]
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn get_fs_stats<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Stats> {
         let path_str = path_to_string(&path)?;
 
@@ -568,7 +581,7 @@ impl FileSystem {
                 Some(attributes),
                 Some(target.to_string()),
             ));
-            cache.put_new(path, item);
+            cache.put_new(path, item).await;
         }
         Ok(attributes)
     }
@@ -576,7 +589,7 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn read_symlink<P: AsRef<Path> + Debug>(&self, path: P) -> Result<String> {
         if let Some(cache) = &self.cache
-            && let Some(CacheItem::SymLink(SymLink { target, .. })) = cache.get(path.as_ref())
+            && let Some(CacheItem::SymLink(SymLink { target, .. })) = cache.get(path.as_ref()).await
             && let Some(target) = target
         {
             // cache hit
@@ -593,12 +606,13 @@ impl FileSystem {
                 None,
                 Some(target.clone()),
             ));
-            cache.put(path, item, false);
+            cache.put(path, item, false).await;
         }
 
         Ok(target)
     }
 
+    // TODO: remove the ret log
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn flush_write_buffer(&self) -> Result<()> {
         let (path_owned, offset, data_owned) = {
@@ -623,16 +637,16 @@ impl FileSystem {
             .await?;
 
         if let Some(cache) = &self.cache {
-            cache_write_file(cache, &path_owned, offset, &data_owned, true);
+            cache_write_file(cache, &path_owned, offset, &data_owned, true).await;
         }
 
         Ok(())
     }
 
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
-    pub fn cache_invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
+    #[instrument(skip(self))]
+    pub async fn cache_invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
         if let Some(cache) = &self.cache {
-            cache.invalidate(path);
+            cache.invalidate(path).await;
         }
     }
 }

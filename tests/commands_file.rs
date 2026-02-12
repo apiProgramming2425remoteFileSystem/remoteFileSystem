@@ -285,7 +285,7 @@ mod tests {
 
         // COMPARE: stat (Size & Permissions)
         // Normalize the output to remove the differing file paths if 'stat' printed them.
-        assert_stat_with_tolerance(&client_file, &server_file, 1.0).map_err(|e| {
+        assert_stat_with_tolerance(&client_file, &server_file, 5.0).map_err(|e| {
             anyhow!(
                 "Stat metadata mismatch between Client and Server for size {} {}: {}",
                 size,

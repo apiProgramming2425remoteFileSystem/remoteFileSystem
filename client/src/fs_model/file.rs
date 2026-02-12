@@ -4,14 +4,13 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
+use std::sync::atomic::Ordering;
 use std::vec::Vec;
 
 use crate::cache::CacheableItem;
 
 fn get_page_size() -> usize {
-    *PAGE_SIZE
-        .get()
-        .expect("CRITICAL: PAGE_SIZE not initialized")
+    PAGE_SIZE.load(Ordering::Relaxed)
 }
 
 #[derive(Clone, Debug)]
@@ -84,11 +83,12 @@ impl File {
         let mut curr_offset = offset;
 
         while !remaining.is_empty() {
-            let Some(max_pages) = MAX_PAGES.get() else {
+            let max_pages = MAX_PAGES.load(Ordering::Relaxed);
+            if max_pages == 0 {
                 break;
-            };
+            }
 
-            if self.content.len() >= *max_pages {
+            if self.content.len() >= max_pages {
                 break;
             }
 
@@ -150,10 +150,11 @@ impl File {
         }
         for key in other.content.keys() {
             if let Some(page) = other.content.get(key) {
-                let Some(max_pages) = MAX_PAGES.get() else {
+                let max_pages = MAX_PAGES.load(Ordering::Relaxed);
+                if max_pages == 0 {
                     break;
                 };
-                if self.content.len() >= *max_pages {
+                if self.content.len() >= max_pages {
                     break;
                 }
                 self.write_content(
@@ -190,13 +191,7 @@ impl Debug for File {
         result += "pages: ";
         for key in self.content.keys() {
             if let Some(page) = self.content.get(key) {
-                result += &format!(
-                    "{}:[{}-{}]<{:?}> ",
-                    key,
-                    page.valid_from,
-                    page.valid_up_to,
-                    &page.content[page.valid_from..page.valid_up_to]
-                );
+                result += &format!("{}:[{}-{}] ", key, page.valid_from, page.valid_up_to,);
             }
         }
         write!(f, "{}", result)

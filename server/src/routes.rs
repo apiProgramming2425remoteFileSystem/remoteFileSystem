@@ -111,7 +111,7 @@ async fn get_file_content(
 }
 
 #[put("/files/{path}")]
-#[instrument(skip(fs), ret(level = Level::DEBUG))]
+#[instrument(skip(fs, body), ret(level = Level::DEBUG))]
 async fn write_file(
     user: AuthenticatedUser,
     fs: web::Data<FileSystem>,

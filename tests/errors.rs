@@ -40,10 +40,6 @@ fn test_server_error_mapping() -> Result<()> {
         err.kind()
     );
 
-    // // Cleanup: Restore permissions so the test runner can delete the dir later
-    // perms.set_mode(0o644);
-    // fs::set_permissions(&secret_file, perms)?;
-
     Ok(())
 }
 
