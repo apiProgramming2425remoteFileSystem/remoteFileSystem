@@ -3,13 +3,11 @@ pub mod cache;
 pub mod commands;
 pub mod config;
 
-#[cfg(unix)]
 pub mod daemon;
 pub mod error;
 pub mod fs_model;
 pub mod fuse;
 
-#[cfg(unix)]
 pub mod gui;
 pub mod logging;
 pub mod mount;
@@ -18,27 +16,21 @@ pub mod network;
 pub mod rw_buffer;
 mod util;
 
-#[cfg(unix)]
 use gui::Gui;
-#[cfg(unix)]
 use std::fs;
 use std::io::{self, Write};
-#[cfg(unix)]
 use std::sync::Arc;
-
 use rpassword::read_password;
+#[cfg(windows)]
+use tokio::runtime::Runtime;
 
 use crate::config::RfsConfig;
-#[cfg(unix)]
 use crate::daemon::Daemon;
 use crate::error::RfsClientError;
-#[cfg(unix)]
 use crate::fuse::Fs;
-#[cfg(windows)]
-use crate::mount::windows::mount_windows;
-#[cfg(unix)]
 use crate::mount::{MountOptions, MountPoint};
 use crate::network::RemoteStorage;
+
 
 type Result<T> = std::result::Result<T, RfsClientError>;
 
@@ -55,19 +47,8 @@ const MAX_LOGIN_ATTEMPTS: u8 = 3;
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`RfsClientError`][crate::error::RfsClientError].
 ///
-pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
-    #[cfg(unix)]
-    {
-        start_unix(config, rc)
-    }
-    #[cfg(windows)]
-    {
-        start_windows(config, rc)
-    }
-}
 
-#[cfg(unix)]
-pub fn start_unix<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
+pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     println!("Starting RemoteFS...");
 
     if config.gui_enabled {
@@ -111,7 +92,10 @@ pub fn start_unix<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
         drop(runtime);
 
         // Instantiate the daemon
+        #[cfg(unix)]
         let daemon = Daemon::new().foreground(config.foreground);
+        #[cfg(windows)]
+        let daemon = Daemon::new().foreground(true);
         // Initialize the daemon
         daemon.initialize()?;
 
@@ -129,40 +113,17 @@ pub fn start_unix<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
         }
 
         // Start the daemon
+        #[cfg(unix)]
         daemon.create_runtime(run_async(config.clone(), Arc::new(rc), daemon.clone()))?;
+        #[cfg(windows)]
+        daemon.create_runtime(config.clone(), Arc::new(rc), daemon.clone())?;
 
         tracing::info!("RemoteFS execution finished.");
         Ok(())
     }
 }
 
-#[cfg(windows)]
-fn start_windows<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
-    println!("Starting RemoteFS (Windows / WinFSP)");
 
-    let _log = logging::Logging::from(&config.logging)?;
-
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| {
-            RfsClientError::Other(anyhow::format_err!(
-                "Failed to build Tokio runtime: {}",
-                err
-            ))
-        })?;
-    runtime.block_on(async {
-        rc.health_check().await?;
-        perform_login(&rc, config).await?;
-        Ok::<_, RfsClientError>(())
-    })?;
-
-    drop(runtime);
-
-    mount_windows(rc, config)?;
-
-    Ok(())
-}
 
 async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<String> {
     println!("Welcome to Remote File System. First you need to authenticate!");
@@ -206,13 +167,16 @@ async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<S
     )))
 }
 
-#[cfg(unix)]
+
 pub async fn run_async<R: RemoteStorage>(
     config: RfsConfig,
     rc: Arc<R>,
     daemon: Daemon,
+    #[cfg(windows)]
+    rt: Arc<Runtime>,
 ) -> Result<()> {
     // Create mount point directory if it doesn't exist
+    #[cfg(unix)]
     if !config.mount_point.exists() {
         println!(
             "Mount point directory {:?} does not exist. Creating it.",
@@ -227,7 +191,10 @@ pub async fn run_async<R: RemoteStorage>(
     }
 
     // Create Filesystem
+    #[cfg(unix)]
     let fs = Fs::new(rc, &config);
+    #[cfg(windows)]
+    let fs = Fs::new(rc, &config, rt.clone());
 
     let mount_options = MountOptions::from(&config.mount);
 
@@ -267,7 +234,7 @@ pub async fn run_async<R: RemoteStorage>(
                 }
             }
         }
-    };
+    }
 
     tracing::info!("Cleanup complete. Exiting.");
     Ok(())

@@ -6,6 +6,10 @@ use anyhow;
 use async_trait::async_trait;
 use tokio::sync::Notify;
 use tracing::{Level, instrument};
+use crate::config::RfsConfig;
+use crate::network::RemoteStorage;
+#[cfg(windows)]
+use crate::run_async;
 
 type Result<T> = std::result::Result<T, DaemonError>;
 
@@ -56,6 +60,7 @@ impl Daemon {
 
     /// Run the daemon with the provided future
     /// **IMPORTANT**: This function needs to be called after daemonizing the process
+    #[cfg(unix)]
     #[instrument(skip(self, future), err(level = Level::ERROR))]
     pub fn create_runtime<F>(&self, future: F) -> Result<()>
     where
@@ -88,6 +93,40 @@ impl Daemon {
 
         Ok(())
     }
+
+    #[cfg(windows)]
+    #[instrument(skip(self, config, rc, daemon), err(level = Level::ERROR))]
+    pub fn create_runtime<R: RemoteStorage>(&self, config: RfsConfig, rc: Arc<R>, daemon: Daemon) -> Result<()>
+    {
+        // Spawn the future in the tokio runtime
+        // Important: we build the runtime here to ensure it's created after demonizing
+        let runtime = Arc::new(tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| {
+                DaemonError::Other(anyhow::format_err!(
+                    "Failed to build Tokio runtime: {}",
+                    err
+                ))
+            })?
+        );
+
+        tracing::info!("Async Runtime started. Preparing Remote File System...");
+
+        runtime.block_on(async {
+            // Spawn the signal handler (Kill/Ctrl+C)
+            self.spawn_signal_handler();
+
+            // Execute the main future (run_async passed from lib.rs)
+            if let Err(e) = run_async(config, rc, daemon, runtime.clone()).await {
+                eprintln!("Runtime error: {}", e);
+                tracing::error!("Runtime error: {}", e);
+            }
+        });
+
+        Ok(())
+    }
+
 
     #[instrument(skip(self))]
     pub async fn wait_for_shutdown(&self) {
@@ -203,10 +242,22 @@ mod platform {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 mod platform {
     use super::*;
 
     #[async_trait]
-    impl DaemonService for Daemon {}
+    impl DaemonService for Daemon {
+        fn start(&self) -> Result<()> {
+            // Determine if we should daemonize or run in foreground
+            if self.foreground {
+                println!("Running in foreground mode, not daemonizing.");
+                tracing::info!("Running in foreground mode, not daemonizing.");
+                Ok(())
+            }
+            else {
+                Err(DaemonError::StartFailed("Windows doesn't support daemonizing".to_string()))
+            }
+        }
+    }
 }

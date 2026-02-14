@@ -31,7 +31,7 @@ pub struct MountOptions {
 
 /// Trait for mounting and unmounting the filesystem.
 #[async_trait]
-pub trait MountFs: Send + Sync {
+pub trait MountFs: Send {
     /// Mounts the filesystem at the specified mount point.
     #[allow(unused_variables)]
     async fn mount(&mut self, fs: Fs, mount_point: &Path, options: &MountOptions) -> Result<()> {
@@ -86,13 +86,19 @@ impl MountPoint {
     // Execute the mount operation. Requires a mutable reference to self to manage the session state.
     #[instrument(skip(self, fs), err(level = Level::ERROR))]
     pub async fn mount(&mut self, fs: Fs) -> Result<()> {
-        tracing::info!("Mounting FS at {:?}", self.mount_point);
+
+        #[cfg(unix)]
+        let mount_point = self.mount_point.clone();
+        #[cfg(windows)]
+        let mount_point = PathBuf::from("X:");
+
+        tracing::info!("Mounting FS at {:?}", mount_point);
 
         self.session
-            .mount(fs, &self.mount_point, &self.options)
+            .mount(fs, &mount_point, &self.options)
             .await?;
 
-        tracing::info!("FS mounted at {:?}", self.mount_point);
+        tracing::info!("FS mounted at {:?}", mount_point);
         Ok(())
     }
 
@@ -151,11 +157,9 @@ impl Default for MountOptions {
 fn create_driver() -> Box<dyn MountFs> {
     #[cfg(unix)]
     return Box::new(unix::UnixSession::default());
-    // #[cfg(windows)]
-    // return Box::new(windows::WindowsSession::default());
-
-    // #[cfg(not(any(unix, windows)))]
-    #[cfg(not(any(unix)))]
+    #[cfg(windows)]
+    return Box::new(windows::WindowsSession::default());
+    #[cfg(not(any(unix, windows)))]
     panic!("Platform not supported");
 }
 

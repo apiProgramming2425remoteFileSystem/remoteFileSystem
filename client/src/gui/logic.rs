@@ -280,7 +280,6 @@ impl<R: RemoteStorage> Gui<R> {
             });
         });
 
-        /* MOUNTING AND UNMOUNTING -> TODO: add support for Windows */
         let rc_mount = self.rc.clone();
         let rt_mount = self.rt.clone();
         let ui_mount = ui_weak.clone();
@@ -305,9 +304,25 @@ impl<R: RemoteStorage> Gui<R> {
 
             tracing::info!("Starting FUSE runtime...");
             let ui_inner = ui_thread.clone();
+            let rt_copy = rt_mount.clone();
             rt_mount.spawn(async move {
                 let ui_gui = ui_inner.clone();
+                #[cfg(unix)]
                 if let Err(e) = run_async(config, rc_thread, daemon.clone()).await {
+                    tracing::error!("Runtime crashed: {}", e);
+
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_gui.upgrade() {
+                            ui.set_is_loading(false);
+                            ui.set_fs_is_active(false);
+                            ui.set_error_message(SharedString::from(format!(
+                                "Runtime crushed: {e}"
+                            )));
+                        }
+                    });
+                };
+                #[cfg(windows)]
+                if let Err(e) = run_async(config, rc_thread, daemon.clone(), rt_copy).await {
                     tracing::error!("Runtime crashed: {}", e);
 
                     let _ = slint::invoke_from_event_loop(move || {

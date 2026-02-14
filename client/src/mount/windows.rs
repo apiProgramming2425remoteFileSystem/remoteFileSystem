@@ -1,20 +1,52 @@
-use std::sync::Arc;
-
-use crate::config::RfsConfig;
-use crate::fuse::Fs;
-use crate::network::RemoteStorage;
+use super::*;
+use async_trait::async_trait;
 use winfsp::host::{FileSystemHost, VolumeParams};
 
-pub fn mount_windows<R: RemoteStorage>(rc: R, config: &RfsConfig) -> winfsp::Result<()> {
-    let fs = Fs::new(Arc::new(rc), config);
-    let mut params = VolumeParams::default();
-    params.case_preserved_names(true);
-    let mut host = FileSystemHost::new(params, fs)?;
-    host.start()?;
-    println!("[WinFSP] mounting filesystem on X:");
-    host.mount("X:")?;
-    println!("[WinFSP] mounted successfully");
-    println!("[WinFSP] mounted on X:, press Ctrl+C to exit");
-    std::thread::park();
-    Ok(())
+#[derive(Default)]
+pub struct WindowsSession {
+    host: Option<FileSystemHost<Fs>>,
+}
+
+#[async_trait]
+impl MountFs for WindowsSession {
+    async fn mount(
+        &mut self,
+        fs: Fs,
+        mount_point: &Path,
+        _options: &MountOptions,
+    ) -> Result<()> {
+        let mut params = VolumeParams::default();
+        params.case_preserved_names(true);
+
+        let mut host = FileSystemHost::new(params, fs)
+            .map_err(|e| MountError::MountFailed(e.to_string()))?;
+
+        host.start()
+            .map_err(|e| MountError::MountFailed(e.to_string()))?;
+
+        host.mount(mount_point)
+            .map_err(|e| MountError::MountFailed(e.to_string()))?;
+
+        self.host = Some(host);
+
+        Ok(())
+    }
+
+    async fn wait(&mut self) -> Result<()> {
+        tokio::task::spawn_blocking(|| {
+            std::thread::park();
+        })
+            .await
+            .map_err(|e| MountError::Other(e.into()))?;
+
+        Ok(())
+    }
+
+    async fn unmount(&mut self) -> Result<()> {
+        if let Some(mut host) = self.host.take() {
+            host.unmount();
+        }
+
+        Ok(())
+    }
 }

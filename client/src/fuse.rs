@@ -17,15 +17,22 @@ use tokio::runtime::Runtime;
 pub struct Fs {
     fs: FileSystem,
     #[cfg(windows)]
-    rt: Runtime,
+    rt: Arc<Runtime>,
 }
 
 impl Fs {
+    #[cfg(unix)]
     pub fn new<R: RemoteStorage>(rc: Arc<R>, config: &RfsConfig) -> Self {
         Self {
             fs: FileSystem::new(rc, config),
-            #[cfg(windows)]
-            rt: Runtime::new().unwrap(),
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn new<R: RemoteStorage>(rc: Arc<R>, config: &RfsConfig, rt: Arc<Runtime>) -> Self {
+        Self {
+            fs: FileSystem::new(rc, config),
+            rt,
         }
     }
 }
