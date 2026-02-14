@@ -48,7 +48,7 @@ pub struct FileSystem {
     file_handlers: RwLock<HashMap<u64, PathBuf>>,
     read_buffer: RwLock<ReadBuffer>,
     write_buffer: RwLock<WriteBuffer>,
-    cache: Option<Arc<Cache>>,
+    cache: Option<Cache>,
 }
 
 fn get_parent_path<P: AsRef<Path> + Debug>(path: P) -> PathBuf {
@@ -354,35 +354,19 @@ impl FileSystem {
             }
         }
 
-        let mut handles = Vec::new();
 
         for (path, offset, data) in uploads {
-            let cache = self.cache.clone();
-            let client = self.remote_client.clone();
-            let handle = tokio::spawn(async move {
-                client
-                    .write_file(path.to_string_lossy().as_ref(), offset, &data)
-                    .await?;
-
-                if let Some(cache_thread) = cache {
-                    cache_write_file(&cache_thread, &path, offset, &data, true).await;
-                }
-
-                Ok::<(), FsModelError>(())
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            match handle.await {
-                Ok(Ok(())) => (),
-                Ok(Err(e)) => return Err(e),
-                Err(tokio_err) => return Err(FsModelError::Other(tokio_err.into())),
+            let path_str = path_to_string(&path)?;
+            self.remote_client.write_file(&path_str, offset, &data).await?;
+            if let Some(cache) = &self.cache {
+                cache_write_file(&cache, &path, offset, &data, true).await;
             }
         }
 
+
         Ok(data_written)
     }
+
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn mkdir<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {

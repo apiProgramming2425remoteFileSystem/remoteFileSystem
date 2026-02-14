@@ -7,7 +7,6 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
@@ -125,19 +124,19 @@ fn parent_paths<P: AsRef<Path> + Debug>(path: P) -> Vec<PathBuf> {
 
 impl Cache {
     #[instrument(ret(level = Level::DEBUG))]
-    pub fn from_config(cfg: &CacheConfig) -> Option<Arc<Self>> {
+    pub fn from_config(cfg: &CacheConfig) -> Option<Self> {
         if !cfg.enabled {
             return None;
         }
 
-        Some(Arc::new(Cache {
+        Some(Cache {
             entries: RwLock::new(HashMap::new()),
             capacity: cfg.capacity,
             ttl: Duration::from_secs(cfg.ttl),
             use_ttl: cfg.use_ttl,
             policy: cfg.policy,
             max_file_size: cfg.max_size,
-        }))
+        })
     }
 
     async fn invalidate_parents<P: AsRef<Path>>(&self, path: P) {
@@ -249,7 +248,7 @@ impl Cache {
 
 #[instrument(skip(cache, data))]
 pub async fn cache_write_file<P: AsRef<Path> + Debug>(
-    cache: &Arc<Cache>,
+    cache: &Cache,
     path: P,
     offset: usize,
     data: &[u8],
@@ -270,7 +269,7 @@ pub async fn cache_write_file<P: AsRef<Path> + Debug>(
 
 #[instrument(skip(cache))]
 pub async fn cache_put_attr<P: AsRef<Path> + Debug>(
-    cache: &Arc<Cache>,
+    cache: &Cache,
     path: P,
     attributes: Attributes,
 ) {
