@@ -330,7 +330,7 @@ async fn set_x_attributes(
     path_params: web::Path<(String, String)>,
     json: web::Json<Xattributes>,
 ) -> Result<impl Responder> {
-    let (name, path) = path_params.into_inner();
+    let (path, name) = path_params.into_inner();
     user.check_permission(&fs, &path, Operation::Write)?;
 
     pool.set_x_attributes(&path, &name, json.get()).await?;
@@ -346,7 +346,7 @@ async fn get_x_attributes(
     pool: web::Data<DB>,
     path_params: web::Path<(String, String)>,
 ) -> Result<impl Responder> {
-    let (name, path) = path_params.into_inner();
+    let (path, name) = path_params.into_inner();
 
     user.check_permission(&fs, &path, Operation::Read)?;
 
@@ -379,7 +379,7 @@ async fn delete_x_attributes(
     pool: web::Data<DB>,
     path_params: web::Path<(String, String)>,
 ) -> Result<impl Responder> {
-    let (name, path) = path_params.into_inner();
+    let (path, name) = path_params.into_inner();
     user.check_permission(&fs, &path, Operation::Write)?;
 
     pool.remove_x_attributes(&path, &name).await?;

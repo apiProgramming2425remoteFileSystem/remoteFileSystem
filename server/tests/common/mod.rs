@@ -269,8 +269,6 @@ pub struct Attributes {
     pub mtime: Timestamp,
     /// Time of last change
     pub ctime: Timestamp,
-    /// Time of creation (macOS only)
-    pub crtime: Timestamp,
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
     /// Permissions
@@ -285,8 +283,6 @@ pub struct Attributes {
     pub rdev: u32,
     /// block size
     pub blksize: u32,
-    /// #[cfg(target_os = "macos")]
-    pub flags: u32,
 }
 
 /// File types

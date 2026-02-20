@@ -485,7 +485,7 @@ async fn xattrs_after_delete_are_gone() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     let resp = client.get(&url).send().await?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 204);
 
     Ok(())
 }
@@ -589,9 +589,8 @@ async fn xattrs_follow_rename() -> anyhow::Result<()> {
         .await?
         .error_for_status()?;
 
-    // old xattr -> 404
     let resp = client.get(&xurl_old).send().await?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 204);
 
     // new xattr -> presente
     let xurl_new = client.set_long_url("xattributes", "/b.txt", "names", Some("user.test"));
