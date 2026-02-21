@@ -360,11 +360,6 @@ mod platform {
         }
 
         fn try_to_target(value: i32) -> Result<Self, Self::Error> {
-            tracing::debug!(
-                "flags contains FUSE_WRITE_CACHE: {}",
-                (value as u32) & fuse3::raw::flags::FUSE_WRITE_CACHE != 0
-            );
-
             let access_mode = value & libc::O_ACCMODE;
 
             Ok(Self {

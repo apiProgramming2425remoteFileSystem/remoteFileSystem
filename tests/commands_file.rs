@@ -266,7 +266,7 @@ mod tests {
             size,
             dim
         );
-        std::thread::sleep(std::time::Duration::from_millis(100));
+
         assert!(
             server_file.exists(),
             "Server file not found after copy file {} {}",

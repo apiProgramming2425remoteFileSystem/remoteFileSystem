@@ -412,6 +412,11 @@ impl FileSystem {
         path: &Path,
         operation: Operation,
     ) -> Result<bool> {
+        // if path is root everyone can access to it
+        if path == Path::new("/") {
+            return Ok(true);
+        }
+
         let mut path = self.make_real_path(path)?;
         if fs::symlink_metadata(&path).is_err() {
             let parent = path
@@ -426,11 +431,6 @@ impl FileSystem {
 
         let owner_uid = attributes.uid;
         let owner_gid = attributes.gid;
-
-        // if path owner is root, it means it has not been created by any user, so everyone can access to it
-        if owner_uid == 0 {
-            return Ok(true);
-        }
 
         // 1. user_id == owner_uid -> check permissions
         if user_id == owner_uid {

@@ -155,7 +155,25 @@ fn test_error_mapping_eisdir() -> Result<()> {
 #[cfg(unix)]
 #[test]
 fn test_error_mapping_eacces() -> Result<()> {
-    let (_ctx, mount_point, _server_root) = setup_e2e!();
+    let test_env = TestEnvironment::new()?;
+    let mut sys_build = test_env.setup()?;
+
+    sys_build.client.arg("--no-cache");
+
+    let ctx = sys_build.build()?;
+
+    // We clone paths to own them outside the ctx borrow lifetime if needed
+    let mount_point = ctx
+        .mount_point()
+        .ok_or_else(|| anyhow::anyhow!("Client mount point missing"))?
+        .to_path_buf();
+
+    let server_root = ctx
+        .server_root()
+        .ok_or_else(|| anyhow::anyhow!("Server root missing"))?
+        .to_path_buf();
+
+    // let (_ctx, mount_point, _server_root) = setup_e2e!();
 
     let file = mount_point.join("secret.txt");
     fs::write(&file, "top secret")?;
