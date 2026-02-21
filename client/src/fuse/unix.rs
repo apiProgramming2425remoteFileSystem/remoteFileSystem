@@ -14,6 +14,7 @@ use fuse3::{Errno, Result as FuseResult};
 use futures_util::stream;
 use libc;
 use tracing::{Level, instrument};
+use std::time::Duration;
 
 /// pub async fn template_fn(&self, args) -> Result<> {
 ///     1. convert args to fs_model structures
@@ -69,7 +70,7 @@ impl PathFilesystem for Fs {
         let attributes = self.fs.get_attributes(&path).await?;
 
         Ok(ReplyEntry {
-            ttl: self.fs.get_ttl(),
+            ttl: Duration::from_secs(0),
             attr: attributes.into(),
         })
     }
@@ -116,7 +117,7 @@ impl PathFilesystem for Fs {
         let attributes = self.fs.get_attributes(&path).await?;
 
         Ok(ReplyAttr {
-            ttl: self.fs.get_ttl(),
+            ttl: Duration::from_secs(0),
             attr: attributes.into(),
         })
     }
@@ -149,7 +150,7 @@ impl PathFilesystem for Fs {
             .await?;
 
         Ok(ReplyAttr {
-            ttl: self.fs.get_ttl(),
+            ttl: Duration::from_secs(0),
             attr: attributes.into(),
         })
     }
@@ -324,7 +325,7 @@ impl PathFilesystem for Fs {
         let file_attr = self.fs.create_file(&path, &fs_type, 0, &[]).await?;
 
         Ok(ReplyEntry {
-            ttl: self.fs.get_ttl(),
+            ttl: Duration::from_secs(0),
             attr: file_attr.into(),
         })
     }
@@ -370,7 +371,7 @@ impl PathFilesystem for Fs {
         let fh = self.fs.open(&path, &fs_flags).await?;
 
         Ok(ReplyCreated {
-            ttl: self.fs.get_ttl(),
+            ttl: Duration::from_secs(0),
             attr: file_attr.into(),
             generation: 0,
             fh,
@@ -749,7 +750,7 @@ impl PathFilesystem for Fs {
         let attr = self.fs.mkdir(&complete_path).await?;
 
         Ok(ReplyEntry {
-            ttl: self.fs.get_ttl(),
+            ttl: Duration::from_secs(0),
             attr: attr.into(),
         })
     }
@@ -852,8 +853,8 @@ impl PathFilesystem for Fs {
                     name: item.name.into(),
                     offset: (offset + idx as u64 + 1) as i64,
                     attr: attr.into(),
-                    entry_ttl: self.fs.get_ttl(),
-                    attr_ttl: self.fs.get_ttl(),
+                    entry_ttl: Duration::from_secs(0),
+                    attr_ttl: Duration::from_secs(0),
                 })
             })
             .collect();
@@ -979,7 +980,7 @@ impl PathFilesystem for Fs {
         let file_attr = self.fs.create_symlink(&path, target.as_ref()).await?;
 
         Ok(ReplyEntry {
-            ttl: self.fs.get_ttl(),
+            ttl: Duration::from_secs(0),
             attr: file_attr.into(),
         })
     }

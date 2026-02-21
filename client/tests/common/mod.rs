@@ -14,6 +14,7 @@ use client::fs_model::attributes::{Attributes, FileType, Timestamp};
 use client::logging::Logging;
 use client::network::MockRemoteStorage;
 use client::run_async;
+use std::fmt;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -48,6 +49,14 @@ pub struct AppController {
     _logger: Logging,
     daemon: Daemon,
     app_handle: JoinHandle<()>,
+}
+
+impl fmt::Debug for AppController {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AppController")
+            .field("mount_point", &self.mount_point)
+            .finish()
+    }
 }
 
 impl AppController {

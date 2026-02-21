@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use tracing::{Level, instrument};
 
@@ -7,8 +8,10 @@ pub struct ReadBuffer {
     path: PathBuf,
     offset: usize,
     valid_up_to: usize,
+    filled_at: Instant,
     buffer: Vec<u8>,
     capacity: usize,
+    ttl: Duration,
 }
 
 impl ReadBuffer {
@@ -18,6 +21,8 @@ impl ReadBuffer {
             path: PathBuf::new(),
             offset: 0,
             buffer: vec![0; capacity],
+            filled_at: Instant::now(),
+            ttl: Duration::from_millis(100),
             valid_up_to: 0,
             capacity,
         }
@@ -31,6 +36,7 @@ impl ReadBuffer {
     pub fn fill<P: AsRef<Path> + Debug>(&mut self, path: P, offset: usize, data: &[u8]) {
         self.path = path.as_ref().to_path_buf();
         self.offset = offset;
+        self.filled_at = Instant::now();
         let to_copy = data.len().min(self.capacity);
         self.buffer[..to_copy].copy_from_slice(&data[..to_copy]);
         self.valid_up_to = to_copy;
@@ -41,6 +47,7 @@ impl ReadBuffer {
         if path.as_ref() != self.path
             || offset < self.offset
             || offset >= self.offset + self.valid_up_to
+            || self.filled_at + self.ttl < Instant::now()
         {
             Vec::new()
         } else {

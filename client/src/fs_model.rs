@@ -95,13 +95,6 @@ impl FileSystem {
             cache: Cache::from_config(&config.cache),
         }
     }
-    pub fn get_ttl(&self) -> Duration {
-        if let Some(cache) = &self.cache {
-            cache.ttl
-        } else {
-            Duration::from_secs(0)
-        }
-    }
 
     pub fn use_xattributes(&self) -> bool {
         self.xattributes_enabled
