@@ -20,7 +20,7 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Install a global panic hook that forcefully unmounts the FUSE filesystem in case of a panic.
 /// Call this function as the FIRST thing in your test.
-pub fn register_fuse_panic_hook(mount_path: PathBuf) {
+pub fn register_fuse_panic_hook(#[cfg(unix)] mount_path: PathBuf) {
     // Get the original hook to preserve default panic behavior
     let original_hook = std::panic::take_hook();
 
@@ -66,7 +66,10 @@ impl AppController {
         let mount_point = mount_dir.path().join(&config.mount_point);
 
         config.mount_point = mount_point.clone();
-        register_fuse_panic_hook(config.mount_point.clone());
+        register_fuse_panic_hook(
+            #[cfg(unix)]
+            config.mount_point.clone(),
+        );
 
         // MOCK ROOT METADATA
         // Must allow the kernel to look up the root attributes ("/")
@@ -102,7 +105,7 @@ impl AppController {
         // This allows the test logic to run concurrently in the main thread.
         let app_handle = tokio::spawn(async move {
             // Start the client with the mock
-            run_async(config, mock, daemon_handle)
+            run_async(&config, mock, &daemon_handle)
                 .await
                 .expect("Failed to run async client");
 

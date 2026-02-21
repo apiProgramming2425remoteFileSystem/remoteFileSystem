@@ -128,18 +128,19 @@ fn unmount(daemon: Arc<Mutex<Option<Daemon>>>) {
 }
 
 impl<R: RemoteStorage> Gui<R> {
-    pub fn new(rc: R, config: RfsConfig) -> Result<Self, GUIError> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| GUIError::RunningIssue(e.to_string()))?;
+    pub fn new(
+        rc: Arc<R>,
+        config: RfsConfig,
+        deamon: Daemon,
+        rt: Arc<Runtime>,
+    ) -> Result<Self, GUIError> {
         let ui = App::new().map_err(|e| GUIError::RenderingIssue(e.to_string()))?;
 
         Ok(Gui {
             ui,
-            rc: Arc::new(rc),
-            rt: Arc::new(rt),
-            daemon: Arc::new(Mutex::new(None)),
+            rc,
+            rt,
+            daemon: Arc::new(Mutex::new(Some(deamon))),
             default_config: config.clone(),
             config: Arc::new(Mutex::new(config.clone())),
         })
@@ -154,7 +155,6 @@ impl<R: RemoteStorage> Gui<R> {
         let rt_health = self.rt.clone();
         if let Some(ui) = ui_health.upgrade() {
             slint::Timer::single_shot(std::time::Duration::from_millis(2000), move || {
-                tracing::info!("Server is available!");
                 ui.set_active_view(ViewState::Home);
             });
         }
@@ -293,36 +293,28 @@ impl<R: RemoteStorage> Gui<R> {
             // 1. Extract config informations
             let config = config_arc.blocking_lock().clone();
 
-            let daemon = Daemon::new();
-
-            {
-                let mut lock = daemon_mount.blocking_lock();
-                *lock = Some(daemon.clone());
-            }
+            let mut lock = daemon_mount.blocking_lock();
+            let daemon = lock.get_or_insert(Daemon::new()).clone();
+            drop(lock);
 
             let _mount_options = MountOptions::from(&config.mount);
 
             tracing::info!("Starting FUSE runtime...");
             let ui_inner = ui_thread.clone();
+            #[cfg(windows)]
             let rt_copy = rt_mount.clone();
             rt_mount.spawn(async move {
                 let ui_gui = ui_inner.clone();
-                #[cfg(unix)]
-                if let Err(e) = run_async(config, rc_thread, daemon.clone()).await {
-                    tracing::error!("Runtime crashed: {}", e);
 
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_gui.upgrade() {
-                            ui.set_is_loading(false);
-                            ui.set_fs_is_active(false);
-                            ui.set_error_message(SharedString::from(format!(
-                                "Runtime crushed: {e}"
-                            )));
-                        }
-                    });
-                };
-                #[cfg(windows)]
-                if let Err(e) = run_async(config, rc_thread, daemon.clone(), rt_copy).await {
+                if let Err(e) = run_async(
+                    &config,
+                    rc_thread,
+                    &daemon,
+                    #[cfg(windows)]
+                    rt_copy,
+                )
+                .await
+                {
                     tracing::error!("Runtime crashed: {}", e);
 
                     let _ = slint::invoke_from_event_loop(move || {
@@ -365,19 +357,19 @@ impl<R: RemoteStorage> Gui<R> {
         /* CONFIGURATION MANAGEMENT */
         let ui_string = ui_weak.clone();
         let config_string = self.config.clone();
-        self.ui.on_change_string_property(move |object: StringItem| {
-            {
-                let mut config = config_string.blocking_lock();
-                match object.env.as_str() {
-                    "MOUNT" => match object.id_rust.as_str() {
-                        "mountpoint" => { 
-                            config.mount_point = PathBuf::from(object.value.as_str()); 
-                        }
-                        _ => (),
-                    },
-                    "CACHE" => match object.id_rust.as_str() {
-                        "policy" => {
-                            match object.value.as_str() {
+        self.ui
+            .on_change_string_property(move |object: StringItem| {
+                {
+                    let mut config = config_string.blocking_lock();
+                    match object.env.as_str() {
+                        "MOUNT" => match object.id_rust.as_str() {
+                            "mountpoint" => {
+                                config.mount_point = PathBuf::from(object.value.as_str());
+                            }
+                            _ => (),
+                        },
+                        "CACHE" => match object.id_rust.as_str() {
+                            "policy" => match object.value.as_str() {
                                 "LRU" => {
                                     config.cache.policy = crate::config::CachePolicy::Lru;
                                 }
@@ -385,13 +377,11 @@ impl<R: RemoteStorage> Gui<R> {
                                     config.cache.policy = crate::config::CachePolicy::Lfu;
                                 }
                                 _ => (),
-                            }
-                        }
-                        _ => (),
-                    },
-                    "LOG" => match object.id_rust.as_str() {
-                        "log_format" => {
-                            match object.value.as_str() {
+                            },
+                            _ => (),
+                        },
+                        "LOG" => match object.id_rust.as_str() {
+                            "log_format" => match object.value.as_str() {
                                 "COMPACT" => {
                                     config.logging.log_format = crate::config::LogFormat::Compact;
                                 }
@@ -405,10 +395,8 @@ impl<R: RemoteStorage> Gui<R> {
                                     config.logging.log_format = crate::config::LogFormat::Pretty;
                                 }
                                 _ => (),
-                            }
-                        }
-                        "log_level" => {
-                            match object.value.as_str() {
+                            },
+                            "log_level" => match object.value.as_str() {
                                 "DEBUG" => {
                                     config.logging.log_level = crate::config::LogLevel::Debug;
                                 }
@@ -425,16 +413,15 @@ impl<R: RemoteStorage> Gui<R> {
                                     config.logging.log_level = crate::config::LogLevel::Warn;
                                 }
                                 _ => (),
+                            },
+                            "log_dir" => {
+                                config.logging.log_dir = Some(PathBuf::from(object.value.as_str()));
                             }
-                        }
-                        "log_dir" => {
-                            config.logging.log_dir = Some(PathBuf::from(object.value.as_str()));
-                        }
-                        "log_file" => {
-                            config.logging.log_file = Some(PathBuf::from(object.value.as_str()));
-                        }
-                        "log_rotation" => {
-                            match object.value.as_str() {
+                            "log_file" => {
+                                config.logging.log_file =
+                                    Some(PathBuf::from(object.value.as_str()));
+                            }
+                            "log_rotation" => match object.value.as_str() {
                                 "MINUTELY" => {
                                     config.logging.log_rotation =
                                         Some(crate::config::LogRotation::Minutely);
@@ -452,27 +439,26 @@ impl<R: RemoteStorage> Gui<R> {
                                         Some(crate::config::LogRotation::Never);
                                 }
                                 _ => (),
-                            }
-                        }
+                            },
+                            _ => (),
+                        },
                         _ => (),
-                    },
-                    _ => (),
-                }
-            }
-
-            // Update GUI values
-            let ui_inner = ui_string.clone();
-            let config_inner = config_string.clone();
-            let _ = slint::invoke_from_event_loop(move || {
-                if let Some(ui) = ui_inner.upgrade() {
-                    ui.set_show_restore_default(true);
-                    ui.set_is_loading(false);
-                    if let Err(e) = load_config(&ui, config_inner) {
-                        ui.set_error_message(e.to_string().into());
                     }
                 }
+
+                // Update GUI values
+                let ui_inner = ui_string.clone();
+                let config_inner = config_string.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_inner.upgrade() {
+                        ui.set_show_restore_default(true);
+                        ui.set_is_loading(false);
+                        if let Err(e) = load_config(&ui, config_inner) {
+                            ui.set_error_message(e.to_string().into());
+                        }
+                    }
+                });
             });
-        });
 
         let config_bool = self.config.clone();
         let ui_bool = ui_weak.clone();
@@ -510,7 +496,7 @@ impl<R: RemoteStorage> Gui<R> {
                     _ => (),
                 }
             }
-           
+
             // Update GUI values
             let ui_inner = ui_bool.clone();
             let config_inner = config_bool.clone();
@@ -524,7 +510,6 @@ impl<R: RemoteStorage> Gui<R> {
                 }
             });
         });
-
 
         let config_int = self.config.clone();
         let ui_int = ui_weak.clone();
@@ -579,15 +564,15 @@ impl<R: RemoteStorage> Gui<R> {
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_inner.upgrade() {
                     ui.set_is_loading(false);
-                    if error_message != "" {
+                    if !error_message.is_empty() {
                         ui.set_error_message(error_message.into());
                     }else{
                        ui.set_show_restore_default(true);
                         if let Err(e) = load_config(&ui, config_inner){
                             ui.set_error_message(e.to_string().into());
-                        } 
+                        }
                     }
-                    
+
                 }
             });
         });

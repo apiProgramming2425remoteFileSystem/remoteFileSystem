@@ -17,10 +17,11 @@ pub mod rw_buffer;
 mod util;
 
 use gui::Gui;
+use rpassword::read_password;
+#[cfg(unix)]
 use std::fs;
 use std::io::{self, Write};
 use std::sync::Arc;
-use rpassword::read_password;
 #[cfg(windows)]
 use tokio::runtime::Runtime;
 
@@ -30,7 +31,6 @@ use crate::error::RfsClientError;
 use crate::fuse::Fs;
 use crate::mount::{MountOptions, MountPoint};
 use crate::network::RemoteStorage;
-
 
 type Result<T> = std::result::Result<T, RfsClientError>;
 
@@ -43,87 +43,67 @@ const MAX_LOGIN_ATTEMPTS: u8 = 3;
 ///
 /// ## Arguments
 /// - `config`: Configuration for the daemon. For configuration options, see [`RfsConfig`][crate::config::RfsConfig].
+/// - `rc`: An implementation of the [`RemoteStorage`] trait, which defines the interface for interacting with the remote server.
 /// ### Returns
 /// - `Ok(())`: if the execution was successful.
 /// - `Err(_)`: if an error occurred during execution. Returns [`RfsClientError`][crate::error::RfsClientError].
 ///
-
 pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
+    let config = Arc::new(config);
+    let rc = Arc::new(rc);
+
     println!("Starting RemoteFS...");
 
-    if config.gui_enabled {
-        // Initialize logging based on config
-        let _log = logging::Logging::from(&config.logging)?;
+    // Instantiate the daemon
+    let daemon = Daemon::new().foreground(config.foreground);
+    // Initialize the daemon
+    daemon.initialize()?;
 
-        tracing::trace!("[TRACE]");
-        tracing::debug!("[DEBUG]");
-        tracing::info!("[INFO]");
-        tracing::warn!("[WARN]");
-        tracing::error!("[ERROR]");
+    // Initialize logging based on config
+    let _log = logging::Logging::from(&config.logging)?;
 
-        let config_var: RfsConfig = config.to_owned();
-        Gui::new(rc, config_var)?.start_gui()?;
-        Ok(())
-    } else {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|err| {
-                RfsClientError::Other(anyhow::format_err!(
-                    "Failed to build Tokio runtime: {}",
-                    err
-                ))
-            })?;
+    tracing::trace!("[TRACE]");
+    tracing::debug!("[DEBUG]");
+    tracing::info!("[INFO]");
+    tracing::warn!("[WARN]");
+    tracing::error!("[ERROR]");
 
-        // Check on server health and user login
-        runtime.block_on(async {
-            println!("Checking connection to server at {}...", config.server_url);
-
-            rc.health_check().await.map_err(|err| {
-                println!("Connection to server failed: {}", err); // Write to log
-                err
-            })?;
-
-            rc.health_check().await?;
-
-            perform_login(&rc, config).await
-        })?;
-
-        drop(runtime);
-
-        // Instantiate the daemon
-        #[cfg(unix)]
-        let daemon = Daemon::new().foreground(config.foreground);
-        #[cfg(windows)]
-        let daemon = Daemon::new().foreground(true);
-        // Initialize the daemon
-        daemon.initialize()?;
-
-        // Initialize logging based on config
-        let _log = logging::Logging::from(&config.logging)?;
-
-        tracing::trace!("[TRACE]");
-        tracing::debug!("[DEBUG]");
-        tracing::info!("[INFO]");
-        tracing::warn!("[WARN]");
-        tracing::error!("[ERROR]");
-
-        if !config.foreground {
-            tracing::debug!("Background process started. PID: {}", std::process::id());
-        }
-
-        // Start the daemon
-        #[cfg(unix)]
-        daemon.create_runtime(run_async(config.clone(), Arc::new(rc), daemon.clone()))?;
-        #[cfg(windows)]
-        daemon.create_runtime(config.clone(), Arc::new(rc), daemon.clone())?;
-
-        tracing::info!("RemoteFS execution finished.");
-        Ok(())
+    if !config.foreground {
+        tracing::debug!("Background process started. PID: {}", std::process::id());
     }
+
+    // Start the daemon
+    let runtime = daemon.create_runtime()?;
+
+    if config.gui_enabled {
+        let config_var = (*config).to_owned();
+        Gui::new(rc, config_var, daemon, runtime.clone())?.start_gui()?;
+    } else {
+        runtime.block_on(async {
+            let config = *config;
+
+            // Check on server health and user login
+            println!("Checking connection to server at {}...", config.server_url);
+            rc.health_check().await?;
+            perform_login(&*rc, config).await?;
+
+            // Spawn the signal handler (Kill/Ctrl+C)
+            daemon.spawn_signal_handler();
+
+            run_async(
+                config,
+                rc,
+                &daemon,
+                #[cfg(windows)]
+                runtime.clone(),
+            )
+            .await
+        })?;
+    }
+
+    tracing::info!("RemoteFS execution finished.");
+    Ok(())
 }
-
-
 
 async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<String> {
     println!("Welcome to Remote File System. First you need to authenticate!");
@@ -167,13 +147,11 @@ async fn perform_login<R: RemoteStorage>(rc: &R, config: &RfsConfig) -> Result<S
     )))
 }
 
-
 pub async fn run_async<R: RemoteStorage>(
-    config: RfsConfig,
+    config: &RfsConfig,
     rc: Arc<R>,
-    daemon: Daemon,
-    #[cfg(windows)]
-    rt: Arc<Runtime>,
+    daemon: &Daemon,
+    #[cfg(windows)] rt: Arc<Runtime>,
 ) -> Result<()> {
     // Create mount point directory if it doesn't exist
     #[cfg(unix)]
@@ -191,10 +169,12 @@ pub async fn run_async<R: RemoteStorage>(
     }
 
     // Create Filesystem
-    #[cfg(unix)]
-    let fs = Fs::new(rc, &config);
-    #[cfg(windows)]
-    let fs = Fs::new(rc, &config, rt.clone());
+    let fs = Fs::new(
+        rc,
+        config,
+        #[cfg(windows)]
+        rt.clone(),
+    );
 
     let mount_options = MountOptions::from(&config.mount);
 

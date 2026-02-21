@@ -212,6 +212,10 @@ impl ConfigModule for RfsConfig {
         if self.gui_enabled {
             self.foreground = true;
         }
+
+        if cfg!(windows) {
+            self.foreground = true; // Force foreground on Windows  
+        }
     }
 
     fn validate(&self) -> std::result::Result<(), String> {

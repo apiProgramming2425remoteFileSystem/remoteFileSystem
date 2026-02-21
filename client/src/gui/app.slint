@@ -347,6 +347,7 @@ export component StringEdit inherits Rectangle {
 }
 
 export component DropDown inherits Rectangle {
+    in property <bool> fs_is_active;
     in property <brush> text_color;
     in property <length> toggle_width;
     in property <length> toggle_height;
@@ -361,6 +362,7 @@ export component DropDown inherits Rectangle {
     border-radius: 8px;
     background: ta.pressed ? toggle_color.transparentize(0.1) : ta.has-hover ? toggle_color.transparentize(0.2) : toggle_color;
     ta := TouchArea {
+        enabled: !fs_is_active;
         clicked => {
             if is_open {
                 popup.close();
@@ -812,6 +814,7 @@ export component Cache inherits Rectangle {
                     HorizontalLayout {
                         alignment: center;
                         DropDown {
+                            fs_is_active: fs_is_active;
                             name: "CACHE POLICY";
                             toggle_width: 150px;
                             toggle_height: 50px;
@@ -978,6 +981,7 @@ export component Log inherits Rectangle {
                     width: 100%;
                     alignment: center;
                     DropDown {
+                        fs_is_active: fs_is_active;
                         name: "LOG FORMAT";
                         toggle_width: 150px;
                         toggle_height: 50px;
@@ -996,6 +1000,7 @@ export component Log inherits Rectangle {
                     width: 100%;
                     alignment: center;
                     DropDown {
+                        fs_is_active: fs_is_active;
                         name: "LOG LEVEL";
                         toggle_width: 150px;
                         toggle_height: 50px;
@@ -1014,6 +1019,7 @@ export component Log inherits Rectangle {
                     width: 100%;
                     alignment: center;
                     DropDown {
+                        fs_is_active: fs_is_active;
                         name: "LOG ROTATION";
                         toggle_width: 150px;
                         toggle_height: 50px;

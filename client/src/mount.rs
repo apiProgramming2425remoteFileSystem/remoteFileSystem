@@ -86,7 +86,6 @@ impl MountPoint {
     // Execute the mount operation. Requires a mutable reference to self to manage the session state.
     #[instrument(skip(self, fs), err(level = Level::ERROR))]
     pub async fn mount(&mut self, fs: Fs) -> Result<()> {
-
         #[cfg(unix)]
         let mount_point = self.mount_point.clone();
         #[cfg(windows)]
@@ -94,9 +93,7 @@ impl MountPoint {
 
         tracing::info!("Mounting FS at {:?}", mount_point);
 
-        self.session
-            .mount(fs, &mount_point, &self.options)
-            .await?;
+        self.session.mount(fs, &mount_point, &self.options).await?;
 
         tracing::info!("FS mounted at {:?}", mount_point);
         Ok(())

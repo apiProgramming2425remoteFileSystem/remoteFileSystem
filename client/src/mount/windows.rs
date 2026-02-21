@@ -9,17 +9,12 @@ pub struct WindowsSession {
 
 #[async_trait]
 impl MountFs for WindowsSession {
-    async fn mount(
-        &mut self,
-        fs: Fs,
-        mount_point: &Path,
-        _options: &MountOptions,
-    ) -> Result<()> {
+    async fn mount(&mut self, fs: Fs, mount_point: &Path, _options: &MountOptions) -> Result<()> {
         let mut params = VolumeParams::default();
         params.case_preserved_names(true);
 
-        let mut host = FileSystemHost::new(params, fs)
-            .map_err(|e| MountError::MountFailed(e.to_string()))?;
+        let mut host =
+            FileSystemHost::new(params, fs).map_err(|e| MountError::MountFailed(e.to_string()))?;
 
         host.start()
             .map_err(|e| MountError::MountFailed(e.to_string()))?;
@@ -36,8 +31,8 @@ impl MountFs for WindowsSession {
         tokio::task::spawn_blocking(|| {
             std::thread::park();
         })
-            .await
-            .map_err(|e| MountError::Other(e.into()))?;
+        .await
+        .map_err(|e| MountError::Other(e.into()))?;
 
         Ok(())
     }

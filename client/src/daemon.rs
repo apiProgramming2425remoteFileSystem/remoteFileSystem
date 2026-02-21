@@ -1,15 +1,11 @@
 use std::sync::Arc;
 
-use crate::error::{DaemonError, RfsClientError};
-
+use crate::error::DaemonError;
 use anyhow;
 use async_trait::async_trait;
+use tokio::runtime::Runtime;
 use tokio::sync::Notify;
 use tracing::{Level, instrument};
-use crate::config::RfsConfig;
-use crate::network::RemoteStorage;
-#[cfg(windows)]
-use crate::run_async;
 
 type Result<T> = std::result::Result<T, DaemonError>;
 
@@ -58,75 +54,26 @@ impl Daemon {
         Ok(())
     }
 
-    /// Run the daemon with the provided future
-    /// **IMPORTANT**: This function needs to be called after daemonizing the process
-    #[cfg(unix)]
-    #[instrument(skip(self, future), err(level = Level::ERROR))]
-    pub fn create_runtime<F>(&self, future: F) -> Result<()>
-    where
-        F: Future<Output = std::result::Result<(), RfsClientError>> + Send + 'static,
-    {
+    #[instrument(skip(self), err(level = Level::ERROR))]
+    pub fn create_runtime(&self) -> Result<Arc<Runtime>> {
         // Spawn the future in the tokio runtime
         // Important: we build the runtime here to ensure it's created after demonizing
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|err| {
-                DaemonError::Other(anyhow::format_err!(
-                    "Failed to build Tokio runtime: {}",
-                    err
-                ))
-            })?;
-
-        tracing::info!("Async Runtime started. Preparing Remote File System...");
-
-        runtime.block_on(async {
-            // Spawn the signal handler (Kill/Ctrl+C)
-            self.spawn_signal_handler();
-
-            // Execute the main future (run_async passed from lib.rs)
-            if let Err(e) = future.await {
-                eprintln!("Runtime error: {}", e);
-                tracing::error!("Runtime error: {}", e);
-            }
-        });
-
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    #[instrument(skip(self, config, rc, daemon), err(level = Level::ERROR))]
-    pub fn create_runtime<R: RemoteStorage>(&self, config: RfsConfig, rc: Arc<R>, daemon: Daemon) -> Result<()>
-    {
-        // Spawn the future in the tokio runtime
-        // Important: we build the runtime here to ensure it's created after demonizing
-        let runtime = Arc::new(tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|err| {
-                DaemonError::Other(anyhow::format_err!(
-                    "Failed to build Tokio runtime: {}",
-                    err
-                ))
-            })?
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .map_err(|err| {
+                    DaemonError::Other(anyhow::format_err!(
+                        "Failed to build Tokio runtime: {}",
+                        err
+                    ))
+                })?,
         );
 
         tracing::info!("Async Runtime started. Preparing Remote File System...");
 
-        runtime.block_on(async {
-            // Spawn the signal handler (Kill/Ctrl+C)
-            self.spawn_signal_handler();
-
-            // Execute the main future (run_async passed from lib.rs)
-            if let Err(e) = run_async(config, rc, daemon, runtime.clone()).await {
-                eprintln!("Runtime error: {}", e);
-                tracing::error!("Runtime error: {}", e);
-            }
-        });
-
-        Ok(())
+        Ok(runtime)
     }
-
 
     #[instrument(skip(self))]
     pub async fn wait_for_shutdown(&self) {
@@ -139,7 +86,8 @@ impl Daemon {
         tracing::info!("Manual shutdown triggered, notifying daemon...");
     }
 
-    fn spawn_signal_handler(&self) {
+    #[instrument(skip(self))]
+    pub fn spawn_signal_handler(&self) {
         let daemon = self.clone();
 
         tokio::spawn(async move {
@@ -254,9 +202,10 @@ mod platform {
                 println!("Running in foreground mode, not daemonizing.");
                 tracing::info!("Running in foreground mode, not daemonizing.");
                 Ok(())
-            }
-            else {
-                Err(DaemonError::StartFailed("Windows doesn't support daemonizing".to_string()))
+            } else {
+                Err(DaemonError::StartFailed(
+                    "Windows doesn't support daemonizing".to_string(),
+                ))
             }
         }
     }

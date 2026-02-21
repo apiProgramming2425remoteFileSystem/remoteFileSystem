@@ -632,6 +632,11 @@ impl FileSystemContext for Fs {
     ) -> Result<u32> {
         self.rt.block_on(async {
             let flags = fs_model::Flags::default();
+            if self.fs.get_attributes(&context.path).await.is_err() {
+                self.fs
+                    .create_file(&context.path, &FileType::RegularFile, 0, &[])
+                    .await?;
+            }
             let written = self
                 .fs
                 .write_file(&context.path, &flags, offset as usize, buffer)

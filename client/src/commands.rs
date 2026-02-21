@@ -211,7 +211,6 @@ fn ensure_extension<P: AsRef<Path>>(path: &P, ext: &str) -> Result<PathBuf, Comm
 #[derive(Debug, Clone, Parser)]
 pub struct CliUnmountArgs {
     /// Mount point to unmount
-    #[arg(short, long)]
     pub mount_point: PathBuf,
 }
 

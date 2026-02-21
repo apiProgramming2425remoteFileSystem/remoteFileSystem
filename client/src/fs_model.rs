@@ -347,19 +347,18 @@ impl FileSystem {
             }
         }
 
-
         for (path, offset, data) in uploads {
             let path_str = path_to_string(&path)?;
-            self.remote_client.write_file(&path_str, offset, &data).await?;
+            self.remote_client
+                .write_file(&path_str, offset, &data)
+                .await?;
             if let Some(cache) = &self.cache {
-                cache_write_file(&cache, &path, offset, &data, true).await;
+                cache_write_file(cache, &path, offset, &data, true).await;
             }
         }
 
-
         Ok(data_written)
     }
-
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn mkdir<P: AsRef<Path> + Debug>(&self, path: P) -> Result<Attributes> {
