@@ -26,7 +26,7 @@ pub struct MountCliArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_only: Option<bool>,
 
-    /// Mount the filesystem as unprivileged
+    /// Mount the filesystem as privileged
     #[arg(long, num_args = 0, default_missing_value = "true")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
