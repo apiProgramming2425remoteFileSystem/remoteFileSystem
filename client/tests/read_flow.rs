@@ -1,20 +1,20 @@
 mod common;
 
-use std::collections::HashMap;
 use common::*;
+use std::collections::HashMap;
 
 use client::fs_model::{Attributes, FileType, Timestamp};
 use client::network::MockRemoteStorage;
 
 use anyhow::Result;
+use client::config::CachePolicy;
 use mockall::predicate::*;
-use tokio::fs;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use tokio::time::{sleep, Duration};
-use client::config::CachePolicy;
+use tokio::fs;
+use tokio::time::{Duration, sleep};
 
 #[tokio::test]
 async fn test_read_file_with_caching_behavior() -> Result<()> {
@@ -85,7 +85,6 @@ async fn test_read_file_with_caching_behavior() -> Result<()> {
     app_controller.shutdown().await?;
     Ok(())
 }
-
 
 #[tokio::test]
 async fn test_read_file_cache_ttl_expiration() -> Result<()> {
@@ -165,7 +164,6 @@ async fn test_read_file_cache_ttl_expiration() -> Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn test_concurrent_reads_use_shared_cache_and_buffer() -> Result<()> {
     use std::sync::Arc;
@@ -233,12 +231,10 @@ async fn test_concurrent_reads_use_shared_cache_and_buffer() -> Result<()> {
         assert_eq!(read_result, content);
     }
 
-    let ac = Arc::try_unwrap(app_controller)
-        .expect("unwrapping Arc: must have no other refs");
+    let ac = Arc::try_unwrap(app_controller).expect("unwrapping Arc: must have no other refs");
     ac.shutdown().await?;
     Ok(())
 }
-
 
 #[tokio::test]
 async fn test_read_large_file_buffering() -> Result<()> {
@@ -303,7 +299,6 @@ async fn test_read_large_file_buffering() -> Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn test_cache_eviction_lru() -> Result<()> {
     let mut mock = MockRemoteStorage::new();
@@ -322,20 +317,22 @@ async fn test_cache_eviction_lru() -> Result<()> {
             .with(str::ends_with(*name))
             .returning({
                 let c_len = content.len();
-                move |_| Ok(Attributes {
-                    size: c_len as u64,
-                    blocks: 1,
-                    atime: Timestamp::new(0, 0),
-                    mtime: Timestamp::new(0, 0),
-                    ctime: Timestamp::new(0, 0),
-                    kind: FileType::RegularFile,
-                    perm: 0o644,
-                    nlink: 1,
-                    uid: 1000,
-                    gid: 1000,
-                    rdev: 0,
-                    blksize: 4096,
-                })
+                move |_| {
+                    Ok(Attributes {
+                        size: c_len as u64,
+                        blocks: 1,
+                        atime: Timestamp::new(0, 0),
+                        mtime: Timestamp::new(0, 0),
+                        ctime: Timestamp::new(0, 0),
+                        kind: FileType::RegularFile,
+                        perm: 0o644,
+                        nlink: 1,
+                        uid: 1000,
+                        gid: 1000,
+                        rdev: 0,
+                        blksize: 4096,
+                    })
+                }
             });
 
         let c = content.clone();
@@ -359,16 +356,22 @@ async fn test_cache_eviction_lru() -> Result<()> {
     // file1, file2
     for name in &file_names[0..2] {
         let path = app_controller.mount_point.join(name);
-        app_controller.run_with_timeout(tokio::fs::read(&path)).await??;
+        app_controller
+            .run_with_timeout(tokio::fs::read(&path))
+            .await??;
     }
 
     // file3 -> evict file1
     let path3 = app_controller.mount_point.join(file_names[2]);
-    app_controller.run_with_timeout(tokio::fs::read(&path3)).await??;
+    app_controller
+        .run_with_timeout(tokio::fs::read(&path3))
+        .await??;
 
     // re-read file1 -> must hit server again
     let path1 = app_controller.mount_point.join(file_names[0]);
-    app_controller.run_with_timeout(tokio::fs::read(&path1)).await??;
+    app_controller
+        .run_with_timeout(tokio::fs::read(&path1))
+        .await??;
 
     assert_eq!(counters["file1.txt"].load(Ordering::SeqCst), 2);
     assert_eq!(counters["file2.txt"].load(Ordering::SeqCst), 1);
@@ -395,20 +398,22 @@ async fn test_cache_eviction_lfu() -> Result<()> {
             .with(str::ends_with(*name))
             .returning({
                 let c_len = content.len();
-                move |_| Ok(Attributes {
-                    size: c_len as u64,
-                    blocks: 1,
-                    atime: Timestamp::new(0, 0),
-                    mtime: Timestamp::new(0, 0),
-                    ctime: Timestamp::new(0, 0),
-                    kind: FileType::RegularFile,
-                    perm: 0o644,
-                    nlink: 1,
-                    uid: 1000,
-                    gid: 1000,
-                    rdev: 0,
-                    blksize: 4096,
-                })
+                move |_| {
+                    Ok(Attributes {
+                        size: c_len as u64,
+                        blocks: 1,
+                        atime: Timestamp::new(0, 0),
+                        mtime: Timestamp::new(0, 0),
+                        ctime: Timestamp::new(0, 0),
+                        kind: FileType::RegularFile,
+                        perm: 0o644,
+                        nlink: 1,
+                        uid: 1000,
+                        gid: 1000,
+                        rdev: 0,
+                        blksize: 4096,
+                    })
+                }
             });
 
         let c = content.clone();
@@ -432,19 +437,27 @@ async fn test_cache_eviction_lfu() -> Result<()> {
     // fileA 3 times -> high frequency
     let path_a = app_controller.mount_point.join(file_names[0]);
     for _ in 0..3 {
-        app_controller.run_with_timeout(tokio::fs::read(&path_a)).await??;
+        app_controller
+            .run_with_timeout(tokio::fs::read(&path_a))
+            .await??;
     }
 
     // fileB 1 time
     let path_b = app_controller.mount_point.join(file_names[1]);
-    app_controller.run_with_timeout(tokio::fs::read(&path_b)).await??;
+    app_controller
+        .run_with_timeout(tokio::fs::read(&path_b))
+        .await??;
 
     // fileC -> evict fileB
     let path_c = app_controller.mount_point.join(file_names[2]);
-    app_controller.run_with_timeout(tokio::fs::read(&path_c)).await??;
+    app_controller
+        .run_with_timeout(tokio::fs::read(&path_c))
+        .await??;
 
     // re-read fileB -> must hit server again
-    app_controller.run_with_timeout(tokio::fs::read(&path_b)).await??;
+    app_controller
+        .run_with_timeout(tokio::fs::read(&path_b))
+        .await??;
 
     assert_eq!(counters["fileA.txt"].load(Ordering::SeqCst), 1);
     assert_eq!(counters["fileB.txt"].load(Ordering::SeqCst), 2);

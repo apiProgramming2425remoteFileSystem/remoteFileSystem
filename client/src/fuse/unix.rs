@@ -13,8 +13,8 @@ use fuse3::path::prelude::*;
 use fuse3::{Errno, Result as FuseResult};
 use futures_util::stream;
 use libc;
-use tracing::{Level, instrument};
 use std::time::Duration;
+use tracing::{Level, instrument};
 
 /// pub async fn template_fn(&self, args) -> Result<> {
 ///     1. convert args to fs_model structures

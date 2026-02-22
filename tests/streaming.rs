@@ -1,6 +1,6 @@
 mod common;
 
-// #[cfg(unix)]
+#[cfg(unix)]
 mod tests {
     use super::common::*;
     use crate::setup_e2e;
