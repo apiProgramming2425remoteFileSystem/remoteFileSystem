@@ -30,7 +30,7 @@ pub const TEST_GROUP_ID: u32 = 1001;
 pub async fn get_test_token(db_path: &Path) -> Result<String> {
     let db = DB::open_connection(db_path, TEST_JWT_KEY).await?;
 
-    if !db.user_exists(TEST_USER).await? {
+    if !db.user_exists(None, Some(TEST_USER)).await? {
         db.create_user(
             TEST_USER,
             TEST_PASSWORD,

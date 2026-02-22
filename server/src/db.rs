@@ -88,31 +88,18 @@ impl DB {
         database_path: P,
         jwt_key: &[u8],
     ) -> Result<Self> {
-        // // costruisce un path assoluto relativo alla root del crate
-        // let manifest = env!("CARGO_MANIFEST_DIR");
         let mut db_path = database_path.as_ref().to_path_buf();
 
-        // assicura che la cartella esista (utile alla prima esecuzione)
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 DatabaseError::CreationError(format!("Cannot create db directory: {}", e))
             })?;
         }
 
-        // prova a canonicalizzare; se fallisce usa il path così com'è
         db_path = db_path.canonicalize().unwrap_or(db_path);
 
         // REVIEW: is not necessary to use sqlite URI format
         let database_url = db_path.to_string_lossy();
-
-        /*
-        // sqlite URI richiede 'sqlite://<absolute-path>'; normalizziamo le backslash per Windows
-        let mut database_url = format!("sqlite://{}", db_path.to_string_lossy());
-
-        if cfg!(target_os = "windows") {
-            database_url = database_url.replace("\\", "/");
-        }
-        */
 
         Sqlite::create_database(&database_url)
             .await
@@ -133,11 +120,7 @@ impl DB {
         })
     }
 
-    pub async fn user_exists(&self, username: &str) -> Result<bool> {
-        Ok(self.get_user(username).await?.is_some())
-    }
-
-    /* -- REVOKED TOKEN MANAGEMENT */
+    /* -- TOKEN MANAGEMENT */
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn insert_revoked_token(&self, user: &AuthenticatedUser) -> Result<()> {
         sqlx::query("INSERT INTO revoked_tokens VALUES(?, ?, ?)")
@@ -272,7 +255,7 @@ impl DB {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR))]
-    async fn is_user_present(&self, user_id: Option<u32>, username: Option<&str>) -> Result<bool> {
+    pub async fn user_exists(&self, user_id: Option<u32>, username: Option<&str>) -> Result<bool> {
         let mut count = 0;
 
         if let Some(uid) = user_id {
@@ -309,7 +292,7 @@ impl DB {
 
             Ok(max_uid + 1)
         } else {
-            Ok(1000)
+            Ok(1001)
         }
     }
 
@@ -321,9 +304,9 @@ impl DB {
         user_id: Option<u32>,
         group_id: Option<u32>,
     ) -> Result<(u32, u32)> {
-        let is_user_present = self.is_user_present(user_id, Some(username)).await?;
+        let user_exists = self.user_exists(user_id, Some(username)).await?;
 
-        let uid = match is_user_present {
+        let uid = match user_exists {
             true => {
                 return Err(DatabaseError::QueryError(
                     "User with given username or uid already exists!".to_string(),
@@ -376,7 +359,7 @@ impl DB {
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn delete_user(&self, user_id: u32) -> Result<()> {
-        let is_present = self.is_user_present(Some(user_id), None).await?;
+        let is_present = self.user_exists(Some(user_id), None).await?;
 
         if is_present {
             return Err(DatabaseError::QueryError(format!(
@@ -396,7 +379,7 @@ impl DB {
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn edit_username(&self, user_id: u32, username: &str) -> Result<()> {
-        let is_present = self.is_user_present(Some(user_id), Some(username)).await?;
+        let is_present = self.user_exists(Some(user_id), Some(username)).await?;
 
         if is_present {
             return Err(DatabaseError::QueryError(format!(
@@ -440,7 +423,7 @@ impl DB {
 
     #[instrument(skip(self, password), err(level = Level::ERROR))]
     pub async fn edit_password(&self, user_id: u32, password: &str) -> Result<()> {
-        let is_present = self.is_user_present(Some(user_id), None).await?;
+        let is_present = self.user_exists(Some(user_id), None).await?;
 
         if is_present {
             return Err(DatabaseError::QueryError(format!(
@@ -465,7 +448,7 @@ impl DB {
 
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn edit_group_id(&self, user_id: u32, group_id: u32) -> Result<()> {
-        let is_present = self.is_user_present(Some(user_id), None).await?;
+        let is_present = self.user_exists(Some(user_id), None).await?;
 
         if is_present {
             sqlx::query("UPDATE users WHERE user_id = ? SET group_id = ?")
@@ -483,7 +466,6 @@ impl DB {
     }
 
     // -- XATTRIBUTES MANAGEMENT --
-    /* GESTIRE PERMESSI */
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn set_x_attributes(&self, path: &str, name: &str, xattributes: &[u8]) -> Result<()> {
         let result = sqlx::query_scalar::<_, u8>(
