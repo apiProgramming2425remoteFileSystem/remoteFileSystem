@@ -122,10 +122,9 @@ impl ClientProcess {
             false
         }
 
-        // TODO: Implement for Windows if needed
         #[cfg(windows)]
         {
-            // Placeholder: If metadata is readable, assume mounted
+            // If metadata is readable, assume mounted
             fs::metadata(&self.mount_point).is_ok()
         }
 

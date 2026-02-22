@@ -250,7 +250,6 @@ macro_rules! impl_conversion {
         where
             $source: Conversion<$cv>,
         {
-            // TODO: change to an appropriate error type
             type Error = ApiError;
 
             fn try_from(value: $target) -> Result<Self, Self::Error> {
@@ -273,7 +272,6 @@ impl_conversion!(Permission, u16, i32);
 
 // Implement Conversion trait for FileType using numeric tags.
 impl Conversion<u32> for FileType {
-    // TODO: change to an appropriate error type
     type Error = ApiError;
 
     fn from_target(&self) -> u32 {
@@ -303,7 +301,6 @@ impl Conversion<u32> for FileType {
 }
 
 impl Conversion<i32> for PermissionType {
-    // TODO: change to an appropriate error type
     type Error = ApiError;
 
     fn from_target(&self) -> i32 {
@@ -332,7 +329,6 @@ impl Conversion<i32> for PermissionType {
 // Full Permission packs user/group/other each as 3 bits into a single i32:
 // user << 6 | group << 3 | other
 impl Conversion<i32> for Permission {
-    // TODO: change to an appropriate error type
     type Error = ApiError;
 
     fn from_target(&self) -> i32 {
