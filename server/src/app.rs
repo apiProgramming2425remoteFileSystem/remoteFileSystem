@@ -63,7 +63,6 @@ pub enum Commands {
     UserChangePassword(UserChangePasswordCommand),
     /// Delete user
     UserDelete(UserDeleteCommand),
-    // REVIEW: check if these are needed
     /*
     /// List users
     UserList(UserListCommand),

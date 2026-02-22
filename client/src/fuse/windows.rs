@@ -25,18 +25,9 @@ use winfsp::{
     Result, U16CStr,
     filesystem::{FileInfo, FileSystemContext, OpenFileInfo},
 };
+use tracing::{Level, instrument};
 
 const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
-
-macro_rules! fslog {
-    ($name:expr, $($arg:expr),*) => {
-        println!(
-            "[FS] {:<20} | {}",
-            $name,
-            format!($($arg),*)
-        );
-    };
-}
 
 fn parse_symlink_target(extra_buffer: Option<&[u8]>) -> Result<String> {
     let buf =
@@ -81,7 +72,7 @@ fn index_from_path(path: &Path) -> u64 {
 }
 
 pub fn winfsp_path_to_pathbuf(path: &U16CStr) -> Result<PathBuf> {
-    // UTF-16 → String
+    // UTF-16 -> String
     let mut s = path
         .to_string()
         .map_err(|_| FspError::IO(ErrorKind::InvalidInput))?;
@@ -111,7 +102,7 @@ fn filetime_to_unix(t: u64) -> Option<Timestamp> {
         return None;
     }
 
-    // FILETIME → UNIX epoch
+    // FILETIME -> UNIX epoch
     let unix_100ns = t - 116444736000000000;
     let secs = unix_100ns / 10_000_000;
     let nanos = (unix_100ns % 10_000_000) * 100;
@@ -149,6 +140,7 @@ fn fill_file_info(info: &mut FileInfo, attr: &Attributes) {
 type FileAccessRights = u32;
 type FileFlagsAndAttributes = u32;
 
+#[derive(Debug)]
 pub struct Handle {
     path: PathBuf,
     delete_on_close: Cell<bool>,
@@ -157,6 +149,7 @@ pub struct Handle {
 impl FileSystemContext for Fs {
     type FileContext = Handle;
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn open(
         &self,
         file_name: &U16CStr,
@@ -169,7 +162,6 @@ impl FileSystemContext for Fs {
 
             // 1. esistenza + tipo
             let attr = self.fs.get_attributes(&path).await?;
-            fslog!("open", "path={:?} create={:?}", path, create_options);
 
             // 2. tipo coerente
             if attr.kind == FileType::Directory && (create_options & FILE_NON_DIRECTORY_FILE) != 0 {
@@ -193,8 +185,8 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self))]
     fn close(&self, context: Self::FileContext) {
-        fslog!("close", "path={:?}", context.path);
         self.rt.block_on(async {
             if let Err(e) = self.fs.flush_write_buffer().await {
                 tracing::error!("flush on close failed for {:?}: {}", context.path, e);
@@ -202,6 +194,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self, _security_descriptor, _reparse_point_resolver), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn get_security_by_name(
         &self,
         file_name: &U16CStr,
@@ -227,6 +220,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn get_file_info(&self, context: &Self::FileContext, file_info: &mut FileInfo) -> Result<()> {
         self.rt.block_on(async {
             let attr = self.fs.get_attributes(&context.path).await?;
@@ -261,6 +255,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn read_directory(
         &self,
         context: &Self::FileContext,
@@ -272,7 +267,6 @@ impl FileSystemContext for Fs {
             let path = &context.path;
             let mut items = self.fs.readdir(path).await?;
             items.sort_by(|a, b| a.name.cmp(&b.name));
-            fslog!("read_dir", "path={:?}", path);
 
             let mut cursor = 0u32;
             let mut start = 0usize;
@@ -301,6 +295,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn create(
         &self,
         file_name: &U16CStr,
@@ -315,14 +310,6 @@ impl FileSystemContext for Fs {
     ) -> Result<Self::FileContext> {
         self.rt.block_on(async {
             let path = winfsp_path_to_pathbuf(file_name)?;
-            fslog!(
-                "create",
-                "path={:?} create_options=0x{:08x} granted_access=0x{:08x}",
-                path,
-                create_options,
-                granted_access
-            );
-
             let is_dir = create_options & FILE_DIRECTORY_FILE != 0;
             let is_file = create_options & FILE_NON_DIRECTORY_FILE != 0;
 
@@ -393,6 +380,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self))]
     fn cleanup(&self, context: &Self::FileContext, file_name: Option<&U16CStr>, _flags: u32) {
         let _ = self.rt.block_on(async {
             self.fs.flush_write_buffer().await.ok();
@@ -400,12 +388,6 @@ impl FileSystemContext for Fs {
             if let Some(name) = file_name
                 && let Ok(path) = winfsp_path_to_pathbuf(name)
             {
-                fslog!(
-                    "cleanup",
-                    "path={:?} delete_pending={}",
-                    path,
-                    context.delete_on_close.get()
-                );
                 self.fs.cache_invalidate(path).await;
             }
 
@@ -419,6 +401,7 @@ impl FileSystemContext for Fs {
         }
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn flush(&self, _context: Option<&Self::FileContext>, _file_info: &mut FileInfo) -> Result<()> {
         self.rt.block_on(async {
             self.fs.flush_write_buffer().await?;
@@ -426,6 +409,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn get_security(
         &self,
         _context: &Self::FileContext,
@@ -451,6 +435,7 @@ impl FileSystemContext for Fs {
         Ok(SD.len() as u64)
     }
 
+    #[instrument(skip(self, _modification_descriptor), err(level = Level::ERROR))]
     fn set_security(
         &self,
         _context: &Self::FileContext,
@@ -460,6 +445,7 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn overwrite(
         &self,
         context: &Self::FileContext,
@@ -489,6 +475,7 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn rename(
         &self,
         context: &Self::FileContext,
@@ -498,13 +485,6 @@ impl FileSystemContext for Fs {
     ) -> Result<()> {
         let old_path = context.path.clone();
         let new_path = winfsp_path_to_pathbuf(new_file_name)?;
-        fslog!(
-            "rename",
-            "from={:?} to={:?} replace={}",
-            old_path,
-            new_path,
-            replace_if_exists
-        );
 
         if replace_if_exists {
             self.rt.block_on(async {
@@ -526,6 +506,7 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn set_basic_info(
         &self,
         context: &Self::FileContext,
@@ -546,14 +527,6 @@ impl FileSystemContext for Fs {
         let needs_call =
             setattr.atime.is_some() || setattr.mtime.is_some() || setattr.ctime.is_some();
 
-        fslog!(
-            "set_file_info",
-            "path={:?} size={:?} attrs={:?} delete={}",
-            context.path,
-            file_info.file_size,
-            file_info.file_attributes,
-            context.delete_on_close.get()
-        );
 
         if needs_call {
             let attrs = self
@@ -566,22 +539,18 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn set_delete(
         &self,
         context: &Self::FileContext,
         _file_name: &U16CStr,
         delete_file: bool,
     ) -> Result<()> {
-        fslog!(
-            "set_delete",
-            "path={:?} delete_file={}",
-            context.path,
-            delete_file
-        );
         context.delete_on_close.set(delete_file);
         Ok(())
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR))]
     fn set_file_size(
         &self,
         context: &Self::FileContext,
@@ -609,6 +578,7 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self, buffer), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn read(&self, context: &Self::FileContext, buffer: &mut [u8], offset: u64) -> Result<u32> {
         self.rt.block_on(async {
             let res = self
@@ -621,6 +591,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self, buffer), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn write(
         &self,
         context: &Self::FileContext,
@@ -647,6 +618,7 @@ impl FileSystemContext for Fs {
         })
     }
 
+    #[instrument(skip(self, out_dir_info), err(level = Level::ERROR))]
     fn get_dir_info_by_name(
         &self,
         context: &Self::FileContext,
@@ -664,6 +636,7 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self, out_volume_info), err(level = Level::ERROR))]
     fn get_volume_info(&self, out_volume_info: &mut VolumeInfo) -> Result<()> {
         out_volume_info.total_size = 1024 * 1024 * 1024;
         out_volume_info.free_size = 1024 * 1024 * 1024;
@@ -671,6 +644,7 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self, volume_info), err(level = Level::ERROR))]
     fn set_volume_label(
         &self,
         _volume_label: &U16CStr,
@@ -680,10 +654,12 @@ impl FileSystemContext for Fs {
         Ok(())
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn get_stream_info(&self, _context: &Self::FileContext, _buffer: &mut [u8]) -> Result<u32> {
         Ok(0)
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn get_reparse_point_by_name(
         &self,
         _file_name: &U16CStr,
@@ -693,6 +669,7 @@ impl FileSystemContext for Fs {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn get_reparse_point(
         &self,
         _context: &Self::FileContext,
@@ -702,6 +679,7 @@ impl FileSystemContext for Fs {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn set_reparse_point(
         &self,
         _context: &Self::FileContext,
@@ -711,6 +689,7 @@ impl FileSystemContext for Fs {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn delete_reparse_point(
         &self,
         _context: &Self::FileContext,
@@ -720,6 +699,7 @@ impl FileSystemContext for Fs {
         Err(FspError::NTSTATUS(0xC0000275u32 as i32))
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn get_extended_attributes(
         &self,
         _context: &Self::FileContext,
@@ -728,6 +708,7 @@ impl FileSystemContext for Fs {
         Ok(0)
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn set_extended_attributes(
         &self,
         _context: &Self::FileContext,
@@ -737,6 +718,7 @@ impl FileSystemContext for Fs {
         Err(FspError::NTSTATUS(0xC00000BBu32 as i32))
     }
 
+    #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     fn control(
         &self,
         _context: &Self::FileContext,
@@ -747,6 +729,7 @@ impl FileSystemContext for Fs {
         Err(FspError::NTSTATUS(0xC0000010u32 as i32))
     }
 
+    #[instrument(skip(self))]
     fn dispatcher_stopped(&self, normally: bool) {
         if normally {
             println!("Filesystem stopped normally");

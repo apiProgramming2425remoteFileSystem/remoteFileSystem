@@ -321,8 +321,6 @@ impl FileSystem {
     ) -> Result<FileAttr> {
         let real_path = self.make_real_path(path)?;
 
-        // REVIEW: refactor this function to make it cleaner
-
         // Allowed only if user is the owner or root
         if let Some(mode) = new_attributes.mode {
             if self.is_allowed(user_id, group_id, Path::new(path), Operation::OwnerOnly)? {

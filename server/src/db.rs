@@ -28,8 +28,6 @@ pub struct DB {
     jwt_key: Vec<u8>,
 }
 
-// TODO: create error types for hashing and token generation
-
 #[instrument(skip(password), err(level = Level::ERROR))]
 async fn hash_password(password: &str) -> anyhow::Result<String> {
     let algorithm = Argon2::default();

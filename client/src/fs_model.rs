@@ -213,7 +213,7 @@ impl FileSystem {
     pub async fn create_file<P: AsRef<Path> + Debug>(
         &self,
         path: P,
-        file_type: &FileType,
+        _file_type: &FileType,
         offset: usize,
         data: &[u8],
     ) -> Result<Attributes> {
@@ -233,7 +233,7 @@ impl FileSystem {
     }
 
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
-    pub async fn open<P: AsRef<Path> + Debug>(&self, path: P, flags: &Flags) -> Result<u64> {
+    pub async fn open<P: AsRef<Path> + Debug>(&self, path: P, _flags: &Flags) -> Result<u64> {
         let fh = CURRENT_FH.fetch_add(1, Ordering::Relaxed);
         let mut guard = self.file_handlers.write().await;
 
@@ -245,8 +245,8 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn release<P: AsRef<Path> + Debug>(
         &self,
-        path: P,
-        flags: &Flags,
+        _path: P,
+        _flags: &Flags,
         fh: u64,
     ) -> Result<()> {
         let mut guard = self.file_handlers.write().await;
@@ -317,7 +317,7 @@ impl FileSystem {
     pub async fn write_file<P: AsRef<Path> + Debug>(
         &self,
         path: P,
-        flags: &Flags,
+        _flags: &Flags,
         offset: usize,
         data: &[u8],
     ) -> Result<usize> {
@@ -447,8 +447,8 @@ impl FileSystem {
     #[instrument(skip(self), err(level = Level::ERROR), ret(level = Level::DEBUG))]
     pub async fn set_attributes<P: AsRef<Path> + Debug>(
         &self,
-        uid: u32,
-        gid: u32,
+        _uid: u32,
+        _gid: u32,
         path: P,
         new_attributes: SetAttr,
     ) -> Result<Attributes> {
@@ -506,8 +506,8 @@ impl FileSystem {
         path: P,
         name: &str,
         xattributes: &[u8],
-        flags: u32,
-        position: u32,
+        _flags: u32,
+        _position: u32,
     ) -> Result<()> {
         let path_str = path_to_string(&path)?;
 
@@ -587,7 +587,6 @@ impl FileSystem {
         Ok(target)
     }
 
-    // TODO: remove the ret log
     #[instrument(skip(self), err(level = Level::ERROR))]
     pub async fn flush_write_buffer(&self) -> Result<()> {
         let (path_owned, offset, data_owned) = {
