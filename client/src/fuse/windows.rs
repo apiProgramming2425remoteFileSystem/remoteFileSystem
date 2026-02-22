@@ -134,7 +134,7 @@ fn fill_file_info(info: &mut FileInfo, attr: &Attributes) {
     info.change_time = unix_to_filetime(attr.ctime);
 
     info.index_number = 0;
-    info.hard_links = 0;
+    info.hard_links = 1;
     info.ea_size = 0;
 }
 
@@ -246,7 +246,7 @@ impl FileSystemContext for Fs {
             file_info.change_time = unix_to_filetime(attr.ctime);
 
             file_info.index_number = index_from_path(&context.path);
-            file_info.hard_links = 0;
+            file_info.hard_links = 1;
             file_info.ea_size = 0;
 
             Ok(())
