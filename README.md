@@ -66,7 +66,7 @@ Ensure you have the following installed:
   - **Linux (Ubuntu/Debian):** `sudo apt install libfuse3-dev fuse3`
   - **Windows:** Install [WinFSP](https://winfsp.dev/rel/) (Required for Windows mounting)
 
-### 🛠️ Installation & Build
+### Installation & Build
 
 Clone the repository and build both binaries:
 
@@ -118,7 +118,7 @@ chmod u+x ./scripts/unix/server/build.sh
 .\scripts\windows\client\build.bat
 ```
 
-## 💻 Usage (CLI)
+## Usage (CLI)
 
 The `remote_fs_client` binary exposes several subcommands for managing the mount lifecycle.
 
@@ -139,7 +139,7 @@ Options:
   -h, --help     Print help
 ```
 
-The `remote_fs_client` binary exposes the following subcommands.
+The `remote_fs_server` binary exposes the following subcommands.
 
 ```text
 Remote Filesystem Server
@@ -171,7 +171,7 @@ Options:
 First, start the backend server that hosts the files, as **root**.
 
 **Database Init:**
-The server uses a local database for users/metadata. At first usage you need to populate the database:
+The server uses a local database for users/metadata. At the first usage you need to populate the database with users:
 
 ```bash
 remote_fs_server user-create [OPTIONS] --username <USERNAME> --password <PASSWORD>
@@ -236,8 +236,6 @@ Before mounting, ensure you have a valid user created in the server database.
 
 ```bash
 # Via CLI or using Environment Variables
-export RFS__USERNAME="myuser"
-export RFS__PASSWORD="mypassword"
 
 remote_fs_client run
 
@@ -305,7 +303,7 @@ The system uses a tiered configuration approach with the following hierarchy **E
 | :----------------- | :------------ | :---------------------- | :------------------------------- |
 | `RFS__SERVER_URL`  | `server_url`  | `http://localhost:8080` | Backend endpoint.                |
 | `RFS__MOUNT_POINT` | `mount_point` | `/mnt/remote-fs`        | Local mount directory.           |
-| `RFS__CACHE_TTL`   | `cache_ttl`   | `300`                   | Implementation specific TTL (s). |
+| `RFS__CACHE_TTL`   | `cache_ttl`   | `10`                    | Implementation specific TTL (s). |
 
 ---
 
