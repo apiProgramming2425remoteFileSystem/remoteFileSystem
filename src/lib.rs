@@ -15,6 +15,10 @@ use crate::server::ServerProcess;
 
 pub const WAIT_TIMEOUT_SECS: u64 = 5;
 pub const DEFAULT_DB_PATH: &str = "database/remote_fs_db.sqlite";
+pub const DEFAULT_HOST: &str = "localhost";
+pub const DEFAULT_PORT: u16 = 8080;
+pub const DEFAULT_SERVER_ROOT: &str = "/remote-fs";
+pub const DEFAULT_MOUNT_POINT: &str = "/mnt/remote-fs";
 pub const DEFAULT_USER: &str = "test_user";
 pub const DEFAULT_PASS: &str = "test_password";
 pub const DEFAULT_UID: &str = "1";
@@ -252,11 +256,11 @@ impl Default for SystemBuilder {
             server: BinaryBuilder::new(),
             client: BinaryBuilder::new(),
             log_strategy: LogStrategy::Console,
-            host: "localhost".to_string(),
-            port: 8080,
-            server_root: PathBuf::from("/remote-fs"),
+            host: DEFAULT_HOST.to_string(),
+            port: DEFAULT_PORT,
+            server_root: PathBuf::from(DEFAULT_SERVER_ROOT),
             db_path: PathBuf::from(DEFAULT_DB_PATH),
-            mount_point: PathBuf::from("/mnt/remote-fs"),
+            mount_point: PathBuf::from(DEFAULT_MOUNT_POINT),
             init_db: true,
         }
     }

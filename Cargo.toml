@@ -18,8 +18,8 @@ tempfile = "3"
 walkdir = "2.3"
 
 [dev-dependencies]
-libc = "0.2"
 fs2 = "0.4.3"
+libc = "0.2"
 rstest = "0.26"
 
 [target.'cfg(unix)'.dev-dependencies]

@@ -1,6 +1,6 @@
 # Testing Guide
 
-This project uses a robust testing strategy combining **Unit**, **Integration**, and **End-to-End (E2E)** tests. We use modern Rust tooling (`cargo-nextest`, `cargo-llvm-cov`) to provide a fast, Jest-like developer experience.
+This project uses a robust testing strategy combining **Integration**, and **End-to-End (E2E)** tests. We use modern Rust tooling (`cargo-nextest`, `cargo-llvm-cov`) to provide a fast, Jest-like developer experience.
 
 ## Prerequisites
 
@@ -27,16 +27,10 @@ cargo install cargo-llvm-cov
 
 ## Testing Guide & Architecture
 
-This project uses a robust testing pyramid strategy: Unit (logic isolation), Integration (component interaction), and End-to-End (real binary execution).
+This project uses a robust testing pyramid strategy: Integration (component interaction), and End-to-End (real binary execution).
 
-1. **Unit Tests (Logic Isolation)**
 
-    Unit tests focus on individual functions, structs, and internal logic in isolation. They are fast, run in memory, and mock external dependencies (filesystem, network).
-
-    - Location: Co-located with source code (src/) in mod tests or separate files.
-    - Use Cases: Parsers (CLI/Config), Algorithms (Caching, Buffers), Utilities.
-
-2. **Integration Tests (User Flows)**
+1. **Integration Tests (User Flows)**
 
     Integration tests verify how major components (Client Daemon, FUSE Interface, Server API) work together.
 
@@ -58,7 +52,7 @@ This project uses a robust testing pyramid strategy: Unit (logic isolation), Int
     - `metadata_flow.rs`: Stats, permission and attributes endpoints.
     - `common/`: Helpers for random port binding and DB setup.
 
-3. **End-to-End (E2E) Tests (Real Binaries)**
+2. **End-to-End (E2E) Tests (Real Binaries)**
 
     E2E tests treat the application as a Black Box. They compile the actual binaries, spawn them as real OS processes, and execute shell commands against the mounted filesystem.
 
@@ -67,74 +61,6 @@ This project uses a robust testing pyramid strategy: Unit (logic isolation), Int
     - `basic_ops.rs`: Standard mkdir, touch, rm.
     - `edge_cases.rs`: Large files, deep nesting.
     <!-- - `src/:` Custom test infrastructure (Binary builders, Process managers). -->
-
----
-
-## Unit Test Organization Patterns
-
-There are two primary ways to organize unit tests depending on the scope and complexity of the module:
-
-- **Case A: Inline Tests (Co-located)**
-
-    Standard Rust practice. Best for testing private logic within the same file.
-
-    ``` rust
-    // src/calculator.rs
-
-    /// Private function we want to test
-    fn internal_add(a: i32, b: i32) -> i32 {
-        a + b
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn test_internal_add() {
-            assert_eq!(internal_add(2, 2), 4);
-        }
-    }
-    ```
-
-- **Case B: Separate File Tests**
-
-    Best for **large test suites** or public API testing where you want to keep the source file clean. You declare the test module inside the source file, but the code lives in a separate file.
-
-    **File Structure:**
-
-    ``` plaintext
-    src/
-    ├── parser.rs         # Logic
-    └── parser_tests.rs   # Tests
-    ```
-
-    **Implementation:**
-
-    ``` rust
-    // src/parser.rs
-
-    pub fn parse(input: &str) -> String {
-        input.trim().to_string()
-    }
-
-    // Tells Rust to look for 'parser_tests.rs' in the same directory
-    #[cfg(test)]
-    #[path = "./parser_tests.rs"]
-    mod parser_tests;
-    ```
-
-    ``` rust
-    // src/parser_tests.rs
-
-    use super::*;
-
-    #[test]
-    fn test_trimming() {
-        let result = parse("  hello  ");
-        assert_eq!(result, "hello");
-    }
-    ```
 
 ---
 

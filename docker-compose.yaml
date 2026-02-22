@@ -10,11 +10,13 @@ services:
       dockerfile: docker/Dockerfile.server
       args:
         bin_name: server # the name of the package
+        app_path: /opt/remote_fs
     container_name: remote_fs-server
     ports:
       - "${RFS__SERVER_PORT:-8080}:8080"
     volumes:
       - remote_fs_data:${RFS__FILESYSTEM_ROOT:-/remote_fs}
+      - remote_fs_database:/opt/remote_fs/${DATABASE_PATH:-database/db.sqlite}/..
     environment:
       RFS__SERVER_HOST: ${RFS__SERVER_HOST:-server}
       RFS__SERVER_PORT: ${RFS__SERVER_PORT:-8080}
@@ -31,6 +33,7 @@ services:
       dockerfile: docker/Dockerfile.client
       args:
         bin_name: client # the name of the package
+        app_path: /opt/remote_fs
     container_name: remote_fs-client
     # privileged: true
     # network: host # in case X11 does not work properly
@@ -58,8 +61,8 @@ services:
   develop:
     image: rust:slim
     container_name: remote_fs-develop
-    network_mode: host # <--- Aggiunto per vedere WSLg (:0)
-    ipc: host # <--- Aggiunto per la memoria condivisa X11
+    network_mode: host # to see WSLg (:0)
+    ipc: host # Added for la memoria condivisa X11
     environment:
       - DISPLAY=${DISPLAY}
       - WAYLAND_DISPLAY=
@@ -80,3 +83,4 @@ services:
 
 volumes:
   remote_fs_data:
+  remote_fs_database:

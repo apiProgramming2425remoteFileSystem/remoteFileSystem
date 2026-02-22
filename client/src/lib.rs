@@ -49,10 +49,25 @@ const MAX_LOGIN_ATTEMPTS: u8 = 3;
 /// - `Err(_)`: if an error occurred during execution. Returns [`RfsClientError`][crate::error::RfsClientError].
 ///
 pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
-    let config = Arc::new(config);
-    let rc = Arc::new(rc);
-
     println!("Starting RemoteFS...");
+
+    if !config.gui_enabled {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| anyhow::format_err!("Failed to build temp runtime: {}", e))?
+            .block_on(async {
+                println!("Checking connection to server at {}...", config.server_url);
+                rc.health_check().await.map_err(|err| {
+                    println!("Connection to server failed: {}", err);
+                    err
+                })?;
+
+                perform_login(&rc, config).await
+            })?;
+    }
+
+    let rc = Arc::new(rc);
 
     // Instantiate the daemon
     let daemon = Daemon::new().foreground(config.foreground);
@@ -76,17 +91,9 @@ pub fn start<R: RemoteStorage>(config: &RfsConfig, rc: R) -> Result<()> {
     let runtime = daemon.create_runtime()?;
 
     if config.gui_enabled {
-        let config_var = (*config).to_owned();
-        Gui::new(rc, config_var, daemon, runtime.clone())?.start_gui()?;
+        Gui::new(rc, config.clone(), daemon, runtime.clone())?.start_gui()?;
     } else {
         runtime.block_on(async {
-            let config = *config;
-
-            // Check on server health and user login
-            println!("Checking connection to server at {}...", config.server_url);
-            rc.health_check().await?;
-            perform_login(&*rc, config).await?;
-
             // Spawn the signal handler (Kill/Ctrl+C)
             daemon.spawn_signal_handler();
 
