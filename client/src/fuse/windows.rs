@@ -27,6 +27,7 @@ use winfsp::{
 };
 use tracing::{Level, instrument};
 
+// symlink tag
 const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
 
 fn parse_symlink_target(extra_buffer: Option<&[u8]>) -> Result<String> {
@@ -103,7 +104,7 @@ fn filetime_to_unix(t: u64) -> Option<Timestamp> {
     }
 
     // FILETIME -> UNIX epoch
-    let unix_100ns = t - 116444736000000000;
+    let unix_100ns = t - WINDOWS_EPOCH_DIFF * 10_000_000;
     let secs = unix_100ns / 10_000_000;
     let nanos = (unix_100ns % 10_000_000) * 100;
 
@@ -160,12 +161,9 @@ impl FileSystemContext for Fs {
         self.rt.block_on(async {
             let path = winfsp_path_to_pathbuf(file_name)?;
 
-            // 1. esistenza + tipo
             let attr = self.fs.get_attributes(&path).await?;
 
-            // 2. tipo coerente
             if attr.kind == FileType::Directory && (create_options & FILE_NON_DIRECTORY_FILE) != 0 {
-                tracing::error!("Directory creation failed");
                 return Err(FspError::NTSTATUS(STATUS_FILE_IS_A_DIRECTORY));
             }
 
@@ -300,7 +298,7 @@ impl FileSystemContext for Fs {
         &self,
         file_name: &U16CStr,
         create_options: u32,
-        granted_access: FileAccessRights,
+        _granted_access: FileAccessRights,
         _file_attributes: FileFlagsAndAttributes,
         _security_descriptor: Option<&[c_void]>,
         _allocation_size: u64,
