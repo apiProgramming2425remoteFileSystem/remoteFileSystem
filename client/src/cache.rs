@@ -94,6 +94,9 @@ impl CacheEntry {
             (CacheItem::Directory(old), CacheItem::Directory(new)) => {
                 old.merge(new);
             }
+            (CacheItem::SymLink(old), CacheItem::SymLink(new)) => {
+                old.merge(new);
+            }
             (_, replacer) => {
                 self.item = replacer;
             }
@@ -107,7 +110,7 @@ pub struct Cache {
     pub ttl: Duration,
     pub use_ttl: bool,
     pub policy: CachePolicy,
-    pub max_file_size: usize,
+    pub max_size: usize,
 }
 
 fn parent_paths<P: AsRef<Path> + Debug>(path: P) -> Vec<PathBuf> {
@@ -135,7 +138,7 @@ impl Cache {
             ttl: Duration::from_secs(cfg.ttl),
             use_ttl: cfg.use_ttl,
             policy: cfg.policy,
-            max_file_size: cfg.max_size,
+            max_size: cfg.max_size,
         })
     }
 
@@ -229,7 +232,7 @@ impl Cache {
     #[instrument(skip(self))]
     pub async fn invalidate<P: AsRef<Path> + Debug>(&self, path: P) {
         let mut map = self.entries.write().await;
-        map.remove(path.as_ref()).map(|e| e.item);
+        map.remove(path.as_ref());
     }
 
     fn select_victim(&self, map: &HashMap<PathBuf, CacheEntry>) -> Option<PathBuf> {
