@@ -61,6 +61,7 @@ graph LR
 
 Ensure you have the following installed:
 
+- **Git:** To clone the repository.
 - **Rust Toolchain:** (v1.75+) `rustup update stable`
 - **FUSE Dependencies:**
   - **Linux (Ubuntu/Debian):** `sudo apt install libfuse3-dev fuse3`
@@ -68,14 +69,22 @@ Ensure you have the following installed:
 
 ### Installation & Build
 
-Clone the repository and build both binaries:
+First, clone the repository and navigate into the directory:
 
 ```bash
 git clone https://github.com/apiProgramming2425remoteFileSystem/remoteFileSystem.git
 cd remoteFileSystem
 ```
 
-You can run the application using **Docker** or build it directly **from source**.
+Before building the application, you need to set up your environment variables. Copy the provided example configuration file:
+
+```bash
+cp .env.example .env
+```
+
+Open the newly created `.env` file in your preferred text editor and change the value of `JWT__KEY` to a secure, random string. This is required for secure authentication.
+
+Once your `.env` file is configured, you can run the application using **Docker** or build it directly **from source**.
 
 #### Option 1: Using Docker
 
@@ -157,7 +166,7 @@ Commands:
   help                  Print this message or the help of the given subcommand(s)
 
 Options:
-  -d, --database-path <DATABASE_PATH>  Path to the database file [env: DATABASE_PATH=database/db.sqlite] [default: database/db.sqlite]
+  -d, --database-path <DATABASE_PATH>  Path to the database file [env: DATABASE_PATH=] [default: database/db.sqlite]
   -h, --help                           Print help
   -V, --version                        Print version
 ```

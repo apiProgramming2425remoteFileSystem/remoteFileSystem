@@ -1,7 +1,10 @@
 x-constants:
-  mount_point: &mount_point ${RFS__MOUNT_POINT}
+  mount_point: &mount_point ${RFS__MOUNT_POINT:-/mnt/remote-fs}
   server_url: &server_url ${RFS__SERVER_URL:-http://${RFS__SERVER_HOST:-server}:${RFS__SERVER_PORT:-8080}}
   database_path: &database_path ${DATABASE_PATH:-database/db.sqlite}
+  display: &display ${DISPLAY:-0}
+  slint_backend: &slint_backend ${SLINT_BACKEND:-software}
+  winit_unix_backend: &winit_unix_backend ${WINIT_UNIX_BACKEND:-x11}
 
 services:
   server:
@@ -22,8 +25,7 @@ services:
       RFS__SERVER_PORT: ${RFS__SERVER_PORT:-8080}
       RFS__FILESYSTEM_ROOT: ${RFS__FILESYSTEM_ROOT:-/remote_fs}
       DATABASE_PATH: *database_path
-    env_file:
-      - server/.env
+      JWT__KEY: ${JWT__KEY}
     command: >
       run
 
@@ -46,13 +48,11 @@ services:
     environment:
       RFS__MOUNT_POINT: *mount_point
       RFS__SERVER_URL: *server_url
-      DISPLAY: ${DISPLAY}
-      SLINT_BACKEND: software
-      WINIT_UNIX_BACKEND: x11
+      DISPLAY: *display
+      SLINT_BACKEND: *slint_backend
+      WINIT_UNIX_BACKEND: *winit_unix_backend
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-    env_file:
-      - client/.env
     # command: >
     #   run --mount-point ${RFS__MOUNT_POINT} --server-url ${RFS__SERVER_URL}
     tty: true # Keep the terminal open
@@ -62,22 +62,20 @@ services:
     image: rust:slim
     container_name: remote_fs-develop
     network_mode: host # to see WSLg (:0)
-    ipc: host # Added for la memoria condivisa X11
+    ipc: host # Added for shared memory X11
     environment:
-      - DISPLAY=${DISPLAY}
-      - WAYLAND_DISPLAY=
-      - XDG_RUNTIME_DIR=
-      - SLINT_BACKEND=software
-      - WINIT_UNIX_BACKEND=x11
+      DISPLAY: *display
+      SLINT_BACKEND: *slint_backend
+      WINIT_UNIX_BACKEND: *winit_unix_backend
     devices:
       - /dev/fuse:/dev/fuse
     cap_add:
       - SYS_ADMIN
     volumes:
-      - .:${APP_PATH}/
-      - /tmp/.X11-unix:/tmp/.X11-unix
+      - .:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix # For X11 socket
       # - ./mount_dir:${RFS__FILESYSTEM_ROOT}
-    working_dir: ${APP_PATH}
+    working_dir: /app
     tty: true # Keep the terminal open
     restart: unless-stopped # Automatically restart unless stopped manually
 

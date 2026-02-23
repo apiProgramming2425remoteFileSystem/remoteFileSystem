@@ -6,3 +6,5 @@ logs/
 *.db-*
 database/
 build_output/
+.env
+!.env.example
