@@ -96,7 +96,6 @@ impl DB {
 
         db_path = db_path.canonicalize().unwrap_or(db_path);
 
-        // REVIEW: is not necessary to use sqlite URI format
         let database_url = db_path.to_string_lossy();
 
         Sqlite::create_database(&database_url)
